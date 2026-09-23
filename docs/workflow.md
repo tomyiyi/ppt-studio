@@ -157,6 +157,26 @@ python3 scripts/analyze_image.py projects/xxx/images/*.png
 
 ---
 
+## 6.5 出卡片（第三个出口）
+
+```bash
+python3 scripts/make_cards.py projects/xxx            # → cards/
+/opt/homebrew/bin/python3 scripts/render_svg.py projects/xxx/cards qa_cards_render
+python3 scripts/qa_cards.py projects/xxx/cards qa_cards_render
+```
+
+同一份 SVG，第三条出口。卡片是**重排**不是裁切：16:9 → 3:4 直接 slice
+会横向砍掉 55% 画面，横版字号在手机上也读不清。
+
+内容源是 SVG 本身，不是 notes —— notes 是演讲提示，不是文案。
+`card_spec.md` 的 `## focus` 段可以给「源页没有主句档」的页人工指定主句。
+
+卡片专属的三个坑：
+
+1. **图片带高度要自适应**。固定 47% 会让只有一句主句的卡片下半屏空着（面板墨量 2.96%）。改成按内容量反推，40%–62% 之间浮动。
+2. **遮罩别压太狠**。`0.88/0.42/0.08/0.30` 把暗图压到整带墨量 0.7%，等于没图。
+3. **徽章要取数字不是标签**。徽章组里通常有「数字（y 小）+ 标签（y 大）」两段文字，取 y 小的那个，否则会把中文短语塞进小圆牌。
+
 ## 7. 导出并回读
 
 ```bash
@@ -190,3 +210,7 @@ unzip -q output/xxx.pptx -d /tmp/chk
 | 小字对比度不足 | `tertiary_text` 用了 `#5A5B66`（2.9:1） | 改 `#7F8090`（4.75:1） |
 | 字忽大忽小 | 同一角色在不同页落了不同档 | spec_lock 里锁死角色→档位 |
 | 审计表字号全是 16 | 验证器没解析继承 | `_iter_with_parents` + 向上回溯 |
+| 卡片下半屏空着 | 图片带高度写死 | 按内容量自适应 40%–62% |
+| 卡片上的图看不见 | scrim 压太狠 | 降到 0.78/0.28/0.05/0.16 |
+| 卡片圆牌里塞了中文短语 | 徽章抽取取到了标签 | 取徽章组里 y 最小的那段（数字） |
+| 质检阈值和生成器打架 | 两边各写各的常量 | 阈值对齐生成器下限并注明理由 |

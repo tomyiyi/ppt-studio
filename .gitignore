@@ -19,3 +19,5 @@ node_modules/
 *.key
 local_key.json
 .env
+qa_cards_render/
+cards_render/
