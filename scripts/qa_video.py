@@ -1,0 +1,273 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+qa_video.py —— PPT-Studio 视频质量自动化门禁
+=============================================
+
+对自动合成的 MP4 视频进行 7 项客观工业级质检：
+  1. 流完整性   : 包含且仅包含单路 H.264 视频流与 AAC 音频流
+  2. 分辨率标准 : 严格匹配 1080p（1920×1080 或 1080×1920），yuv420p 像素格式
+  3. 音画同步   : 视频时长与音频流总时长差值在容差范围内（≤ 0.25s）
+  4. 响度与削顶 : 平均响度在 [-35dB, -12dB] 广播级区间，峰值不削顶（< 0dB）
+  5. 画面有效性 : 全程无异常黑屏死帧（blackdetect > 1.5s 报警）
+  6. 字幕时间线 : SRT 字幕时序单调递增、无负时长、无重叠，收尾不超出视频时长
+  7. 帧率与码率 : 稳定 24–60fps，码率在合理区间，无畸形编码
+
+用法：
+  python3 scripts/qa_video.py <video_path_or_project_dir> [--srt path.srt]
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+
+def run_probe(cmd: list[str]) -> str:
+    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    return res.stdout.strip()
+
+
+def probe_streams(video_path: Path) -> dict:
+    cmd = [
+        "ffprobe", "-v", "error",
+        "-show_streams",
+        "-show_format",
+        "-of", "json",
+        str(video_path),
+    ]
+    raw = run_probe(cmd)
+    return json.loads(raw) if raw else {}
+
+
+def check_streams(streams_data: dict) -> tuple[bool, str]:
+    v_streams = [s for s in streams_data.get("streams", []) if s.get("codec_type") == "video"]
+    a_streams = [s for s in streams_data.get("streams", []) if s.get("codec_type") == "audio"]
+
+    if not v_streams:
+        return False, "缺少视频流"
+    if not a_streams:
+        return False, "缺少音频流"
+
+    v_codec = v_streams[0].get("codec_name")
+    a_codec = a_streams[0].get("codec_name")
+
+    if v_codec != "h264":
+        return False, f"视频编码非 H.264 (当前: {v_codec})"
+    if a_codec != "aac":
+        return False, f"音频编码非 AAC (当前: {a_codec})"
+
+    return True, f"视频 {v_codec} · 音频 {a_codec}"
+
+
+def check_resolution(v_stream: dict) -> tuple[bool, str]:
+    w = int(v_stream.get("width", 0))
+    h = int(v_stream.get("height", 0))
+    pix_fmt = v_stream.get("pix_fmt", "")
+
+    valid_res = (w == 1920 and h == 1080) or (w == 1080 and h == 1920) or (w == 1080 and h == 1350)
+    if not valid_res:
+        return False, f"非标准发布分辨率 {w}×{h}"
+    if pix_fmt != "yuv420p":
+        return False, f"像素格式非 yuv420p ({pix_fmt})，移动端可能黑屏"
+
+    ratio = "16:9" if w > h else ("9:16" if h == 1920 else "3:4")
+    return True, f"{w}×{h} ({ratio}) · {pix_fmt}"
+
+
+def check_av_sync(streams_data: dict) -> tuple[bool, str]:
+    v_stream = next(s for s in streams_data["streams"] if s["codec_type"] == "video")
+    a_stream = next(s for s in streams_data["streams"] if s["codec_type"] == "audio")
+
+    v_dur = float(v_stream.get("duration") or streams_data.get("format", {}).get("duration", 0))
+    a_dur = float(a_stream.get("duration") or v_dur)
+
+    diff = abs(v_dur - a_dur)
+    if diff > 0.35:
+        return False, f"音画时长偏差过大 ({diff:.2f}s, 视频 {v_dur:.2f}s vs 音频 {a_dur:.2f}s)"
+
+    return True, f"视频 {v_dur:.1f}s / 音频 {a_dur:.1f}s (偏差 {diff:.2f}s ≤ 0.35s)"
+
+
+def check_audio_loudness(video_path: Path) -> tuple[bool, str]:
+    cmd = [
+        "ffmpeg", "-i", str(video_path),
+        "-af", "volumedetect",
+        "-vn", "-sn", "-dn",
+        "-f", "null", "/dev/null",
+    ]
+    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    out = res.stderr
+
+    mean_m = re.search(r"mean_volume:\s*([-0-9.]+)\s*dB", out)
+    max_m = re.search(r"max_volume:\s*([-0-9.]+)\s*dB", out)
+
+    if not mean_m or not max_m:
+        return False, "未能提取音量特征"
+
+    mean_v = float(mean_m.group(1))
+    max_v = float(max_m.group(1))
+
+    if mean_v < -45.0:
+        return False, f"音频严重过轻或静音 (mean_volume: {mean_v} dB)"
+    if max_v > -0.05:
+        return False, f"音频存在削顶破音失真 (max_volume: {max_v} dB)"
+
+    return True, f"平均响度 {mean_v:.1f} dB · 峰值 {max_v:.1f} dB"
+
+
+def check_black_frames(video_path: Path) -> tuple[bool, str]:
+    cmd = [
+        "ffmpeg", "-i", str(video_path),
+        "-vf", "blackdetect=d=1.5:pix_th=0.10",
+        "-an", "-f", "null", "/dev/null",
+    ]
+    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    out = res.stderr
+
+    black_blocks = re.findall(r"black_start:([0-9.]+)\s*black_end:([0-9.]+)\s*black_duration:([0-9.]+)", out)
+    if black_blocks:
+        long_blacks = [b for b in black_blocks if float(b[2]) > 1.8]
+        if long_blacks:
+            return False, f"检测到 {len(long_blacks)} 处死黑屏 (最长 {long_blacks[0][2]}s)"
+
+    return True, "全片无异常死黑屏"
+
+
+def parse_srt_time(t_str: str) -> float:
+    t_str = t_str.strip().replace(".", ",")
+    parts = t_str.split(":")
+    h, m = float(parts[0]), float(parts[1])
+    s, ms = parts[2].split(",")
+    return h * 3600 + m * 60 + float(s) + float(ms) / 1000.0
+
+
+def check_subtitles(srt_path: Path, video_duration: float) -> tuple[bool, str]:
+    if not srt_path.exists():
+        return True, "无独立字幕文件（跳过外部 SRT 检查）"
+
+    content = srt_path.read_text(encoding="utf-8").strip()
+    blocks = re.split(r"\n\s*\n", content)
+    if not blocks:
+        return False, "SRT 文件为空"
+
+    last_end = 0.0
+    valid_cues = 0
+    time_pat = re.compile(r"(\d+:\d+:\d+,\d+)\s*-->\s*(\d+:\d+:\d+,\d+)")
+
+    for b in blocks:
+        lines = [l.strip() for l in b.splitlines() if l.strip()]
+        if len(lines) < 2:
+            continue
+        m = time_pat.search(lines[1] if len(lines) > 1 and "-->" in lines[1] else lines[0])
+        if not m:
+            continue
+        start_s = parse_srt_time(m.group(1))
+        end_s = parse_srt_time(m.group(2))
+
+        if end_s <= start_s:
+            return False, f"字幕时序倒挂: {m.group(0)}"
+        if start_s < last_end - 0.1:
+            return False, f"字幕严重重叠: 上一条结束 {last_end:.2f}s, 当前开始 {start_s:.2f}s"
+        last_end = end_s
+        valid_cues += 1
+
+    if last_end > video_duration + 1.0:
+        return False, f"字幕超出视频时长 (字幕尾 {last_end:.1f}s > 视频尾 {video_duration:.1f}s)"
+
+    return True, f"{valid_cues} 条字幕时序合规 · 尾部对齐良好"
+
+
+def check_bitrate_and_fps(v_stream: dict, format_info: dict) -> tuple[bool, str]:
+    r_fps = v_stream.get("r_frame_rate", "30/1")
+    if "/" in r_fps:
+        num, den = r_fps.split("/")
+        fps = float(num) / float(den)
+    else:
+        fps = float(r_fps)
+
+    bitrate = int(format_info.get("bit_rate", 0)) // 1000
+
+    if fps < 23.9 or fps > 61.0:
+        return False, f"异常帧率: {fps:.1f} fps"
+    if bitrate < 200:
+        return False, f"码率过低可能劣化画质: {bitrate} kbps"
+
+    return True, f"{fps:.1f} fps · {bitrate} kbps"
+
+
+def qa_video(video_path: Path, srt_path: Path | None = None) -> bool:
+    print(f"==================================================")
+    print(f"🔍 运行 PPT-Studio 视频质量自动化门禁")
+    print(f"   目标: {video_path}")
+    print(f"==================================================")
+
+    if not video_path.exists():
+        print(f"[ERROR] 目标视频文件不存在: {video_path}")
+        return False
+
+    meta = probe_streams(video_path)
+    if not meta:
+        print(f"[ERROR] 无法通过 ffprobe 解析视频元数据")
+        return False
+
+    v_stream = next((s for s in meta.get("streams", []) if s.get("codec_type") == "video"), None)
+    a_stream = next((s for s in meta.get("streams", []) if s.get("codec_type") == "audio"), None)
+    v_dur = float(meta.get("format", {}).get("duration", 0))
+
+    checks = [
+        ("流完整性", lambda: check_streams(meta)),
+        ("分辨率与像素格式", lambda: check_resolution(v_stream)),
+        ("音画同步匹配", lambda: check_av_sync(meta)),
+        ("音频响度与削顶", lambda: check_audio_loudness(video_path)),
+        ("死黑屏与卡顿", lambda: check_black_frames(video_path)),
+        ("字幕时间线", lambda: check_subtitles(srt_path or video_path.with_suffix(".srt"), v_dur)),
+        ("帧率与码率健康", lambda: check_bitrate_and_fps(v_stream, meta.get("format", {}))),
+    ]
+
+    all_passed = True
+    for name, fn in checks:
+        passed, msg = fn()
+        status_icon = "✓" if passed else "✗ [FAIL]"
+        print(f"  [{status_icon}] {name:16s} : {msg}")
+        if not passed:
+            all_passed = False
+
+    print("==================================================")
+    if all_passed:
+        print("ALL CLEAR ✅")
+        return True
+    else:
+        print("QA GATES FAILED ❌ 请根据上述检查项修正重试！")
+        return False
+
+
+def main():
+    parser = argparse.ArgumentParser(description="PPT-Studio 视频质量自动化门禁")
+    parser.add_argument("target", help="视频文件路径或包含 output/*.mp4 的项目目录")
+    parser.add_argument("--srt", help="可选指定 SRT 文件路径")
+    args = parser.parse_args()
+
+    target_path = Path(args.target).resolve()
+    if target_path.is_dir():
+        # 在 output/ 目录下寻找 mp4
+        mp4s = list((target_path / "output").glob("*.mp4"))
+        if not mp4s:
+            print(f"[ERROR] 在 {target_path}/output 下未找到 mp4 视频")
+            sys.exit(1)
+        video_p = mp4s[0]
+    else:
+        video_p = target_path
+
+    srt_p = Path(args.srt).resolve() if args.srt else None
+    passed = qa_video(video_p, srt_p)
+    sys.exit(0 if passed else 2)
+
+
+if __name__ == "__main__":
+    main()

@@ -19,13 +19,18 @@ from __future__ import annotations
 import argparse
 import base64
 import mimetypes
+import os
 import re
+import shutil
 import sys
 from pathlib import Path
 
 CHROME_CANDIDATES = [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    "/usr/bin/chromium",
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/google-chrome",
 ]
 
 IMAGE_RE = re.compile(r'(<image\b[^>]*?\bhref=")([^"]+)(")')
@@ -35,6 +40,10 @@ def resolve_chrome() -> str | None:
     for c in CHROME_CANDIDATES:
         if Path(c).exists():
             return c
+    for name in ("chromium", "google-chrome-stable", "google-chrome"):
+        p = shutil.which(name)
+        if p and Path(p).exists():
+            return p
     return None
 
 

@@ -1,0 +1,58 @@
+[
+  {
+    "page": "01_cover",
+    "title": "智流 OS · 发布",
+    "narration": "智流 OS，它不是又一个更大的模型，而是一个能真正帮你在复杂系统里动手的运行时。",
+    "transition": "fade",
+    "pause_after": 1.2,
+    "motion": "ken_burns_zoom_in"
+  },
+  {
+    "page": "02_tension",
+    "title": "现实张力",
+    "narration": "凌晨两点，第三次跑批失败。当业务流程越来越长，维护成本会直接暴增 3.4 倍。大家缺的不是模型，而是缺一个不出事的底座。",
+    "transition": "slide_left",
+    "pause_after": 1.0,
+    "motion": "ken_burns_pan_right"
+  },
+  {
+    "page": "03_position",
+    "title": "定位主张",
+    "narration": "智流 OS 替代的从来不是现有软件，而是那通打给工程师的凌晨两点的电话。让系统自己识别故障，原地修复。",
+    "transition": "fade",
+    "pause_after": 1.2,
+    "motion": "ken_burns_zoom_in"
+  },
+  {
+    "page": "04_capability_selfheal",
+    "title": "核心能力 · 自愈",
+    "narration": "来看第一项核心能力：运行时自愈。它不是报错之后等人工介入，而是由智能体自动完成容错与降级，处理完了再告诉你。",
+    "transition": "slide_left",
+    "pause_after": 1.0,
+    "motion": "ken_burns_pan_left"
+  },
+  {
+    "page": "05_capability_bus",
+    "title": "核心能力 · 总线",
+    "narration": "第二项能力是即插即用总线。你不需要重构任何现有系统，API、命令行、甚至 MCP 协议原生直连，业务系统直接握手。",
+    "transition": "fade",
+    "pause_after": 1.0,
+    "motion": "ken_burns_zoom_out"
+  },
+  {
+    "page": "06_before_after",
+    "title": "效果对照",
+    "narration": "对照 12 家试点的实际效果，自动化故障率逐季下探，从最开始的四处救火，变成现在全程无人值守的平稳流转。",
+    "transition": "slide_left",
+    "pause_after": 1.0,
+    "motion": "ken_burns_pan_right"
+  },
+  {
+    "page": "07_next_step",
+    "title": "收尾与行动",
+    "narration": "今天就可以开始。挑一个你最不想再手工维护的繁琐流程，交给智流 OS 跑两周，亲自感受真正的自治运行时。",
+    "transition": "fade",
+    "pause_after": 1.8,
+    "motion": "ken_burns_zoom_in"
+  }
+]

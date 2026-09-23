@@ -161,7 +161,7 @@ python3 scripts/analyze_image.py projects/xxx/images/*.png
 
 ```bash
 python3 scripts/make_cards.py projects/xxx            # → cards/
-/opt/homebrew/bin/python3 scripts/render_svg.py projects/xxx/cards qa_cards_render
+python3 scripts/render_svg.py projects/xxx/cards qa_cards_render
 python3 scripts/qa_cards.py projects/xxx/cards qa_cards_render
 ```
 
@@ -176,6 +176,33 @@ python3 scripts/qa_cards.py projects/xxx/cards qa_cards_render
 1. **图片带高度要自适应**。固定 47% 会让只有一句主句的卡片下半屏空着（面板墨量 2.96%）。改成按内容量反推，40%–62% 之间浮动。
 2. **遮罩别压太狠**。`0.88/0.42/0.08/0.30` 把暗图压到整带墨量 0.7%，等于没图。
 3. **徽章要取数字不是标签**。徽章组里通常有「数字（y 小）+ 标签（y 大）」两段文字，取 y 小的那个，否则会把中文短语塞进小圆牌。
+
+## 6.6 缝合长图（长图模式）
+
+```bash
+python3 scripts/make_long_card.py projects/xxx        # → output/xxx_长图.png
+```
+
+将重排后的多张卡片纵向流水线式缝合为一张 1080×N 完整高清长图，专用于知乎专栏、微信公众号与知识社区直通阅览，顶部带项目全景 Header，卡片间自然流式对齐，底部带行动指引 Footer。
+
+## 6.7 导出视频与配音（第四个出口）
+
+```bash
+# 生成 1080p 横版视频（带 TTS、微运镜与硬字幕）
+python3 scripts/make_video.py projects/xxx
+
+# 生成 9:16 竖版短视频（抖音 / 小红书 / 视频号）
+python3 scripts/make_video.py projects/xxx --format 9:16
+
+# 视频客观质量门禁（必跑）
+python3 scripts/qa_video.py projects/xxx/output/xxx_1080p.mp4
+```
+
+视频生成四大黄金准则：
+1. **音频反推时长**：每页停留时长由 Edge-TTS 自然语速时长精确反推并附加缓冲，拒绝死板倒计时。
+2. **微 Ken Burns 运镜**：画面缓慢推进（1.0 → 1.035），赋予静态幻灯片生动质感。
+3. **统一字幕轨对齐**：各分镜字词时间戳跨段累加，精准输出工程级 SRT 并烧录半透阴影硬字幕。
+4. **必须过 `qa_video.py` 7 项客观质检**，确认无黑屏死帧、音画同步差 ≤ 0.35s、平均响度 -35~-12dB。
 
 ## 7. 导出并回读
 

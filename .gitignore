@@ -21,3 +21,7 @@ local_key.json
 .env
 qa_cards_render/
 cards_render/
+render_cards/
+projects/**/output/
+projects/**/render/
+projects/**/render_cards/

@@ -17,7 +17,8 @@
 | **PPTX** | 线下汇报 / 发布会大屏 / 交付存档 | ✅ 已通 |
 | **HTML** | 网页翻页、嵌进文章、分享链接 | ✅ 已通 |
 | **卡片图** | 微信 / 小红书 / 社群传播，1080×1350 竖版 | ✅ 已通 |
-| **视频 + 配音** | 抖音 / B 站 / 视频号 | 🔜 规划中 |
+| **长图** | 公众号 / 知乎单图完整通读，1080×N 缝合 | ✅ 已通 |
+| **视频 + 配音** | 抖音 / B 站 / 视频号，带 TTS、分镜运镜与硬字幕 | ✅ 已通 |
 
 四个形态共用同一份 **SVG 画布**作为唯一真源 —— 画布是 1280×720 的矢量底稿，往后切卡片、切视频分镜都是同一份源的不同裁切，不需要重做设计。
 
@@ -28,7 +29,7 @@
 以 `projects/agentflow-os-launch`（智流 OS 发布会，7 页）为完整样例：
 
 ```
-内容笔记 (notes/*.md)
+内容笔记 (notes/*.md) / 解说稿 (voiceover.json)
     ↓
 spec_lock.md        ← 横版版式契约：字号阶梯 / 色板，全项目唯一真源
     ↓
@@ -38,10 +39,13 @@ Agnes 配图 (images/*.png)     ← 生图只走 Agnes，gemini 不参与生图
     ↓
 ├→ PPTX    原生 DrawingML（不是贴图，文字可编辑、图形可改）
 ├→ HTML    单文件预览，含全部内嵌资源
-└→ 卡片    1080×1350 竖版重排（不是拉伸裁切，见下）
+├→ 卡片    1080×1350 竖版重排（自适应图片带 40%–62%）
+├→ 长图    1080×N 纵向长图（含统摄 Header 与收尾 Footer）
+└→ 视频    1080p / 9:16 短视频（Edge-TTS 配音 + 微运镜 + 统一字幕）
     ↓
 qa_layout.py   ← 横版 7 项质检
 qa_cards.py    ← 卡片 7 项质检
+qa_video.py    ← 视频 7 项质检（流/分辨率/音画同步/响度/死黑屏/字幕/码率）
 ```
 
 ### 卡片不是「把横版裁一裁」
@@ -90,11 +94,14 @@ ppt-studio/
 | `analyze_image.py` | 客观量化一张图：锐度、主体位置 3×3 分布、墨量、接缝检测 |
 | `crop_panel.py` | 按主体包围盒裁切，让主体撑满面板而不是缩在中间 |
 | `boost_ink.py` | 保黑点的增益（背景不被抬灰），救偏暗的图 |
-| `render_svg.py` | SVG → PNG 渲染，供质检和预览用 |
+| `render_svg.py` | SVG → PNG 渲染，跨平台自适应检测 Chrome/Chromium，供质检和预览用 |
 | `build_preview.py` | 把若干 SVG 打包成单文件 HTML 翻页预览 |
 | `make_cards.py` | 横版画布 → 1080×1350 竖版卡片（重排，非裁切） |
+| `make_long_card.py` | 多张卡片纵向缝合为单张长图（自适应 Header/Footer/流式过渡） |
+| `make_video.py` | **视频+配音合成**：Edge-TTS 中文解说 + 运镜动效 + 统一字幕 + FFmpeg 合成 |
 | `qa_layout.py` | **横版质检闸门**：7 项检查，字号阶梯直接从 `spec_lock.md` 读 |
 | `qa_cards.py` | **卡片质检闸门**：7 项检查，阶梯从 `card_spec.md` 读 |
+| `qa_video.py` | **视频质检闸门**：7 项检查（流完整性/1080p/音画同步/响度/死黑屏/字幕/码率） |
 
 ### 跑一遍样例
 
@@ -107,13 +114,21 @@ python3 ../../scripts/agnes_ppt_bridge.py --manifest images/image_prompts.json
 # 2. 渲染成 PNG，供质检读取像素
 python3 ../../scripts/render_svg.py svg_output/ render/
 
-# 3. 质检（必跑）
+# 3. 横版质检（必跑）
 python3 ../../scripts/qa_layout.py svg_output/ render/
 
-# 3b. 出卡片（可选，同一份 SVG 的第三个出口）
+# 4. 出卡片（第三出口）
 python3 ../../scripts/make_cards.py .            # → cards/
-/opt/homebrew/bin/python3 ../../scripts/render_svg.py cards/ render_cards/
+python3 ../../scripts/render_svg.py cards/ render_cards/
 python3 ../../scripts/qa_cards.py cards/ render_cards/
+
+# 5. 缝合长图（长图模式）
+python3 ../../scripts/make_long_card.py .        # → output/agentflow-os-launch_长图.png
+
+# 6. 出视频 + 配音（第四出口）
+python3 ../../scripts/make_video.py .            # → output/agentflow-os-launch_1080p.mp4
+python3 ../../scripts/make_video.py . --format 9:16  # → output/agentflow-os-launch_竖版.mp4
+python3 ../../scripts/qa_video.py .              # 跑视频 7 项质检门禁
 ```
 
 质检全绿会打印 `ALL CLEAR`。任何一项有告警，先改 SVG 再交付。
