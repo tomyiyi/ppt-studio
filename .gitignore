@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 中间产物
+render/
+qa_render/
+*_raw_*.png
+_pre_*.png
+.DS_Store
+
+# 大体积依赖（tools/ 下是 ppt-master / PPTist 等上游克隆，不入库）
+tools/
+node_modules/
+
+# 本地凭据
+*.key
+local_key.json
+.env
