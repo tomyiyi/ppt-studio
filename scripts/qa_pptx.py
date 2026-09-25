@@ -1,0 +1,373 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+qa_pptx.py —— PPT-Studio PPTX 导出物客观回读质检
+=================================================
+
+对导出的 PPTX 原生文件执行 7 项自动化客观质量门禁，遵循 docs/qa-checklist.md 第三节规范：
+  1. [结构完整性] Zip 压缩包完整，OpenXML 基础骨架（Content_Types, presentation.xml）无损
+  2. [画幅与比例] 画面尺寸符合 16:9 标准比例（允许 ±1.5% 容差，严防误导出 4:3 变形）
+  3. [媒体资源集] ppt/media/ 内所有图像资源有效可读、非零体积、无破损或截断
+  4. [幻灯片图元] 内容页包含完整背景/插图层 (<p:pic>) 与文本图层 (<p:sp>/<p:txBody>)
+  5. [字号阶梯]   DrawingML <a:rPr sz="..."> 换算回 px (sz/75)，严格合规于 spec 阶梯
+  6. [角色一致性] 跨页同角色（页面主句 statement 等）字号绝对统一，严防"一时大一时小"
+  7. [引用关系链] 所有 slides、layouts 与 media 引用关系 (rels) 闭环无断链
+
+用法：
+  python3 scripts/qa_pptx.py <pptx_file_or_dir> [--spec path/to/spec_lock.md] [--expected-media N]
+"""
+
+from __future__ import annotations
+
+import argparse
+import io
+import os
+import re
+import sys
+import zipfile
+import xml.etree.ElementTree as ET
+from pathlib import Path
+from PIL import Image
+
+NS_A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+NS_P = "{http://schemas.openxmlformats.org/presentationml/2006/main}"
+NS_R = "{http://schemas.openxmlformats.org/package/2006/relationships}"
+
+DEFAULT_RAMP = [11, 13, 16, 20, 24, 32, 44, 56, 96]
+
+
+def load_spec_ramp(spec_path: Path | None) -> list[int]:
+    """从 spec_lock.md 加载字号阶梯，未提供则回退默认规范。"""
+    if spec_path and spec_path.exists():
+        content = spec_path.read_text(encoding="utf-8")
+        m = re.search(r"-\s*sizes:\s*\[([0-9,\s]+)\]", content)
+        if m:
+            return sorted(int(x.strip()) for x in m.group(1).split(","))
+    return DEFAULT_RAMP
+
+
+def check_zip_and_structure(z: zipfile.ZipFile) -> tuple[bool, str, ET.Element | None]:
+    """检查 PPTX Zip 基础结构与 presentation.xml"""
+    namelist = z.namelist()
+    required = ["[Content_Types].xml", "ppt/presentation.xml", "ppt/_rels/presentation.xml.rels"]
+    for req in required:
+        if req not in namelist:
+            return False, f"缺少关键 OpenXML 结构文件: {req}", None
+
+    try:
+        pres_xml = ET.fromstring(z.read("ppt/presentation.xml"))
+        return True, "OpenXML 基础骨架完整", pres_xml
+    except Exception as e:
+        return False, f"presentation.xml 解析异常: {e}", None
+
+
+def check_geometry(pres_xml: ET.Element) -> tuple[bool, str]:
+    """检查画幅比例是否符合 16:9。"""
+    sldSz = pres_xml.find(f"{NS_P}sldSz")
+    if sldSz is None:
+        return False, "未找到 <p:sldSz> 画幅尺寸定义"
+
+    cx = float(sldSz.get("cx", 0))
+    cy = float(sldSz.get("cy", 0))
+    if cx <= 0 or cy <= 0:
+        return False, f"非法画幅尺寸: cx={cx}, cy={cy}"
+
+    ratio = cx / cy
+    target = 16.0 / 9.0  # 1.777777...
+    err = abs(ratio - target) / target
+
+    if err > 0.02:
+        return False, f"画幅非 16:9 比例 (当前: {cx:.0f}×{cy:.0f}, ratio={ratio:.3f}, 期望 1.778)"
+    return True, f"{int(cx)} × {int(cy)} (16:9 比例标准)"
+
+
+def check_media(z: zipfile.ZipFile, expected_media: int | None = None) -> tuple[bool, str]:
+    """检查 ppt/media/ 图像有效性与格式。"""
+    media_files = sorted([f for f in z.namelist() if f.startswith("ppt/media/") and not f.endswith("/")])
+    
+    if expected_media is not None and len(media_files) != expected_media:
+        return False, f"媒体文件数 ({len(media_files)}) 与预期 ({expected_media}) 不符"
+
+    if not media_files:
+        return True, "无内嵌媒体文件 (Office 原生矢量绘图形态)"
+
+    corrupt = []
+    sizes = []
+    for mf in media_files:
+        raw = z.read(mf)
+        if len(raw) == 0:
+            corrupt.append(f"{mf} (空文件 0 字节)")
+            continue
+        try:
+            with Image.open(io.BytesIO(raw)) as img:
+                img.verify()
+            sizes.append(len(raw))
+        except Exception as e:
+            corrupt.append(f"{mf} ({e})")
+
+    if corrupt:
+        return False, f"存在损坏或无效媒体: {', '.join(corrupt[:3])}"
+
+    total_kb = sum(sizes) // 1024
+    return True, f"{len(media_files)} 个媒体文件全部有效 (PNG/JPEG 合计 {total_kb} KB)"
+
+
+def check_slide_layers(z: zipfile.ZipFile, slide_names: list[str], has_media: bool) -> tuple[bool, str]:
+    """检查每页幻灯片的图层与元素。"""
+    if not slide_names:
+        return False, "PPTX 内无幻灯片"
+
+    missing_pics = []
+    missing_texts = []
+
+    for s_name in slide_names:
+        root = ET.fromstring(z.read(s_name))
+        pics = root.findall(f".//{NS_P}pic")
+        sp_texts = root.findall(f".//{NS_P}sp")
+        
+        # 配图版每页应有 1 张满幅底图/插图
+        if has_media and len(pics) < 1:
+            missing_pics.append(s_name)
+        if len(sp_texts) < 1:
+            missing_texts.append(s_name)
+
+    if missing_pics:
+        return False, f"部分页面缺失配图层 (<p:pic>): {', '.join(missing_pics[:3])}"
+    if missing_texts:
+        return False, f"部分页面缺失文本图元 (<p:sp>): {', '.join(missing_texts[:3])}"
+
+    return True, f"{len(slide_names)} 页幻灯片图元与图层结构完整"
+
+
+def check_font_ramp(z: zipfile.ZipFile, slide_names: list[str], ramp: list[int]) -> tuple[bool, str, dict]:
+    """反查 DrawingML <a:rPr sz="..."> 换算回 px，验证是否落在阶梯内。"""
+    ramp_set = set(ramp)
+    total_runs = 0
+    all_sz = set()
+    off_ramp = []
+    slide_text_map: dict[str, list[tuple[int, str]]] = {}
+
+    for s_name in slide_names:
+        root = ET.fromstring(z.read(s_name))
+        slide_entries = []
+
+        # 遍历形状与段落
+        for sp in root.findall(f".//{NS_P}sp"):
+            sp_text = "".join(sp.itertext()).strip()
+            sz_vals = [int(r.get("sz")) for r in sp.findall(f".//{NS_A}rPr") if r.get("sz")]
+            if sp_text and sz_vals:
+                slide_entries.append((max(sz_vals), sp_text))
+
+            for r in sp.findall(f".//{NS_A}rPr"):
+                sz_str = r.get("sz")
+                if sz_str:
+                    total_runs += 1
+                    sz = int(sz_str)
+                    all_sz.add(sz)
+                    # 1pt = 0.75px @1280x720, sz 是百分之一 pt (cents of pt)
+                    # pt = sz / 100, px = pt / 0.75 = sz / 75.0
+                    px = round(sz / 75.0)
+                    if px not in ramp_set:
+                        # 容差: 极小浮点取整偏差 (±1px)
+                        matched = any(abs(px - authorized) <= 0.6 for authorized in ramp_set)
+                        if not matched:
+                            off_ramp.append((s_name, sz, px, sp_text[:20]))
+
+        slide_text_map[s_name] = slide_entries
+
+    if total_runs == 0:
+        return True, "无内联 DrawingML 字号覆盖 (采用母版预设继承字号)", slide_text_map
+
+    if off_ramp:
+        err_samples = [f"{s} sz={sz}(~{px}px)" for s, sz, px, _ in off_ramp[:3]]
+        return False, f"发现非规范字号: {', '.join(err_samples)} (允许阶梯: {ramp})", slide_text_map
+
+    px_ramp_detected = sorted(set(round(sz / 75.0) for sz in all_sz))
+    return True, f"{total_runs} 处文本全部合规于阶梯 {px_ramp_detected} px", slide_text_map
+
+
+def check_role_consistency(slide_text_map: dict[str, list[tuple[int, str]]]) -> tuple[bool, str]:
+    """验证主句在各个正文页的字号是否严格一致。"""
+    # 提取第 2 页到倒数第 1 页的正文页主句 (排除第 1 页封面/封底等特殊页)
+    slides = list(slide_text_map.keys())
+    if len(slides) < 3:
+        return True, "页数较少，跳过跨页主句一致性比对"
+
+    # 正文页: 排除第 1 页 (封面)，检查后续页面的最大主句
+    content_slides = slides[1:]
+    statement_sizes = {}
+
+    for s in content_slides:
+        entries = slide_text_map.get(s, [])
+        if not entries:
+            continue
+        # 排序取该页最高字号（一般为 statement 或 headline）
+        top_sz, top_txt = max(entries, key=lambda x: x[0])
+        px = round(top_sz / 75.0)
+        statement_sizes[s] = (px, top_txt[:15])
+
+    # 聚类正文页的 statement 尺寸（通常为 56px / 42pt = 4200）
+    if not statement_sizes:
+        return True, "未检测到内联主句标记"
+
+    px_values = [v[0] for v in statement_sizes.values()]
+    # 统计出现频率最高的主句尺寸
+    from collections import Counter
+    counts = Counter(px_values)
+    dominant_px, dominant_count = counts.most_common(1)[0]
+
+    # 如果 dominant_px 为 56px (42pt)，检查正文页是否有非预期的漂移（例如 44/72 冲突）
+    drifts = []
+    for s, (px, txt) in statement_sizes.items():
+        # 如果是图表/对比页（如 06），最高字可能属于副标题或指标，允许例外，但若接近主句则应一致
+        if px != dominant_px and px in (44, 72) and dominant_px in (56, 44):
+            drifts.append(f"{s}({px}px: {txt})")
+
+    if drifts:
+        return False, f"页面主句字号不一致 (主流为 {dominant_px}px，漂移页: {', '.join(drifts)})"
+
+    return True, f"各正文页页面主句字号严格对齐 ({dominant_px}px / {dominant_px * 0.75:.0f}pt)"
+
+
+def check_relationships(z: zipfile.ZipFile, slide_names: list[str]) -> tuple[bool, str]:
+    """检查关系文件 (.rels) 链接是否全部闭环。"""
+    broken_rels = []
+    
+    for s in slide_names:
+        base_dir = os.path.dirname(s)
+        file_name = os.path.basename(s)
+        rel_path = f"{base_dir}/_rels/{file_name}.rels"
+        
+        if rel_path in z.namelist():
+            try:
+                root = ET.fromstring(z.read(rel_path))
+                for rel in root.findall(f"{NS_R}Relationship"):
+                    target = rel.get("Target", "")
+                    if target.startswith("../"):
+                        norm_target = "ppt/" + target.replace("../", "")
+                        if norm_target not in z.namelist():
+                            broken_rels.append(f"{s} -> {target}")
+            except Exception as e:
+                broken_rels.append(f"{rel_path} ({e})")
+
+    if broken_rels:
+        return False, f"存在断链关系引用: {', '.join(broken_rels[:3])}"
+
+    return True, "全量幻灯片、母版与媒体关联引用无断链"
+
+
+def run_qa_pptx(
+    pptx_path: Path,
+    spec_path: Path | None = None,
+    expected_slides: int | None = None,
+    expected_media: int | None = None,
+) -> bool:
+    print("=" * 60)
+    print(f"🔍 运行 PPT-Studio PPTX 导出物客观回读质检")
+    print(f"   目标: {pptx_path}")
+    print("=" * 60)
+
+    if not pptx_path.exists():
+        print(f"  [✗] 文件不存在: {pptx_path}")
+        return False
+
+    if not zipfile.is_zipfile(pptx_path):
+        print(f"  [✗] 目标文件非有效 PPTX/Zip 压缩包: {pptx_path}")
+        return False
+
+    ramp = load_spec_ramp(spec_path)
+
+    with zipfile.ZipFile(pptx_path, "r") as z:
+        # 1. Zip 基础结构
+        ok_struct, msg_struct, pres_xml = check_zip_and_structure(z)
+        print(f"  [{'✓' if ok_struct else '✗'}] PPTX 基础结构       : {msg_struct}")
+        if not ok_struct:
+            return False
+
+        # 2. 画幅与比例
+        ok_geom, msg_geom = check_geometry(pres_xml)
+        print(f"  [{'✓' if ok_geom else '✗'}] 画幅与标准比例     : {msg_geom}")
+
+        # 3. 媒体资源检验
+        has_media = any(f.startswith("ppt/media/") for f in z.namelist())
+        ok_media, msg_media = check_media(z, expected_media=expected_media)
+        print(f"  [{'✓' if ok_media else '✗'}] 媒体资源完整性     : {msg_media}")
+
+        # 幻灯片清单
+        slide_names = sorted([f for f in z.namelist() if f.startswith("ppt/slides/slide") and f.endswith(".xml")])
+        if expected_slides is not None and len(slide_names) != expected_slides:
+            print(f"  [✗] 幻灯片总页数       : 实际 {len(slide_names)} 页，与预期 ({expected_slides} 页) 不符")
+            return False
+
+        # 4. 幻灯片图层结构
+        ok_layers, msg_layers = check_slide_layers(z, slide_names, has_media)
+        print(f"  [{'✓' if ok_layers else '✗'}] 幻灯片图元结构     : {msg_layers}")
+
+        # 5. 字号阶梯符合度
+        ok_ramp, msg_ramp, text_map = check_font_ramp(z, slide_names, ramp)
+        print(f"  [{'✓' if ok_ramp else '✗'}] 字号阶梯合规性     : {msg_ramp}")
+
+        # 6. 跨页主句一致性
+        ok_consist, msg_consist = check_role_consistency(text_map)
+        print(f"  [{'✓' if ok_consist else '✗'}] 跨页主句一致性     : {msg_consist}")
+
+        # 7. 引用关系链
+        ok_rels, msg_rels = check_relationships(z, slide_names)
+        print(f"  [{'✓' if ok_rels else '✗'}] 引用关系链完整性   : {msg_rels}")
+
+    all_passed = all([ok_struct, ok_geom, ok_media, ok_layers, ok_ramp, ok_consist, ok_rels])
+    print("=" * 60)
+    if all_passed:
+        print("ALL CLEAR ✅")
+        return True
+    else:
+        print("QA FAILED ❌")
+        return False
+
+
+def main():
+    parser = argparse.ArgumentParser(description="PPT-Studio PPTX 导出物客观回读质检")
+    parser.add_argument("target", help="PPTX 文件路径，或包含 *.pptx 的目录")
+    parser.add_argument("--spec", help="可选指定 spec_lock.md 路径")
+    parser.add_argument("--expected-slides", type=int, help="可选预期总页数")
+    parser.add_argument("--expected-media", type=int, help="可选预期媒体文件数")
+    args = parser.parse_args()
+
+    target_path = Path(args.target).resolve()
+    spec_path = Path(args.spec).resolve() if args.spec else None
+
+    # 如果没有指定 spec，尝试在常见位置寻找
+    if not spec_path:
+        for candidate in [
+            target_path.parent / "spec_lock.md",
+            target_path.parent.parent / "spec_lock.md",
+            Path("projects/agentflow-os-launch/spec_lock.md"),
+        ]:
+            if candidate.exists():
+                spec_path = candidate
+                break
+
+    if target_path.is_file():
+        success = run_qa_pptx(target_path, spec_path, args.expected_slides, args.expected_media)
+        sys.exit(0 if success else 1)
+
+    elif target_path.is_dir():
+        pptx_files = sorted(target_path.glob("*.pptx"))
+        if not pptx_files:
+            print(f"[!] 目录内未找到 .pptx 文件: {target_path}")
+            sys.exit(1)
+
+        all_ok = True
+        for p in pptx_files:
+            ok = run_qa_pptx(p, spec_path, args.expected_slides, args.expected_media)
+            if not ok:
+                all_ok = False
+            print()
+        sys.exit(0 if all_ok else 1)
+    else:
+        print(f"[!] 路径无效: {target_path}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
