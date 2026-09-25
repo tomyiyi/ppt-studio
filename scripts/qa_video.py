@@ -147,8 +147,34 @@ def parse_srt_time(t_str: str) -> float:
     return h * 3600 + m * 60 + float(s) + float(ms) / 1000.0
 
 
-def check_subtitles(srt_path: Path, video_duration: float) -> tuple[bool, str]:
-    if not srt_path.exists():
+def find_associated_srt(video_path: Path, explicit_srt: Path | None = None) -> Path | None:
+    """自动探查关联的字幕文件。"""
+    if explicit_srt and explicit_srt.exists():
+        return explicit_srt
+
+    # 1. 同名 srt
+    direct_srt = video_path.with_suffix(".srt")
+    if direct_srt.exists():
+        return direct_srt
+
+    # 2. 同目录下的 srt 文件（单文件或前缀/语义匹配）
+    parent_dir = video_path.parent
+    srts = sorted(parent_dir.glob("*.srt"))
+    if len(srts) == 1:
+        return srts[0]
+    elif len(srts) > 1:
+        # 优先匹配带有共同前缀的 srt
+        stem_prefix = video_path.stem[:4]
+        matched = [s for s in srts if stem_prefix in s.stem]
+        if matched:
+            return matched[0]
+        return srts[0]
+
+    return None
+
+
+def check_subtitles(srt_path: Path | None, video_duration: float) -> tuple[bool, str]:
+    if srt_path is None or not srt_path.exists():
         return True, "无独立字幕文件（跳过外部 SRT 检查）"
 
     content = srt_path.read_text(encoding="utf-8").strip()
@@ -220,13 +246,15 @@ def qa_video(video_path: Path, srt_path: Path | None = None) -> bool:
     a_stream = next((s for s in meta.get("streams", []) if s.get("codec_type") == "audio"), None)
     v_dur = float(meta.get("format", {}).get("duration", 0))
 
+    resolved_srt = find_associated_srt(video_path, srt_path)
+
     checks = [
         ("流完整性", lambda: check_streams(meta)),
         ("分辨率与像素格式", lambda: check_resolution(v_stream)),
         ("音画同步匹配", lambda: check_av_sync(meta)),
         ("音频响度与削顶", lambda: check_audio_loudness(video_path)),
         ("死黑屏与卡顿", lambda: check_black_frames(video_path)),
-        ("字幕时间线", lambda: check_subtitles(srt_path or video_path.with_suffix(".srt"), v_dur)),
+        ("字幕时间线", lambda: check_subtitles(resolved_srt, v_dur)),
         ("帧率与码率健康", lambda: check_bitrate_and_fps(v_stream, meta.get("format", {}))),
     ]
 
@@ -249,24 +277,37 @@ def qa_video(video_path: Path, srt_path: Path | None = None) -> bool:
 
 def main():
     parser = argparse.ArgumentParser(description="PPT-Studio 视频质量自动化门禁")
-    parser.add_argument("target", help="视频文件路径或包含 output/*.mp4 的项目目录")
+    parser.add_argument("target", help="视频文件路径或包含 *.mp4 / output/*.mp4 的项目目录")
     parser.add_argument("--srt", help="可选指定 SRT 文件路径")
     args = parser.parse_args()
 
     target_path = Path(args.target).resolve()
-    if target_path.is_dir():
-        # 在 output/ 目录下寻找 mp4
-        mp4s = list((target_path / "output").glob("*.mp4"))
-        if not mp4s:
-            print(f"[ERROR] 在 {target_path}/output 下未找到 mp4 视频")
-            sys.exit(1)
-        video_p = mp4s[0]
-    else:
-        video_p = target_path
-
     srt_p = Path(args.srt).resolve() if args.srt else None
-    passed = qa_video(video_p, srt_p)
-    sys.exit(0 if passed else 2)
+
+    if target_path.is_file():
+        passed = qa_video(target_path, srt_p)
+        sys.exit(0 if passed else 2)
+
+    elif target_path.is_dir():
+        # 支持传入 output 目录，或包含 output/ 的项目目录
+        mp4s = sorted(target_path.glob("*.mp4"))
+        if not mp4s and (target_path / "output").is_dir():
+            mp4s = sorted((target_path / "output").glob("*.mp4"))
+
+        if not mp4s:
+            print(f"[ERROR] 在 {target_path} 或 {target_path}/output 下未找到 mp4 视频")
+            sys.exit(1)
+
+        all_ok = True
+        for p in mp4s:
+            ok = qa_video(p, srt_p)
+            if not ok:
+                all_ok = False
+            print()
+        sys.exit(0 if all_ok else 2)
+    else:
+        print(f"[ERROR] 路径不存在: {target_path}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
