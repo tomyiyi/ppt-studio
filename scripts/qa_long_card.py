@@ -21,18 +21,57 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from pathlib import Path
 from PIL import Image
 import numpy as np
 
-# 规范常量
+# 规范默认常量
 STANDARD_WIDTH = 1080
 STANDARD_CARD_HEIGHT = 1350
 HEADER_HEIGHT = 420
 FOOTER_HEIGHT = 320
 ACCENT_RGB = (110, 123, 255)  # #6E7BFF
 BG_RGB = (11, 12, 18)         # #0B0C12
+
+
+def hex_to_rgb(hex_str: str) -> tuple[int, int, int]:
+    """十六进制颜色转 RGB 元组。"""
+    hex_str = hex_str.strip().lstrip("#")
+    if len(hex_str) == 6:
+        try:
+            return (int(hex_str[0:2], 16), int(hex_str[2:4], 16), int(hex_str[4:6], 16))
+        except ValueError:
+            pass
+    return ACCENT_RGB
+
+
+def load_spec_colors(project_dir: Path | None) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+    """从 card_spec.md 或 spec_lock.md 读取 accent / bg 颜色定义。"""
+    accent = ACCENT_RGB
+    bg = BG_RGB
+    if not project_dir or not project_dir.exists():
+        return accent, bg
+
+    candidate_files = [
+        project_dir / "card_spec.md",
+        project_dir / "spec_lock.md",
+    ]
+    for p in candidate_files:
+        if p.exists():
+            try:
+                content = p.read_text(encoding="utf-8")
+                m_acc = re.search(r"accent\s*[:=]?\s*(#[0-9a-fA-F]{6})", content)
+                if m_acc:
+                    accent = hex_to_rgb(m_acc.group(1))
+                m_bg = re.search(r"bg\s*[:=]?\s*(#[0-9a-fA-F]{6})", content)
+                if m_bg:
+                    bg = hex_to_rgb(m_bg.group(1))
+                break
+            except Exception:
+                pass
+    return accent, bg
 
 
 def check_file_and_format(img_path: Path) -> tuple[bool, str, Image.Image | None]:
@@ -71,7 +110,7 @@ def calc_wcag_contrast(gray_block: np.ndarray) -> float:
     return float((lum_fg + 0.05) / (lum_bg + 0.05))
 
 
-def check_header(arr: np.ndarray) -> tuple[bool, str]:
+def check_header(arr: np.ndarray, accent_rgb: tuple[int, int, int] = ACCENT_RGB) -> tuple[bool, str]:
     """检查顶部 Header 区域及其强调条与文本。"""
     if arr.shape[0] < HEADER_HEIGHT:
         return False, "高度不足以容纳 Header"
@@ -79,9 +118,9 @@ def check_header(arr: np.ndarray) -> tuple[bool, str]:
     # 1. 顶部 8px 强调色条
     top_bar = arr[:8, :, :3]
     top_mean = top_bar.mean(axis=(0, 1))
-    dist = np.linalg.norm(top_mean - np.array(ACCENT_RGB))
+    dist = np.linalg.norm(top_mean - np.array(accent_rgb))
     if dist > 30:
-        return False, f"顶部缺失品牌强调色条 (均值 {top_mean.round(1)} vs 预期 {ACCENT_RGB})"
+        return False, f"顶部缺失品牌强调色条 (均值 {top_mean.round(1)} vs 预期 {accent_rgb})"
 
     # 2. Header 文本区域墨量 (y: 60..380)
     header_area = arr[60:380, 80:-80, :3]
@@ -100,7 +139,7 @@ def check_header(arr: np.ndarray) -> tuple[bool, str]:
     return True, f"品牌强调色条完整 · 标题区墨量 {ink_pct:.1f}% · WCAG {contrast:.1f}:1"
 
 
-def check_footer(arr: np.ndarray) -> tuple[bool, str]:
+def check_footer(arr: np.ndarray, accent_rgb: tuple[int, int, int] = ACCENT_RGB) -> tuple[bool, str]:
     """检查底部 Footer 区域及其强调条与文本。"""
     if arr.shape[0] < FOOTER_HEIGHT:
         return False, "高度不足以容纳 Footer"
@@ -108,9 +147,9 @@ def check_footer(arr: np.ndarray) -> tuple[bool, str]:
     # 1. 底部 8px 强调色条
     bot_bar = arr[-8:, :, :3]
     bot_mean = bot_bar.mean(axis=(0, 1))
-    dist = np.linalg.norm(bot_mean - np.array(ACCENT_RGB))
+    dist = np.linalg.norm(bot_mean - np.array(accent_rgb))
     if dist > 30:
-        return False, f"底部缺失品牌强调色条 (均值 {bot_mean.round(1)} vs 预期 {ACCENT_RGB})"
+        return False, f"底部缺失品牌强调色条 (均值 {bot_mean.round(1)} vs 预期 {accent_rgb})"
 
     # 2. Footer 文本区域墨量 (y: end-280..end-20)
     footer_area = arr[-280:-20, 80:-80, :3]
@@ -167,7 +206,13 @@ def parse_card_segments(arr: np.ndarray, has_header: bool, has_footer: bool) -> 
     return best_n, best_gap, slices
 
 
-def check_segments_and_seams(arr: np.ndarray, card_slices: list[tuple[int, int]], gap: int, expected_count: int | None = None) -> tuple[bool, str]:
+def check_segments_and_seams(
+    arr: np.ndarray,
+    card_slices: list[tuple[int, int]],
+    gap: int,
+    expected_count: int | None = None,
+    bg_rgb: tuple[int, int, int] = BG_RGB,
+) -> tuple[bool, str]:
     """检查卡片切片与间距接缝质量。"""
     n = len(card_slices)
     if n < 1:
@@ -183,7 +228,7 @@ def check_segments_and_seams(arr: np.ndarray, card_slices: list[tuple[int, int]]
         if gap_end > gap_start:
             gap_block = arr[gap_start:gap_end, :, :3]
             gap_mean = gap_block.mean(axis=(0, 1))
-            if np.linalg.norm(gap_mean - np.array(BG_RGB)) > 25:
+            if np.linalg.norm(gap_mean - np.array(bg_rgb)) > 25:
                 seam_errors += 1
 
     if seam_errors > 0:
@@ -266,21 +311,7 @@ def run_qa_long_card(target_path: Path, project_dir: Path | None = None) -> bool
 
     arr = np.array(img)
 
-    # 2. 画幅与模式
-    ok_dim, msg_dim = check_dimensions_and_mode(img)
-    print(f"  [{'✓' if ok_dim else '✗'}] 画幅与结构标准     : {msg_dim}")
-
-    # 3. Header
-    ok_header, msg_header = check_header(arr)
-    print(f"  [{'✓' if ok_header else '✗'}] 顶部 Header 统摄   : {msg_header}")
-
-    # 4. Footer
-    ok_footer, msg_footer = check_footer(arr)
-    print(f"  [{'✓' if ok_footer else '✗'}] 底部 Footer 收尾   : {msg_footer}")
-
-    # 卡片切片解析
-    n_cards, gap, slices = parse_card_segments(arr, ok_header, ok_footer)
-
+    # 自动探测 project_dir
     if project_dir is None:
         for candidate in [
             target_path.parent.parent,
@@ -292,12 +323,29 @@ def run_qa_long_card(target_path: Path, project_dir: Path | None = None) -> bool
                 project_dir = candidate.resolve()
                 break
 
+    accent_rgb, bg_rgb = load_spec_colors(project_dir)
+
+    # 2. 画幅与模式
+    ok_dim, msg_dim = check_dimensions_and_mode(img)
+    print(f"  [{'✓' if ok_dim else '✗'}] 画幅与结构标准     : {msg_dim}")
+
+    # 3. Header
+    ok_header, msg_header = check_header(arr, accent_rgb)
+    print(f"  [{'✓' if ok_header else '✗'}] 顶部 Header 统摄   : {msg_header}")
+
+    # 4. Footer
+    ok_footer, msg_footer = check_footer(arr, accent_rgb)
+    print(f"  [{'✓' if ok_footer else '✗'}] 底部 Footer 收尾   : {msg_footer}")
+
+    # 卡片切片解析
+    n_cards, gap, slices = parse_card_segments(arr, ok_header, ok_footer)
+
     expected_count = None
     if project_dir and (project_dir / "cards").exists():
         expected_count = len([p for p in (project_dir / "cards").glob("*.svg") if not p.name.startswith("long_card")])
 
     # 5. 卡片切片与间距
-    ok_seg, msg_seg = check_segments_and_seams(arr, slices, gap, expected_count)
+    ok_seg, msg_seg = check_segments_and_seams(arr, slices, gap, expected_count, bg_rgb)
     print(f"  [{'✓' if ok_seg else '✗'}] 卡片分段与缝合     : {msg_seg}")
 
     # 6. 分段墨量
@@ -323,14 +371,14 @@ def run_qa_long_card(target_path: Path, project_dir: Path | None = None) -> bool
 
 def main():
     parser = argparse.ArgumentParser(description="PPT-Studio 长图客观质量门禁")
-    parser.add_argument("target", help="长图 PNG 文件路径或包含长图/output/*.png 的项目目录")
-    parser.add_argument("--project", help="项目根目录（用于校验源卡片数量）")
+    parser.add_argument("target", nargs="?", default=".", help="长图 PNG 文件路径或包含长图/output/*.png 的项目目录（默认当前目录）")
+    parser.add_argument("--project", help="项目根目录（用于校验源卡片数量与版式规范）")
     args = parser.parse_args()
 
     target = Path(args.target).resolve()
     project = Path(args.project).resolve() if args.project else None
 
-    # 如果是目录，自动查找长图（支持当前目录与 output/ 子目录）
+    # 如果是目录，自动查找长图（支持当前目录、output/ 与 projects/*/output/ 子目录）
     files_to_check = []
     if target.is_dir():
         def find_in_dir(d: Path) -> list[Path]:
@@ -338,15 +386,22 @@ def main():
             for p in ["*长图*.png", "*long_card*.png"]:
                 found.extend(sorted(d.glob(p)))
             if not found:
-                found = [f for f in sorted(d.glob("*.png")) if "卡片" not in f.name]
+                found = [f for f in sorted(d.glob("*.png")) if "卡片" not in f.name and "render" not in f.name]
+            if not found and (d / "output").is_dir():
+                for p in ["*长图*.png", "*long_card*.png"]:
+                    found.extend(sorted((d / "output").glob(p)))
+                if not found:
+                    found = [f for f in sorted((d / "output").glob("*.png")) if "卡片" not in f.name and "render" not in f.name]
+            if not found and (d / "projects").is_dir():
+                for p in sorted((d / "projects").iterdir()):
+                    if p.is_dir() and (p / "output").is_dir():
+                        found.extend(sorted((p / "output").glob("*长图*.png")))
+                        found.extend(sorted((p / "output").glob("*long_card*.png")))
             return found
 
         files_to_check = find_in_dir(target)
-        if not files_to_check and (target / "output").is_dir():
-            files_to_check = find_in_dir(target / "output")
-
         if not files_to_check:
-            print(f"[!] 在目录 {target} 或 {target / 'output'} 下未发现长图 PNG 文件")
+            print(f"[!] 在目录 {target} 或 output/、projects/*/output/ 下未发现长图 PNG 文件")
             sys.exit(1)
     else:
         files_to_check = [target]
