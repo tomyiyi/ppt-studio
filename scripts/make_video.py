@@ -16,13 +16,13 @@ make_video.py —— SVG 画布 + 解说稿 → 自动配音短视频
   - 极速合成与规范化导出（H.264 + AAC，跨端兼容性最佳）
 
 用法：
-  python3 scripts/make_video.py <project_dir> [--voice zh-female] [--subtitles burned] [--out video.mp4]
+  python3 scripts/make_video.py [project_dir] [--voice zh-female] [--subtitles burned] [--out video.mp4]
+  （未传 project 时自动从当前目录或 projects/ 下发现唯一有效项目）
 """
 
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import os
 import re
@@ -60,7 +60,10 @@ def load_voiceover(project_dir: Path) -> list[dict]:
     vo_path = project_dir / "voiceover.json"
     if vo_path.exists():
         with open(vo_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+            if not data:
+                raise ValueError(f"voiceover.json 内容为空: {vo_path}")
+            return data
 
     # 回退：从 notes/*.md 提取
     print("[*] 未找到 voiceover.json，尝试从 notes/*.md 解析...")
@@ -69,6 +72,9 @@ def load_voiceover(project_dir: Path) -> list[dict]:
         raise FileNotFoundError(f"项目未找到 voiceover.json 或 notes 目录: {project_dir}")
 
     note_files = sorted(notes_dir.glob("*.md"))
+    if not note_files:
+        raise ValueError(f"notes/ 目录下未找到任何 .md 文件: {notes_dir}")
+
     vo_list = []
     for nf in note_files:
         stem = nf.stem
@@ -216,12 +222,20 @@ def make_video(
 ) -> Path:
     project_dir = project_dir.resolve()
     vo_items = load_voiceover(project_dir)
+    if not vo_items:
+        raise ValueError("未找到任何有效解说分镜 (voiceover 为空)")
     voice_name = VOICE_MAP.get(voice_key, voice_key)
 
     if out_video_path is None:
-        out_dir = project_dir / "output"
-        out_dir.mkdir(parents=True, exist_ok=True)
+        repo_root = Path(__file__).resolve().parent.parent
         suffix = "_1080p.mp4" if format_ratio == "16:9" else "_竖版.mp4"
+        if (project_dir / "output").is_dir():
+            out_dir = project_dir / "output"
+        elif (repo_root / "output").is_dir():
+            out_dir = repo_root / "output"
+        else:
+            out_dir = project_dir / "output"
+        out_dir.mkdir(parents=True, exist_ok=True)
         out_video_path = out_dir / f"{project_dir.name}{suffix}"
 
     print(f"==================================================")
@@ -400,28 +414,129 @@ def make_video(
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def main():
+def resolve_project_dir(
+    project_arg: str | Path | None = None,
+    base_dir: str | Path | None = None,
+) -> Path:
+    """自适应探测包含视频合成资源的项目目录。
+
+    保留显式 project 参数行为；
+    未传时从当前目录或 projects/ 下安全发现唯一包含 voiceover/notes 及 SVG 画布的项目。
+    """
+    if project_arg is not None and str(project_arg).strip() != "":
+        proj = Path(project_arg)
+        if not proj.is_absolute() and base_dir is not None:
+            proj = (Path(base_dir) / proj).resolve()
+        else:
+            proj = proj.resolve()
+        if not proj.exists():
+            raise FileNotFoundError(f"指定的项目目录不存在: {project_arg}")
+        if proj.name in ("svg_output", "cards", "notes") and proj.is_dir():
+            proj = proj.parent
+        return proj
+
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+
+    def is_valid_project(p: Path) -> bool:
+        if not p.is_dir():
+            return False
+        has_vo = (p / "voiceover.json").is_file() or (
+            (p / "notes").is_dir() and any((p / "notes").glob("*.md"))
+        )
+        has_svg = (
+            ((p / "svg_output").is_dir() and any((p / "svg_output").glob("*.svg")))
+            or ((p / "cards").is_dir() and any((p / "cards").glob("*.svg")))
+        )
+        return has_vo and has_svg
+
+    # 1. 当前目录本身就是有效项目目录
+    if is_valid_project(base):
+        return base
+
+    # 若当前位于子目录 (如 svg_output/、cards/、notes/)
+    if base.name in ("svg_output", "cards", "notes") and is_valid_project(base.parent):
+        return base.parent
+
+    # 2. 从 projects/ 目录下安全发现
+    candidate_projects_dirs: list[Path] = []
+    if base.is_dir() and base.name == "projects":
+        candidate_projects_dirs.append(base)
+    elif (base / "projects").is_dir():
+        candidate_projects_dirs.append(base / "projects")
+    elif base_dir is None:
+        for cand in [base.parent, base.parent.parent, Path(__file__).resolve().parent.parent]:
+            try:
+                p_cand = cand / "projects"
+                if p_cand.is_dir() and p_cand.resolve() not in [d.resolve() for d in candidate_projects_dirs]:
+                    candidate_projects_dirs.append(p_cand)
+                    break
+            except Exception:
+                pass
+
+    found: list[Path] = []
+    seen: set[Path] = set()
+
+    for p_dir in candidate_projects_dirs:
+        for sub in sorted(p_dir.iterdir()):
+            if sub.is_dir() and is_valid_project(sub):
+                r_sub = sub.resolve()
+                if r_sub not in seen:
+                    seen.add(r_sub)
+                    found.append(r_sub)
+        if found:
+            break
+
+    if len(found) == 1:
+        return found[0]
+    elif len(found) == 0:
+        raise FileNotFoundError(
+            "未在当前目录或 projects/ 下发现包含解说稿及 SVG 画布的有效项目，请显式指定 project 参数"
+        )
+    else:
+        names = ", ".join(p.name for p in found)
+        raise ValueError(
+            f"发现多个有效项目 ({names})，无法安全确定，请显式指定 project 参数"
+        )
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="SVG 画布 + 解说稿 → 自动配音短视频")
-    parser.add_argument("project", help="项目根目录，例如 projects/agentflow-os-launch")
+    parser.add_argument(
+        "project",
+        nargs="?",
+        default=None,
+        help="项目根目录，例如 projects/agentflow-os-launch（默认自动发现）",
+    )
     parser.add_argument("--voice", default="zh-female", choices=list(VOICE_MAP.keys()), help="中文 TTS 发音人")
     parser.add_argument("--format", default="16:9", choices=["16:9", "9:16"], help="视频比例")
     parser.add_argument("--subtitles", default="burned", choices=["burned", "soft", "none"], help="字幕模式")
     parser.add_argument("--motion", default="subtle", choices=["subtle", "none"], help="动效模式")
     parser.add_argument("--out", help="自定义输出 MP4 路径")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-    proj_dir = Path(args.project).resolve()
+    try:
+        proj_dir = resolve_project_dir(args.project)
+    except (FileNotFoundError, ValueError) as err:
+        print(f"[err] {err}", file=sys.stderr)
+        return 1
+
     out_p = Path(args.out).resolve() if args.out else None
 
-    make_video(
-        project_dir=proj_dir,
-        voice_key=args.voice,
-        format_ratio=args.format,
-        subtitles_mode=args.subtitles,
-        motion=args.motion,
-        out_video_path=out_p,
-    )
+    try:
+        make_video(
+            project_dir=proj_dir,
+            voice_key=args.voice,
+            format_ratio=args.format,
+            subtitles_mode=args.subtitles,
+            motion=args.motion,
+            out_video_path=out_p,
+        )
+    except Exception as err:
+        print(f"[err] 视频合成失败: {err}", file=sys.stderr)
+        return 1
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
