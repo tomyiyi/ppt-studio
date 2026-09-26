@@ -28,8 +28,17 @@ from pathlib import Path
 from collections import Counter
 import xml.etree.ElementTree as ET
 
-import numpy as np
-from PIL import Image
+# 确保在未显式激活 .venv 时也能从项目内 .venv 加载依赖
+try:
+    import numpy as np
+    from PIL import Image
+except ImportError:
+    repo_root = Path(__file__).resolve().parent.parent
+    for site_pkg in repo_root.glob(".venv/lib/python*/site-packages"):
+        if site_pkg.is_dir() and str(site_pkg) not in sys.path:
+            sys.path.insert(0, str(site_pkg))
+    import numpy as np
+    from PIL import Image
 
 NS = "{http://www.w3.org/2000/svg}"
 CANVAS_W, CANVAS_H = 1280, 720
@@ -189,6 +198,12 @@ def _iter_with_parents(root):
 
 
 def inherited_font_size(t, anc, default=16.0):
+    v = t.get("font-size")
+    if v:
+        try:
+            return float(v)
+        except ValueError:
+            pass
     for a in reversed(anc):
         v = a.get("font-size")
         if v:
@@ -196,12 +211,6 @@ def inherited_font_size(t, anc, default=16.0):
                 return float(v)
             except ValueError:
                 pass
-    v = t.get("font-size")
-    if v:
-        try:
-            return float(v)
-        except ValueError:
-            pass
     return float(default)
 
 

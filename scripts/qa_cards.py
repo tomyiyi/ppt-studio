@@ -38,6 +38,21 @@ from collections import Counter
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+# 确保在未显式激活 .venv 时也能从项目内 .venv 加载依赖
+try:
+    import numpy as np
+    from PIL import Image
+except ImportError:
+    repo_root = Path(__file__).resolve().parent.parent
+    for site_pkg in repo_root.glob(".venv/lib/python*/site-packages"):
+        if site_pkg.is_dir() and str(site_pkg) not in sys.path:
+            sys.path.insert(0, str(site_pkg))
+    try:
+        import numpy as np
+        from PIL import Image
+    except ImportError:
+        pass
+
 DEFAULT_RAMP = {28, 36, 44, 56, 72, 96, 132}
 
 # ---------------------------------------------------------------- 字号阶梯与角色
@@ -177,11 +192,14 @@ def iter_with_parents(root):
             stack.append((k, anc + [e]))
 
 def inherit(e, anc, key, default=None):
+    v = e.get(key)
+    if v is not None:
+        return v
     for a in reversed(anc):
         v = a.get(key)
-        if v:
+        if v is not None:
             return v
-    return e.get(key, default)
+    return default
 
 def flat_text(t):
     return "".join(t.itertext()).strip()

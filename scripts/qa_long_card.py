@@ -24,8 +24,18 @@ import os
 import re
 import sys
 from pathlib import Path
-from PIL import Image
-import numpy as np
+
+# 确保在未显式激活 .venv 时也能从项目内 .venv 加载依赖
+try:
+    from PIL import Image
+    import numpy as np
+except ImportError:
+    repo_root = Path(__file__).resolve().parent.parent
+    for site_pkg in repo_root.glob(".venv/lib/python*/site-packages"):
+        if site_pkg.is_dir() and str(site_pkg) not in sys.path:
+            sys.path.insert(0, str(site_pkg))
+    from PIL import Image
+    import numpy as np
 
 # 规范默认常量
 STANDARD_WIDTH = 1080
