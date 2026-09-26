@@ -57,30 +57,101 @@ def hex_to_rgb(hex_str: str) -> tuple[int, int, int]:
     return ACCENT_RGB
 
 
-def load_spec_colors(project_dir: Path | None) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
-    """从 card_spec.md 或 spec_lock.md 读取 accent / bg 颜色定义。"""
+def parse_colors_from_spec_text(content: str) -> dict[str, str]:
+    """从规范文本解析颜色定义（支持 colors 段落、YAML 列表、键值对以及行内注释）。"""
+    colors: dict[str, str] = {}
+    m_sec = re.search(r"^##\s+colors\s*$(.*?)(?=^##\s|\Z)", content, re.S | re.M)
+    search_text = m_sec.group(1) if m_sec else content
+
+    for line in search_text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        # 支持:
+        # - background: #08090C / background: "#08090C"
+        # - bg: #0B0C12 / bg #0B0C12
+        # - accent: #6E7BFF / accent #6E7BFF
+        # accent_color: #6E7BFF
+        m = re.search(r"^[-*]?\s*([a-zA-Z_]\w*)\s*[:=\s]\s*\"?(#[0-9a-fA-F]{6})\"?", line)
+        if m:
+            key = m.group(1).lower()
+            val = m.group(2).upper()
+            colors[key] = val
+
+    if "accent" not in colors and "accent_color" not in colors:
+        m = re.search(r"\baccent(?:_color)?\s*[:=\s]\s*\"?(#[0-9a-fA-F]{6})\"?", content)
+        if m:
+            colors["accent"] = m.group(1).upper()
+
+    if "bg" not in colors and "background" not in colors and "bg_color" not in colors:
+        m = re.search(r"\b(?:bg|background)(?:_color)?\s*[:=\s]\s*\"?(#[0-9a-fA-F]{6})\"?", content)
+        if m:
+            colors["bg"] = m.group(1).upper()
+
+    return colors
+
+
+def load_spec_colors(project_dir: Path | str | None) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+    """从 card_spec.md 或 spec_lock.md 读取 accent / bg 颜色定义。
+    支持 background/bg, YAML 列表, 引号, 行内注释, 以及项目与全局规范动态发现。"""
     accent = ACCENT_RGB
     bg = BG_RGB
-    if not project_dir or not project_dir.exists():
-        return accent, bg
 
-    candidate_files = [
-        project_dir / "card_spec.md",
-        project_dir / "spec_lock.md",
-    ]
-    for p in candidate_files:
-        if p.exists():
-            try:
-                content = p.read_text(encoding="utf-8")
-                m_acc = re.search(r"accent\s*[:=]?\s*(#[0-9a-fA-F]{6})", content)
-                if m_acc:
-                    accent = hex_to_rgb(m_acc.group(1))
-                m_bg = re.search(r"bg\s*[:=]?\s*(#[0-9a-fA-F]{6})", content)
-                if m_bg:
-                    bg = hex_to_rgb(m_bg.group(1))
+    candidate_files: list[Path] = []
+
+    if project_dir:
+        p = Path(project_dir).resolve()
+        if p.is_file():
+            if p.name in ("card_spec.md", "spec_lock.md"):
+                candidate_files.append(p)
+            candidate_files.append(p.parent / "card_spec.md")
+            candidate_files.append(p.parent / "spec_lock.md")
+        elif p.is_dir():
+            candidate_files.append(p / "card_spec.md")
+            candidate_files.append(p / "spec_lock.md")
+
+    repo_root = Path(__file__).resolve().parent.parent
+    for base in [Path.cwd(), repo_root]:
+        candidate_files.append(base / "card_spec.md")
+        candidate_files.append(base / "spec_lock.md")
+
+    for base in [Path.cwd(), repo_root]:
+        candidate_files.extend(sorted((base / "projects").glob("*/card_spec.md")))
+        candidate_files.extend(sorted((base / "projects").glob("*/spec_lock.md")))
+
+    found_accent: str | None = None
+    found_bg: str | None = None
+
+    seen_paths: set[Path] = set()
+    for cand in candidate_files:
+        if not cand.is_file():
+            continue
+        cand_resolved = cand.resolve()
+        if cand_resolved in seen_paths:
+            continue
+        seen_paths.add(cand_resolved)
+
+        try:
+            content = cand_resolved.read_text(encoding="utf-8")
+            parsed = parse_colors_from_spec_text(content)
+
+            if not found_accent:
+                acc_val = parsed.get("accent") or parsed.get("accent_color")
+                if acc_val:
+                    found_accent = acc_val
+                    accent = hex_to_rgb(acc_val)
+
+            if not found_bg:
+                bg_val = parsed.get("bg") or parsed.get("background") or parsed.get("bg_color")
+                if bg_val:
+                    found_bg = bg_val
+                    bg = hex_to_rgb(bg_val)
+
+            if found_accent and found_bg:
                 break
-            except (OSError, UnicodeError):
-                pass
+        except (OSError, UnicodeError):
+            pass
+
     return accent, bg
 
 
@@ -99,13 +170,18 @@ def check_file_and_format(img_path: Path) -> tuple[bool, str, Image.Image | None
         return False, f"图像无法解码或文件损坏: {e}", None
 
 
-def check_dimensions_and_mode(img: Image.Image) -> tuple[bool, str]:
+def check_dimensions_and_mode(
+    img: Image.Image,
+    require_header: bool = True,
+    require_footer: bool = True,
+) -> tuple[bool, str]:
     """检查图像尺寸与色彩模式。"""
     w, h = img.size
     if w != STANDARD_WIDTH:
         return False, f"长图宽度 {w}px 不符合标准 {STANDARD_WIDTH}px"
-    if h < 2000:
-        return False, f"长图高度 {h}px 异常过低（多卡片长图应 ≥ 2000px）"
+    min_h = 1350 if (not require_header and not require_footer) else 2000
+    if h < min_h:
+        return False, f"长图高度 {h}px 异常过低（多卡片长图应 ≥ {min_h}px）"
     if img.mode not in ("RGB", "RGBA"):
         return False, f"色彩模式 {img.mode} 不合规，要求 RGB 或 RGBA"
     return True, f"{w}×{h} (纵向长图标准) · {img.mode} {img.format}"
@@ -416,10 +492,23 @@ def find_long_cards(target: Path) -> list[Path]:
                 if p.is_dir() and (p / "output").is_dir():
                     found.extend(sorted((p / "output").glob("*长图*.png")))
                     found.extend(sorted((p / "output").glob("*long_card*.png")))
-    return found
+
+    seen: set[Path] = set()
+    deduped: list[Path] = []
+    for f in found:
+        rf = f.resolve()
+        if rf not in seen:
+            seen.add(rf)
+            deduped.append(rf)
+    return deduped
 
 
-def run_qa_long_card(target_path: Path, project_dir: Path | None = None) -> bool:
+def run_qa_long_card(
+    target_path: Path,
+    project_dir: Path | None = None,
+    require_header: bool = True,
+    require_footer: bool = True,
+) -> bool:
     print("=" * 60)
     print("🔍 运行 PPT-Studio 长图导出物客观质量门禁")
     print(f"   目标: {target_path}")
@@ -445,23 +534,34 @@ def run_qa_long_card(target_path: Path, project_dir: Path | None = None) -> bool
     accent_rgb, bg_rgb = load_spec_colors(project_dir)
 
     # 2. 画幅与模式
-    ok_dim, msg_dim = check_dimensions_and_mode(img)
+    ok_dim, msg_dim = check_dimensions_and_mode(img, require_header=require_header, require_footer=require_footer)
     print(f"  [{'✓' if ok_dim else '✗'}] 画幅与结构标准     : {msg_dim}")
 
     # 3. Header
-    ok_header, msg_header = check_header(arr, accent_rgb)
+    if require_header:
+        ok_header, msg_header = check_header(arr, accent_rgb)
+    else:
+        ok_header = True
+        msg_header = "跳过（已声明不含 Header）"
     print(f"  [{'✓' if ok_header else '✗'}] 顶部 Header 统摄   : {msg_header}")
 
     # 4. Footer
-    ok_footer, msg_footer = check_footer(arr, accent_rgb)
+    if require_footer:
+        ok_footer, msg_footer = check_footer(arr, accent_rgb)
+    else:
+        ok_footer = True
+        msg_footer = "跳过（已声明不含 Footer）"
     print(f"  [{'✓' if ok_footer else '✗'}] 底部 Footer 收尾   : {msg_footer}")
 
     # 卡片切片解析
-    n_cards, gap, slices = parse_card_segments(arr, ok_header, ok_footer)
+    n_cards, gap, slices = parse_card_segments(arr, require_header, require_footer)
 
     expected_count = None
     if project_dir and (project_dir / "cards").exists():
-        expected_count = len([p for p in (project_dir / "cards").glob("*.svg") if not p.name.startswith("long_card")])
+        expected_count = len([
+            p for p in (project_dir / "cards").glob("*.svg")
+            if not p.name.startswith("long_card") and not p.name.startswith(".") and "长图" not in p.name
+        ])
 
     # 5. 卡片切片与间距
     ok_seg, msg_seg = check_segments_and_seams(arr, slices, gap, expected_count, bg_rgb)
@@ -492,6 +592,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="PPT-Studio 长图客观质量门禁")
     parser.add_argument("target", nargs="?", default=".", help="长图 PNG 文件路径或包含长图/output/*.png 的项目目录（默认当前目录）")
     parser.add_argument("--project", help="项目根目录（用于校验源卡片数量与版式规范）")
+    parser.add_argument("--no-header", action="store_true", help="声明长图不包含顶部 Header")
+    parser.add_argument("--no-footer", action="store_true", help="声明长图不包含底部 Footer")
     args = parser.parse_args(argv)
 
     target = Path(args.target).resolve()
@@ -516,7 +618,12 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as err:
             print(f"[!] {err}", file=sys.stderr)
             return 1
-        res = run_qa_long_card(f, proj)
+        res = run_qa_long_card(
+            f,
+            proj,
+            require_header=not args.no_header,
+            require_footer=not args.no_footer,
+        )
         if not res:
             all_ok = False
 

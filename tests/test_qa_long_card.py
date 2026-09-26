@@ -19,7 +19,26 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.qa_long_card import resolve_project_dir, find_long_cards, main
+for site_pkg in REPO_ROOT.glob(".venv/lib/python*/site-packages"):
+    if site_pkg.is_dir() and str(site_pkg) not in sys.path:
+        sys.path.insert(0, str(site_pkg))
+
+from PIL import Image
+import numpy as np
+
+from scripts.qa_long_card import (
+    resolve_project_dir,
+    find_long_cards,
+    main,
+    load_spec_colors,
+    parse_colors_from_spec_text,
+    check_dimensions_and_mode,
+    parse_card_segments,
+    run_qa_long_card,
+    hex_to_rgb,
+    ACCENT_RGB,
+    BG_RGB,
+)
 
 
 def create_minimal_card_project(project_path: Path) -> None:
@@ -163,6 +182,141 @@ class TestFindLongCards(unittest.TestCase):
             self.assertEqual(found, [proj_img])
 
 
+class TestLoadSpecColors(unittest.TestCase):
+    """测试规范色彩配置解析与动态发现机制。"""
+
+    def test_parse_colors_from_spec_text_basic(self):
+        text = """## colors
+bg #0B0C12
+accent #6E7BFF
+"""
+        colors = parse_colors_from_spec_text(text)
+        self.assertEqual(colors.get("bg"), "#0B0C12")
+        self.assertEqual(colors.get("accent"), "#6E7BFF")
+
+    def test_parse_colors_with_yaml_bullets_quotes_and_comments(self):
+        text = """## colors
+- background: "#08090C" # 暗黑背景底色
+- accent: #FF6600       # 强调品牌色
+"""
+        colors = parse_colors_from_spec_text(text)
+        self.assertEqual(colors.get("background"), "#08090C")
+        self.assertEqual(colors.get("accent"), "#FF6600")
+
+    def test_load_spec_colors_from_card_spec(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "proj"
+            proj.mkdir()
+            (proj / "card_spec.md").write_text(
+                "## colors\nbg #010203\naccent #112233\n",
+                encoding="utf-8",
+            )
+            acc, bg = load_spec_colors(proj)
+            self.assertEqual(acc, hex_to_rgb("#112233"))
+            self.assertEqual(bg, hex_to_rgb("#010203"))
+
+    def test_load_spec_colors_from_spec_lock_background(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "proj"
+            proj.mkdir()
+            (proj / "spec_lock.md").write_text(
+                "## colors\n- background: #040506\n- accent: #445566\n",
+                encoding="utf-8",
+            )
+            acc, bg = load_spec_colors(proj)
+            self.assertEqual(acc, hex_to_rgb("#445566"))
+            self.assertEqual(bg, hex_to_rgb("#040506"))
+
+    def test_load_spec_colors_complementary_fallback(self):
+        # card_spec 只有 bg，spec_lock 补充 accent
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "proj"
+            proj.mkdir()
+            (proj / "card_spec.md").write_text("## colors\nbg #050607\n", encoding="utf-8")
+            (proj / "spec_lock.md").write_text("## colors\n- accent: #778899\n", encoding="utf-8")
+            acc, bg = load_spec_colors(proj)
+            self.assertEqual(acc, hex_to_rgb("#778899"))
+            self.assertEqual(bg, hex_to_rgb("#050607"))
+
+    def test_load_spec_colors_from_file_path(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "proj"
+            proj.mkdir()
+            spec_file = proj / "card_spec.md"
+            spec_file.write_text("## colors\naccent #AABBCC\nbg #223344\n", encoding="utf-8")
+            acc, bg = load_spec_colors(spec_file)
+            self.assertEqual(acc, hex_to_rgb("#AABBCC"))
+            self.assertEqual(bg, hex_to_rgb("#223344"))
+
+    def test_load_spec_colors_nonexistent_returns_defaults(self):
+        acc, bg = load_spec_colors(Path("/non_existent_project_12345"))
+        # 无法在目标项目找到时，兜底到仓库级规范或默认规范常量
+        self.assertIsInstance(acc, tuple)
+        self.assertEqual(len(acc), 3)
+        self.assertIsInstance(bg, tuple)
+        self.assertEqual(len(bg), 3)
+
+
+class TestCheckDimensionsAndMode(unittest.TestCase):
+    """测试长图尺寸与色彩模式客观校验。"""
+
+    def test_valid_image(self):
+        img = Image.new("RGB", (1080, 2500), color=(10, 10, 10))
+        ok, msg = check_dimensions_and_mode(img)
+        self.assertTrue(ok)
+        self.assertIn("1080×2500", msg)
+
+    def test_wrong_width(self):
+        img = Image.new("RGB", (1920, 2500), color=(10, 10, 10))
+        ok, msg = check_dimensions_and_mode(img)
+        self.assertFalse(ok)
+        self.assertIn("宽度 1920px 不符合标准 1080px", msg)
+
+    def test_height_too_low_with_header_footer(self):
+        img = Image.new("RGB", (1080, 1500), color=(10, 10, 10))
+        ok, msg = check_dimensions_and_mode(img, require_header=True, require_footer=True)
+        self.assertFalse(ok)
+        self.assertIn("异常过低", msg)
+
+    def test_height_allowed_for_no_header_no_footer(self):
+        # 无 Header 无 Footer 时允许 1350px 基础卡片高度
+        img = Image.new("RGB", (1080, 1350), color=(10, 10, 10))
+        ok, msg = check_dimensions_and_mode(img, require_header=False, require_footer=False)
+        self.assertTrue(ok)
+
+    def test_invalid_mode(self):
+        img = Image.new("L", (1080, 2500), color=10)
+        ok, msg = check_dimensions_and_mode(img)
+        self.assertFalse(ok)
+        self.assertIn("色彩模式 L 不合规", msg)
+
+
+class TestParseCardSegments(unittest.TestCase):
+    """测试长图卡片切片序列与间距解析。"""
+
+    def test_parse_with_header_and_footer(self):
+        # 2 张 1350 卡片，间距 16px，header 420px，footer 320px
+        # total_h = 420 + 16 + 1350 + 16 + 1350 + 16 + 320 = 3488
+        arr = np.zeros((3488, 1080, 3), dtype=np.uint8)
+        n, gap, slices = parse_card_segments(arr, has_header=True, has_footer=True)
+        self.assertEqual(n, 2)
+        self.assertEqual(gap, 16)
+        self.assertEqual(len(slices), 2)
+        self.assertEqual(slices[0], (436, 1786))
+        self.assertEqual(slices[1], (1802, 3152))
+
+    def test_parse_without_header_and_footer(self):
+        # 2 张 1350 卡片，间距 16px，无 header，无 footer
+        # total_h = 1350 + 16 + 1350 = 2716
+        arr = np.zeros((2716, 1080, 3), dtype=np.uint8)
+        n, gap, slices = parse_card_segments(arr, has_header=False, has_footer=False)
+        self.assertEqual(n, 2)
+        self.assertEqual(gap, 16)
+        self.assertEqual(len(slices), 2)
+        self.assertEqual(slices[0], (0, 1350))
+        self.assertEqual(slices[1], (1366, 2716))
+
+
 class TestQALongCardCLI(unittest.TestCase):
     def test_cli_explicit_nonexistent_project_fails(self):
         script = REPO_ROOT / "scripts" / "qa_long_card.py"
@@ -195,6 +349,19 @@ class TestQALongCardCLI(unittest.TestCase):
             )
             self.assertEqual(res.returncode, 1)
             self.assertIn("无法安全确定", res.stderr)
+
+    def test_cli_accepts_no_header_and_no_footer_flags(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir)
+            # 运行不存在文件的命令，测试参数解析器能识别 --no-header 与 --no-footer
+            script = REPO_ROOT / "scripts" / "qa_long_card.py"
+            res = subprocess.run(
+                [sys.executable, str(script), "--no-header", "--no-footer", "non_existent_file.png"],
+                capture_output=True,
+                text=True,
+            )
+            # 退出码为 1 (文件不存在或无法解码)，但不能报 unrecognized arguments
+            self.assertNotIn("unrecognized arguments", res.stderr)
 
 
 if __name__ == "__main__":
