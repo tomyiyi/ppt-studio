@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import io
 import os
+import posixpath
 import re
 import sys
 import zipfile
@@ -288,19 +289,22 @@ def check_relationships(z: zipfile.ZipFile, slide_names: list[str]) -> tuple[boo
     broken_rels = []
     
     for s in slide_names:
-        base_dir = os.path.dirname(s)
-        file_name = os.path.basename(s)
+        base_dir = posixpath.dirname(s)
+        file_name = posixpath.basename(s)
         rel_path = f"{base_dir}/_rels/{file_name}.rels"
         
         if rel_path in z.namelist():
             try:
                 root = ET.fromstring(z.read(rel_path))
                 for rel in root.findall(f"{NS_R}Relationship"):
+                    if rel.get("TargetMode") == "External":
+                        continue
                     target = rel.get("Target", "")
-                    if target.startswith("../"):
-                        norm_target = "ppt/" + target.replace("../", "")
-                        if norm_target not in z.namelist():
-                            broken_rels.append(f"{s} -> {target}")
+                    if not target:
+                        continue
+                    norm_target = posixpath.normpath(posixpath.join(base_dir, target))
+                    if norm_target not in z.namelist():
+                        broken_rels.append(f"{s} -> {target}")
             except Exception as e:
                 broken_rels.append(f"{rel_path} ({e})")
 
@@ -379,67 +383,108 @@ def run_qa_pptx(
         return False
 
 
-def main():
+def find_spec_lock(target_path: Path | str | None = None) -> Path | None:
+    """在目标路径周边或默认项目路径中发现 spec_lock.md。"""
+    candidates: list[Path] = []
+    if target_path:
+        tp = Path(target_path).resolve()
+        candidates.extend([
+            tp / "spec_lock.md",
+            tp.parent / "spec_lock.md",
+            tp.parent.parent / "spec_lock.md",
+        ])
+    candidates.extend([
+        Path.cwd() / "spec_lock.md",
+        Path.cwd() / "projects/agentflow-os-launch/spec_lock.md",
+        Path(__file__).resolve().parent.parent / "projects/agentflow-os-launch/spec_lock.md",
+    ])
+    for c in candidates:
+        if c and c.is_file():
+            return c.resolve()
+    return None
+
+
+def find_pptx_files(target: Path | str = ".", base_dir: Path | None = None) -> list[Path]:
+    """发现并解析待质检的 PPTX 文件列表。"""
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    target_path = Path(target)
+    if not target_path.is_absolute():
+        target_path = (base / target_path).resolve()
+
+    if not target_path.exists():
+        raise FileNotFoundError(f"目标路径不存在: {target_path}")
+
+    if target_path.is_file():
+        if target_path.suffix.lower() == ".pptx":
+            return [target_path]
+        raise ValueError(f"目标文件不是 PPTX 文件: {target_path}")
+
+    found: list[Path] = []
+    # 1. 目标目录直接包含的 *.pptx
+    found.extend(sorted(target_path.glob("*.pptx")))
+    # 2. 目标目录中的 output/ 子目录
+    if (target_path / "output").is_dir():
+        found.extend(sorted((target_path / "output").glob("*.pptx")))
+    # 3. 目标目录中的 projects/*/output/ 子目录
+    candidate_p_dirs: list[Path] = []
+    if (target_path / "projects").is_dir():
+        candidate_p_dirs.append(target_path / "projects")
+    elif target_path.name == "projects":
+        candidate_p_dirs.append(target_path)
+    elif (target_path.parent / "projects").is_dir():
+        candidate_p_dirs.append(target_path.parent / "projects")
+
+    for p_dir in candidate_p_dirs:
+        for p in sorted(p_dir.iterdir()):
+            if p.is_dir() and (p / "output").is_dir():
+                found.extend(sorted((p / "output").glob("*.pptx")))
+
+    # 4. 向上查找 output 目录（如从子目录调用）
+    if not found and (target_path.parent / "output").is_dir():
+        found.extend(sorted((target_path.parent / "output").glob("*.pptx")))
+    if not found and (target_path.parent.parent / "output").is_dir():
+        found.extend(sorted((target_path.parent.parent / "output").glob("*.pptx")))
+
+    # 去重保持顺序，排除 .venv 与 site-packages
+    seen: set[Path] = set()
+    deduped: list[Path] = []
+    for f in found:
+        rf = f.resolve()
+        if rf not in seen and ".venv" not in str(rf) and "site-packages" not in str(rf):
+            seen.add(rf)
+            deduped.append(rf)
+    return deduped
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="PPT-Studio PPTX 导出物客观回读质检")
     parser.add_argument("target", nargs="?", default=".", help="PPTX 文件路径，或包含 *.pptx / output/*.pptx 的目录（默认当前目录）")
     parser.add_argument("--spec", help="可选指定 spec_lock.md 路径")
     parser.add_argument("--expected-slides", type=int, help="可选预期总页数")
     parser.add_argument("--expected-media", type=int, help="可选预期媒体文件数")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-    target_path = Path(args.target).resolve()
-    spec_path = Path(args.spec).resolve() if args.spec else None
+    try:
+        pptx_files = find_pptx_files(args.target)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"[!] {e}", file=sys.stderr)
+        return 1
 
-    # 如果没有指定 spec，尝试在常见位置寻找
-    if not spec_path:
-        for candidate in [
-            target_path / "spec_lock.md",
-            target_path.parent / "spec_lock.md",
-            target_path.parent.parent / "spec_lock.md",
-            Path.cwd() / "projects/agentflow-os-launch/spec_lock.md",
-            Path(__file__).resolve().parent.parent / "projects/agentflow-os-launch/spec_lock.md",
-        ]:
-            if candidate and candidate.exists():
-                spec_path = candidate.resolve()
-                break
+    if not pptx_files:
+        print(f"[!] 目录 {args.target} 及其子目录下未找到 .pptx 文件", file=sys.stderr)
+        return 1
 
-    if target_path.is_file():
-        success = run_qa_pptx(target_path, spec_path, args.expected_slides, args.expected_media)
-        sys.exit(0 if success else 1)
+    spec_path = Path(args.spec).resolve() if args.spec else find_spec_lock(Path(args.target).resolve())
 
-    elif target_path.is_dir():
-        def find_pptx(d: Path) -> list[Path]:
-            found = sorted(d.glob("*.pptx"))
-            if not found and (d / "output").is_dir():
-                found = sorted((d / "output").glob("*.pptx"))
-            if not found and (d / "projects").is_dir():
-                for p in sorted((d / "projects").iterdir()):
-                    if p.is_dir() and (p / "output").is_dir():
-                        found.extend(sorted((p / "output").glob("*.pptx")))
-            if not found and (d.parent / "output").is_dir():
-                found = sorted((d.parent / "output").glob("*.pptx"))
-            if not found and (d.parent.parent / "output").is_dir():
-                found = sorted((d.parent.parent / "output").glob("*.pptx"))
-            if not found and Path("output").is_dir():
-                found = sorted(Path("output").glob("*.pptx"))
-            return found
+    all_ok = True
+    for p in pptx_files:
+        ok = run_qa_pptx(p, spec_path, args.expected_slides, args.expected_media)
+        if not ok:
+            all_ok = False
+        print()
 
-        pptx_files = find_pptx(target_path)
-        if not pptx_files:
-            print(f"[!] 目录 {target_path} 或 output/ 下未找到 .pptx 文件")
-            sys.exit(1)
-
-        all_ok = True
-        for p in pptx_files:
-            ok = run_qa_pptx(p, spec_path, args.expected_slides, args.expected_media)
-            if not ok:
-                all_ok = False
-            print()
-        sys.exit(0 if all_ok else 1)
-    else:
-        print(f"[!] 路径无效: {target_path}")
-        sys.exit(1)
+    return 0 if all_ok else 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
