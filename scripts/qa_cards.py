@@ -57,48 +57,75 @@ DEFAULT_RAMP = {28, 36, 44, 56, 72, 96, 132}
 
 # ---------------------------------------------------------------- 字号阶梯与角色
 def load_ramp(spec_path):
-    if not spec_path or not os.path.exists(str(spec_path)):
+    if not spec_path:
+        return set(DEFAULT_RAMP)
+    p = Path(spec_path)
+    if not p.exists():
         print(f"[warn] 找不到 {spec_path}，用默认阶梯")
         return set(DEFAULT_RAMP)
-    txt = Path(spec_path).read_text(encoding="utf-8")
-    m = re.search(r"^##\s+typography\s*$(.*?)(?=^##\s|\Z)", txt, re.S | re.M)
-    if not m:
+    if p.name == "spec_lock.md":
+        # spec_lock.md 专属于 PPT 16:9 画布阶梯，卡片默认继承卡片规范阶梯
         return set(DEFAULT_RAMP)
+    txt = p.read_text(encoding="utf-8")
+
     out = set()
-    for line in m.group(1).splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        mm = re.match(r"^(\d+)\s+(\w+)", line)
-        if mm:
-            out.add(int(mm.group(1)))
+    # 格式 1: - sizes: [28, 36, 44, 56, 72, 96, 132]
+    m_sizes = re.search(r"-\s*sizes:\s*\[([0-9,\s]+)\]", txt)
+    if m_sizes:
+        for x in m_sizes.group(1).split(","):
+            s = x.strip()
+            if s.isdigit():
+                out.add(int(s))
+
+    # 格式 2: ## typography 段
+    m = re.search(r"^##\s+typography\s*$(.*?)(?=^##\s|\Z)", txt, re.S | re.M)
+    if m:
+        for line in m.group(1).splitlines():
+            line = line.split("#")[0].strip()
+            if not line:
+                continue
+            # 支持 72 statement 或 - 72 statement
+            mm1 = re.match(r"^[-*]?\s*(\d+)\s+([a-zA-Z_]\w*)", line)
+            if mm1:
+                out.add(int(mm1.group(1)))
+                continue
+            # 支持 - statement: 72 或 statement: 72
+            mm2 = re.match(r"^[-*]?\s*([a-zA-Z_]\w*)\s*[:=]\s*(\d+)", line)
+            if mm2:
+                out.add(int(mm2.group(2)))
+
     return out or set(DEFAULT_RAMP)
 
 
 def load_spec_roles(spec_path):
     """从 card_spec.md 的 ## typography 段读取 (role -> font_size) 映射。"""
-    if not spec_path or not os.path.exists(str(spec_path)):
+    if not spec_path:
         return {}
-    txt = Path(spec_path).read_text(encoding="utf-8")
+    p = Path(spec_path)
+    if not p.exists() or p.name == "spec_lock.md":
+        return {}
+    txt = p.read_text(encoding="utf-8")
     m = re.search(r"^##\s+typography\s*$(.*?)(?=^##\s|\Z)", txt, re.S | re.M)
     if not m:
         return {}
     roles = {}
     for line in m.group(1).splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
+        line = line.split("#")[0].strip()
+        if not line:
             continue
-        mm = re.match(r"^(\d+)\s+(\w+)", line)
-        if mm:
-            roles[mm.group(2)] = int(mm.group(1))
+        # 支持 72 statement 或 - 72 statement
+        mm1 = re.match(r"^[-*]?\s*(\d+)\s+([a-zA-Z_]\w*)", line)
+        if mm1:
+            roles[mm1.group(2)] = int(mm1.group(1))
+            continue
+        # 支持 - statement: 72 或 statement: 72
+        mm2 = re.match(r"^[-*]?\s*([a-zA-Z_]\w*)\s*[:=]\s*(\d+)", line)
+        if mm2:
+            roles[mm2.group(1)] = int(mm2.group(2))
     return roles
 
 
-def load_spec_colors(spec_path):
-    """从 card_spec.md 的 ## colors 段读取色彩配置。"""
-    if not spec_path or not os.path.exists(str(spec_path)):
-        return {}
-    txt = Path(spec_path).read_text(encoding="utf-8")
+def parse_colors_from_text(txt: str) -> dict[str, str]:
     m = re.search(r"^##\s+colors\s*$(.*?)(?=^##\s|\Z)", txt, re.S | re.M)
     if not m:
         return {}
@@ -107,9 +134,34 @@ def load_spec_colors(spec_path):
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        mm = re.match(r"^(\w+)\s+(#[0-9a-fA-F]{6})", line)
+        # 支持 accent #6E7BFF / - accent: #6E7BFF / accent: "#6E7BFF" / bg #0B0C12 → ...
+        mm = re.search(r"^[-*]?\s*([a-zA-Z_]\w*)\s*[:=\s]\s*\"?(#[0-9a-fA-F]{6})\"?", line)
         if mm:
             colors[mm.group(1)] = mm.group(2).upper()
+    return colors
+
+
+def load_spec_colors(spec_path):
+    """从 card_spec.md（或兜底 spec_lock.md）的 ## colors 段读取色彩配置。"""
+    if not spec_path:
+        return {}
+    p = Path(spec_path)
+    if not p.exists():
+        return {}
+    txt = p.read_text(encoding="utf-8")
+    colors = parse_colors_from_text(txt)
+
+    # 若未找到 accent，尝试从同级 spec_lock.md 补充
+    if "accent" not in colors and p.name != "spec_lock.md":
+        lock_p = p.parent / "spec_lock.md"
+        if lock_p.is_file():
+            try:
+                lock_colors = parse_colors_from_text(lock_p.read_text(encoding="utf-8"))
+                for k, v in lock_colors.items():
+                    colors.setdefault(k, v)
+            except OSError:
+                pass
+
     return colors
 
 
@@ -282,6 +334,17 @@ def run_qa_cards(
             if candidate and candidate.exists():
                 spec_file = candidate.resolve()
                 break
+
+        if not spec_file:
+            for candidate in [
+                card_path / "spec_lock.md",
+                card_path.parent / "spec_lock.md",
+                card_path.parent.parent / "spec_lock.md",
+                Path.cwd() / "spec_lock.md",
+            ]:
+                if candidate and candidate.is_file():
+                    spec_file = candidate.resolve()
+                    break
 
     # 自动探测 render_cards 目录
     if not render_path:

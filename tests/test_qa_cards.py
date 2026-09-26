@@ -151,6 +151,27 @@ class TestCardSpecLoading(unittest.TestCase):
             ramp = load_ramp(spec_path)
             self.assertEqual(ramp, {28, 36, 44, 72, 96, 132})
 
+    def test_load_ramp_from_sizes_directive(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            spec_path = Path(tmp_dir) / "card_spec.md"
+            spec_path.write_text("- sizes: [28, 36, 44, 56, 72, 96, 132]\n", encoding="utf-8")
+            ramp = load_ramp(spec_path)
+            self.assertEqual(ramp, {28, 36, 44, 56, 72, 96, 132})
+
+    def test_load_ramp_from_yaml_mapping_and_bullets(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            spec_path = Path(tmp_dir) / "card_spec.md"
+            spec_path.write_text(
+                """## typography
+- statement: 72 # 跨卡主句
+- hero: 132 # 封面主标
+- 36 body # 正文字号
+""",
+                encoding="utf-8",
+            )
+            ramp = load_ramp(spec_path)
+            self.assertEqual(ramp, {36, 72, 132})
+
     def test_load_spec_roles(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             spec_path = Path(tmp_dir) / "card_spec.md"
@@ -165,6 +186,20 @@ class TestCardSpecLoading(unittest.TestCase):
             roles = load_spec_roles(spec_path)
             self.assertEqual(roles.get("statement"), 72)
             self.assertEqual(roles.get("caption"), 36)
+
+    def test_load_spec_roles_yaml_and_bullets_with_comments(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            spec_path = Path(tmp_dir) / "card_spec.md"
+            spec_path.write_text(
+                """## typography
+- statement: 72 # 主句
+- 44 subtitle # 副标题
+""",
+                encoding="utf-8",
+            )
+            roles = load_spec_roles(spec_path)
+            self.assertEqual(roles.get("statement"), 72)
+            self.assertEqual(roles.get("subtitle"), 44)
 
     def test_load_spec_colors(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -181,9 +216,47 @@ text_primary #F0F3FF
             self.assertEqual(colors.get("accent"), "#6E7BFF")
             self.assertEqual(colors.get("background"), "#0A0D14")
 
+    def test_load_spec_colors_yaml_and_inline_comments(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            spec_path = Path(tmp_dir) / "card_spec.md"
+            spec_path.write_text(
+                """## colors
+- accent: #6E7BFF # 品牌强调色
+- bg: "#08090C" # 暗色背景
+""",
+                encoding="utf-8",
+            )
+            colors = load_spec_colors(spec_path)
+            self.assertEqual(colors.get("accent"), "#6E7BFF")
+            self.assertEqual(colors.get("bg"), "#08090C")
+
+    def test_load_spec_colors_fallback_to_spec_lock(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "proj"
+            proj.mkdir()
+            (proj / "card_spec.md").write_text("## colors\nbg #000000\n", encoding="utf-8")
+            (proj / "spec_lock.md").write_text("## colors\n- accent: #6E7BFF\n", encoding="utf-8")
+            colors = load_spec_colors(proj / "card_spec.md")
+            self.assertEqual(colors.get("bg"), "#000000")
+            self.assertEqual(colors.get("accent"), "#6E7BFF")
+
+    def test_spec_lock_fallback_uses_default_card_ramp(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            spec_lock = Path(tmp_dir) / "spec_lock.md"
+            spec_lock.write_text(
+                "## typography\n- sizes: [11, 13, 16, 20, 24, 32, 44, 56, 96]\n- statement: 56\n",
+                encoding="utf-8",
+            )
+            ramp = load_ramp(spec_lock)
+            self.assertEqual(ramp, DEFAULT_RAMP)
+            roles = load_spec_roles(spec_lock)
+            self.assertEqual(roles, {})
+
     def test_fallback_ramp_on_missing_spec(self):
         ramp = load_ramp(Path("/non_existent_dir_spec/card_spec.md"))
         self.assertEqual(ramp, DEFAULT_RAMP)
+        ramp_none = load_ramp(None)
+        self.assertEqual(ramp_none, DEFAULT_RAMP)
 
 
 class TestStatementConsistency(unittest.TestCase):
