@@ -11,11 +11,13 @@
   4. 接缝     —— 复用 prepare_agnes_image.detect_seam
 
 用法：
-  python3 analyze_image.py <img> [<img> ...]
+  python3 analyze_image.py [path ...] [--json] [--check]
 """
 
 from __future__ import annotations
 
+import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -60,7 +62,11 @@ def subject_sharp(im: Image.Image, pct: float = 99.0) -> float:
     所以判断"线条是否锐利"必须框定到主体上再算。
     """
     g = np.asarray(im.convert("L"), dtype=np.float64)
-    t = np.percentile(g, pct)
+    if g.size == 0 or g.max() == 0:
+        return 0.0
+    t = float(np.percentile(g, pct))
+    if t <= 0.0:
+        t = 1.0
     ys, xs = np.where(g >= t)
     if ys.size < 50:
         return 0.0
@@ -73,26 +79,47 @@ def subject_sharp(im: Image.Image, pct: float = 99.0) -> float:
 def ink_map(im: Image.Image, thresh_pct: float = 97.0) -> np.ndarray:
     """亮像素在 3x3 网格中的占比矩阵（行=上中下，列=左中右）。"""
     g = np.asarray(im.convert("L"), dtype=np.float32)
+    H, W = g.shape
+    if H == 0 or W == 0:
+        return np.zeros((3, 3), dtype=np.float32)
     t = np.percentile(g, thresh_pct)
     mask = (g >= t).astype(np.float32)
-    H, W = mask.shape
     m = np.zeros((3, 3), dtype=np.float32)
+    if H < 3 or W < 3:
+        mean_val = float(mask.mean())
+        m.fill(mean_val / 9.0 if mean_val > 0 else 0.0)
+        tot = m.sum() or 1.0
+        return m / tot
+
     for r in range(3):
+        r_start = r * H // 3
+        r_end = (r + 1) * H // 3 if r < 2 else H
         for c in range(3):
-            blk = mask[r * H // 3:(r + 1) * H // 3, c * W // 3:(c + 1) * W // 3]
-            m[r, c] = blk.mean()
-    tot = m.sum() or 1.0
+            c_start = c * W // 3
+            c_end = (c + 1) * W // 3 if c < 2 else W
+            blk = mask[r_start:r_end, c_start:c_end]
+            if blk.size > 0:
+                m[r, c] = blk.mean()
+    tot = float(m.sum())
+    if tot == 0.0:
+        return m
     return m / tot
 
 
-def report(path: Path) -> dict:
-    im = Image.open(path).convert("RGB")
+def report(path: Path | str) -> dict:
+    p = Path(path).resolve()
+    if not p.is_file():
+        raise FileNotFoundError(f"文件不存在: {path}")
+    im = Image.open(p).convert("RGB")
     g = np.asarray(im.convert("L"), dtype=np.float32)
     m = ink_map(im)
     col = "左  中  右"
     return {
-        "name": path.name,
+        "name": p.name,
+        "path": str(p),
         "size": f"{im.size[0]}x{im.size[1]}",
+        "width": im.size[0],
+        "height": im.size[1],
         "sharp": laplacian_variance(im),
         "ssharp": subject_sharp(im),
         "mean": float(g.mean()),
@@ -103,25 +130,167 @@ def report(path: Path) -> dict:
     }
 
 
-def main() -> int:
-    if len(sys.argv) < 2:
-        print("用法: python3 analyze_image.py <img> [<img> ...]")
-        return 2
+def resolve_image_targets(
+    target_paths: list[str | Path] | str | Path | None = None,
+) -> list[Path]:
+    """解析目标图片文件列表。支持单个文件、图片目录、项目根目录（自动探寻 images/）或自发现唯一项目。"""
+    if target_paths is not None:
+        if isinstance(target_paths, (str, Path)):
+            raw_list = [target_paths]
+        else:
+            raw_list = list(target_paths)
+    else:
+        raw_list = []
+
+    resolved: list[Path] = []
+    seen = set()
+
+    def add_path(p: Path):
+        rp = p.resolve()
+        if rp not in seen:
+            seen.add(rp)
+            resolved.append(p)
+
+    if raw_list:
+        for item in raw_list:
+            p = Path(item).resolve()
+            if not p.exists():
+                raise FileNotFoundError(f"指定的路径不存在: {item}")
+            if p.is_file():
+                add_path(p)
+            elif p.is_dir():
+                img_dir = p / "images"
+                if img_dir.is_dir():
+                    candidates = [
+                        f for f in sorted(img_dir.glob("*.png"))
+                        if not f.name.startswith(("_pre_", "_raw_"))
+                    ]
+                    if candidates:
+                        for c in candidates:
+                            add_path(c)
+                        continue
+                candidates = [
+                    f for f in sorted(p.glob("*.png"))
+                    if not f.name.startswith(("_pre_", "_raw_"))
+                ]
+                if candidates:
+                    for c in candidates:
+                        add_path(c)
+                else:
+                    raise ValueError(f"在目录 {item} 中未找到可处理的 PNG 图片")
+        return resolved
+
+    # 未显式指定 target_paths 时，尝试自发现
+    cwd_images = Path("images").resolve()
+    if cwd_images.is_dir():
+        candidates = [
+            f for f in sorted(cwd_images.glob("*.png"))
+            if not f.name.startswith(("_pre_", "_raw_"))
+        ]
+        if candidates:
+            return candidates
+
+    repo_root = Path(__file__).resolve().parent.parent
+    projects_dir = repo_root / "projects"
+    if projects_dir.is_dir():
+        project_subdirs = [
+            d for d in projects_dir.iterdir() if d.is_dir() and not d.name.startswith(".")
+        ]
+        projects_with_images = [
+            d for d in project_subdirs
+            if (d / "images").is_dir() and any((d / "images").glob("*.png"))
+        ]
+        if len(projects_with_images) == 1:
+            candidates = [
+                f for f in sorted((projects_with_images[0] / "images").glob("*.png"))
+                if not f.name.startswith(("_pre_", "_raw_"))
+            ]
+            if candidates:
+                return candidates
+        elif len(projects_with_images) > 1:
+            names = ", ".join(d.name for d in projects_with_images)
+            raise ValueError(f"发现多个项目包含图片目录 ({names})，请显式指定路径")
+
+    raise ValueError("未指定路径且无法安全自动发现图片目录，请提供图片文件或目录路径")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="配图客观验收（当无法肉眼看图时用数据代替眼睛）"
+    )
+    parser.add_argument(
+        "images",
+        nargs="*",
+        default=None,
+        help="目标图片文件、图片目录或项目路径（默认自发现当前或 projects/* 项目中的 images/）",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="以 JSON 格式输出分析指标",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="运行质量门禁判定：若发现严重模糊 (主体锐 < 40)、存在接缝或整体过暗 (P99 < 30) 则返回退出码 1",
+    )
+
+    args = parser.parse_args(argv)
+
+    try:
+        paths = resolve_image_targets(args.images if args.images else None)
+    except Exception as e:
+        print(f"[err] {e}", file=sys.stderr)
+        return 1
+
+    if not paths:
+        print("[err] 没有可分析的 PNG 图片", file=sys.stderr)
+        return 1
+
+    reports = []
+    has_check_failure = False
+
+    for p in paths:
+        try:
+            r = report(p)
+            reports.append(r)
+            if args.check:
+                if r["ssharp"] < 40.0 or r["seam"] is not None or r["p99"] < 30.0:
+                    has_check_failure = True
+        except Exception as e:
+            print(f"[err] 分析 {p} 失败: {e}", file=sys.stderr)
+            if args.check:
+                has_check_failure = True
+
+    if args.json:
+        json_data = []
+        for r in reports:
+            item = dict(r)
+            item["ink"] = item["ink"].tolist() if hasattr(item["ink"], "tolist") else item["ink"]
+            json_data.append(item)
+        print(json.dumps(json_data, ensure_ascii=False, indent=2))
+        return 1 if (args.check and has_check_failure) else 0
+
     print(f"{'文件':<22}{'尺寸':>10}{'全图锐':>8}{'主体锐':>8}{'均亮':>7}{'P99':>7}  "
           f"主体分布(上/中/下 × 左/中/右, %)      接缝")
     print("-" * 128)
-    for p in sys.argv[1:]:
-        r = report(Path(p))
+    for r in reports:
         rows = ["  ".join(f"{r['ink'][i][j]*100:5.1f}" for j in range(3)) for i in range(3)]
         print(f"{r['name']:<22}{r['size']:>10}{r['sharp']:>8.1f}{r['ssharp']:>8.1f}"
               f"{r['mean']:>7.1f}{r['p99']:>7.1f}  "
               f"{rows[0]}  |  {rows[1]}  |  {rows[2]}   {r['seam']}")
+
     print("\n判读：")
     print("  主体锐 —— 只框定最亮 1% 像素区域算的拉普拉斯方差，判断线条是否锐利；<80 判糊")
     print("  全图锐 —— 含大片纯黑，会被稀释，仅作参考")
     print("  主体分布 —— 每格 11% 为均匀分布基线；最高格 >=25% 才有明确主体，<15% 视为没画出图形")
     print("  P99 —— 亮部强度，<40 说明整体过暗没高光")
     print("  接缝 —— None 为无；有数值交由 prepare_agnes_image.py --seam 修")
+
+    if args.check and has_check_failure:
+        print("\n[门禁] ⚠️ 存在未通过客观质量门禁的配图（模糊/接缝/过暗）", file=sys.stderr)
+        return 1
+
     return 0
 
 
