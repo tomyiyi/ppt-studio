@@ -27,6 +27,7 @@ from PIL import Image
 
 from scripts.make_long_card import (
     hex_to_rgb,
+    parse_colors_from_spec_text,
     read_project_meta,
     build_header_image,
     build_footer_image,
@@ -35,6 +36,11 @@ from scripts.make_long_card import (
     main,
     BG_COLOR,
     ACCENT_COLOR,
+    SURFACE_COLOR,
+    RULE_COLOR,
+    TEXT_MAIN,
+    TEXT_MUTED,
+    TEXT_DIM,
 )
 
 
@@ -73,6 +79,30 @@ class TestHexToRgb(unittest.TestCase):
         self.assertEqual(hex_to_rgb("", (1, 2, 3)), (1, 2, 3))
 
 
+class TestParseColorsFromSpecText(unittest.TestCase):
+    def test_colors_section_with_comments_and_quotes(self):
+        spec_text = """
+## colors
+- background: "#08090C"  # 底色
+- surface: #12131A       # 表面色
+- divider: "#23242E"     # 分割线
+- primary_text: #F7F7F9  # 主字
+- secondary_text: #8E8F9A # 次字
+- tertiary_text: #7F8090 # 弱字
+- accent: #6E7BFF        # 强调色
+- terminal_bg: #0E0F14   # 终端底色
+"""
+        colors = parse_colors_from_spec_text(spec_text)
+        self.assertEqual(colors.get("background"), "#08090C")
+        self.assertEqual(colors.get("surface"), "#12131A")
+        self.assertEqual(colors.get("divider"), "#23242E")
+        self.assertEqual(colors.get("primary_text"), "#F7F7F9")
+        self.assertEqual(colors.get("secondary_text"), "#8E8F9A")
+        self.assertEqual(colors.get("tertiary_text"), "#7F8090")
+        self.assertEqual(colors.get("accent"), "#6E7BFF")
+        self.assertEqual(colors.get("terminal_bg"), "#0E0F14")
+
+
 class TestReadProjectMeta(unittest.TestCase):
     def test_default_meta_without_spec(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -108,6 +138,60 @@ class TestReadProjectMeta(unittest.TestCase):
             self.assertEqual(meta["bg_color"], (101, 67, 33))
             self.assertEqual(meta["headline"], "新一代智能体发布")
 
+    def test_meta_with_full_spec_lock(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "spec-proj"
+            proj.mkdir()
+            spec_file = proj / "spec_lock.md"
+            spec_file.write_text(
+                "## communication\n"
+                "- objective: 验证全量色彩提取\n"
+                "- core_message: 规范全覆盖\n"
+                "\n"
+                "## colors\n"
+                "- background: #08090C\n"
+                "- surface: #12131A\n"
+                "- divider: #23242E\n"
+                "- primary_text: #F7F7F9\n"
+                "- secondary_text: #8E8F9A\n"
+                "- tertiary_text: #7F8090\n"
+                "- accent: #6E7BFF\n"
+                "- terminal_bg: #0E0F14\n"
+                "\n"
+                "## typography\n"
+                "- title: 32\n",
+                encoding="utf-8",
+            )
+            meta = read_project_meta(proj)
+            # background 优先匹配，不被 terminal_bg 污染
+            self.assertEqual(meta["bg_color"], (8, 9, 12))
+            self.assertEqual(meta["surface_color"], (18, 19, 26))
+            self.assertEqual(meta["rule_color"], (35, 36, 46))
+            self.assertEqual(meta["text_main"], (247, 247, 249))
+            self.assertEqual(meta["text_muted"], (142, 143, 154))
+            self.assertEqual(meta["text_dim"], (127, 128, 144))
+            self.assertEqual(meta["accent_color"], (110, 123, 255))
+            # title 排除纯数字 32，退回到项目目录名称推导
+            self.assertEqual(meta["title"], "Spec Proj")
+
+    def test_meta_title_from_spec_and_cover_note(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "agentflow-test"
+            proj.mkdir()
+            spec_file = proj / "card_spec.md"
+            spec_file.write_text("- title: 演示主标题\n", encoding="utf-8")
+            meta = read_project_meta(proj)
+            self.assertEqual(meta["title"], "演示主标题")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "agentflow-fallback"
+            proj.mkdir()
+            notes_dir = proj / "notes"
+            notes_dir.mkdir()
+            (notes_dir / "01_cover.md").write_text("# 封面 Markdown 标题\n正文", encoding="utf-8")
+            meta = read_project_meta(proj)
+            self.assertEqual(meta["title"], "封面 Markdown 标题")
+
 
 class TestBuildHeaderFooter(unittest.TestCase):
     def test_build_header_image(self):
@@ -123,6 +207,29 @@ class TestBuildHeaderFooter(unittest.TestCase):
         self.assertEqual(img.size, (1080, 320))
         self.assertEqual(img.mode, "RGB")
         img.close()
+
+    def test_build_header_and_footer_with_custom_theme_colors(self):
+        meta = {
+            "title": "Custom Theme",
+            "accent_color": (255, 100, 50),
+            "bg_color": (5, 5, 10),
+            "surface_color": (20, 20, 30),
+            "rule_color": (40, 40, 60),
+            "text_main": (250, 250, 255),
+            "text_muted": (180, 180, 200),
+            "text_dim": (120, 120, 140),
+        }
+        h_img = build_header_image(width=500, meta=meta, card_count=2)
+        self.assertEqual(h_img.size, (500, 420))
+        # 顶部 8px 应包含自定义 accent 颜色 (255, 100, 50)
+        self.assertEqual(h_img.getpixel((10, 4)), (255, 100, 50))
+        h_img.close()
+
+        f_img = build_footer_image(width=500, meta=meta)
+        self.assertEqual(f_img.size, (500, 320))
+        # 底部 8px 应包含自定义 accent 颜色
+        self.assertEqual(f_img.getpixel((10, 316)), (255, 100, 50))
+        f_img.close()
 
 
 class TestResolveProjectDir(unittest.TestCase):

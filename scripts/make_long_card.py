@@ -56,6 +56,40 @@ def hex_to_rgb(hex_str: str, default: tuple[int, int, int]) -> tuple[int, int, i
     return default
 
 
+def parse_colors_from_spec_text(content: str) -> dict[str, str]:
+    """从规范文本解析颜色定义（支持 colors 段落、YAML 列表、键值对以及行内注释）。"""
+    colors: dict[str, str] = {}
+    m_sec = re.search(r"^##\s+colors\s*$(.*?)(?=^##\s|\Z)", content, re.S | re.M)
+    search_text = m_sec.group(1) if m_sec else content
+
+    for line in search_text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        # 支持:
+        # - background: #08090C / background: "#08090C"
+        # - bg: #0B0C12 / bg #0B0C12
+        # - accent: #6E7BFF / accent #6E7BFF
+        # accent_color: #6E7BFF
+        m = re.search(r"^[-*]?\s*([a-zA-Z_]\w*)\s*[:=\s]\s*\"?(#[0-9a-fA-F]{6})\"?", line)
+        if m:
+            key = m.group(1).lower()
+            val = m.group(2).upper()
+            colors[key] = val
+
+    if "accent" not in colors and "accent_color" not in colors:
+        m = re.search(r"\baccent(?:_color)?\s*[:=\s]\s*\"?(#[0-9a-fA-F]{6})\"?", content)
+        if m:
+            colors["accent"] = m.group(1).upper()
+
+    if "bg" not in colors and "background" not in colors and "bg_color" not in colors:
+        m = re.search(r"\b(?:bg|background)(?:_color)?\s*[:=\s]\s*\"?(#[0-9a-fA-F]{6})\"?", content)
+        if m:
+            colors["bg"] = m.group(1).upper()
+
+    return colors
+
+
 def read_project_meta(project_dir: Path) -> dict[str, any]:
     """从 spec_lock.md / card_spec.md 提取核心项目元信息与品牌色。"""
     meta = {
@@ -64,34 +98,115 @@ def read_project_meta(project_dir: Path) -> dict[str, any]:
         "objective": "全景长图浏览",
         "accent_color": ACCENT_COLOR,
         "bg_color": BG_COLOR,
+        "surface_color": SURFACE_COLOR,
+        "rule_color": RULE_COLOR,
+        "text_main": TEXT_MAIN,
+        "text_muted": TEXT_MUTED,
+        "text_dim": TEXT_DIM,
     }
-    for spec_name in ["card_spec.md", "spec_lock.md"]:
-        spec_path = project_dir / spec_name
-        if spec_path.exists():
-            try:
-                content = spec_path.read_text(encoding="utf-8")
-                m_obj = re.search(r"-\s*objective:\s*(.+)", content)
-                if m_obj and meta["objective"] == "全景长图浏览":
-                    meta["objective"] = m_obj.group(1).strip()
-                m_msg = re.search(r"-\s*core_message:\s*(.+)", content)
-                if m_msg and meta["core_message"] == "内容到多形态物料的可验证流水线":
-                    meta["core_message"] = m_msg.group(1).strip()
-                m_acc = re.search(r"accent(?:_color)?\s*[:=]?\s*\"?(#[0-9a-fA-F]{6})\"?", content)
-                if m_acc:
-                    meta["accent_color"] = hex_to_rgb(m_acc.group(1), ACCENT_COLOR)
-                m_bg = re.search(r"bg(?:_color)?\s*[:=]?\s*\"?(#[0-9a-fA-F]{6})\"?", content)
-                if m_bg:
-                    meta["bg_color"] = hex_to_rgb(m_bg.group(1), BG_COLOR)
-            except Exception:
-                pass
 
-    # 如果有 notes/01_cover.md，尝试提取首句
+    # 规范文件候选集
+    candidate_specs: list[Path] = [
+        project_dir / "card_spec.md",
+        project_dir / "spec_lock.md",
+    ]
+    repo_root = Path(__file__).resolve().parent.parent
+    for base in [Path.cwd(), repo_root]:
+        candidate_specs.append(base / "card_spec.md")
+        candidate_specs.append(base / "spec_lock.md")
+
+    seen_specs = set()
+    found_spec_title = False
+    found_colors: set[str] = set()
+
+    for spec_path in candidate_specs:
+        if not spec_path.is_file():
+            continue
+        r_spec = spec_path.resolve()
+        if r_spec in seen_specs:
+            continue
+        seen_specs.add(r_spec)
+
+        try:
+            content = r_spec.read_text(encoding="utf-8")
+            m_obj = re.search(r"-\s*objective\s*[:=]\s*(.+)", content)
+            if m_obj and meta["objective"] == "全景长图浏览":
+                meta["objective"] = m_obj.group(1).strip()
+
+            m_msg = re.search(r"-\s*core_message\s*[:=]\s*(.+)", content)
+            if m_msg and meta["core_message"] == "内容到多形态物料的可验证流水线":
+                meta["core_message"] = m_msg.group(1).strip()
+
+            m_title = re.search(r"^[-*]?\s*title\s*[:=]\s*(.+)", content, re.M)
+            if m_title and not found_spec_title:
+                cand = m_title.group(1).split("#")[0].strip().strip('"\'')
+                if cand and not cand.isdigit() and len(cand) <= 40:
+                    meta["title"] = cand
+                    found_spec_title = True
+
+            parsed_colors = parse_colors_from_spec_text(content)
+
+            bg_hex = parsed_colors.get("bg") or parsed_colors.get("background") or parsed_colors.get("bg_color")
+            if bg_hex and "bg" not in found_colors:
+                meta["bg_color"] = hex_to_rgb(bg_hex, BG_COLOR)
+                found_colors.add("bg")
+
+            accent_hex = parsed_colors.get("accent") or parsed_colors.get("accent_color")
+            if accent_hex and "accent" not in found_colors:
+                meta["accent_color"] = hex_to_rgb(accent_hex, ACCENT_COLOR)
+                found_colors.add("accent")
+
+            surface_hex = parsed_colors.get("surface") or parsed_colors.get("surface_color")
+            if surface_hex and "surface" not in found_colors:
+                meta["surface_color"] = hex_to_rgb(surface_hex, SURFACE_COLOR)
+                found_colors.add("surface")
+
+            rule_hex = parsed_colors.get("divider") or parsed_colors.get("rule") or parsed_colors.get("rule_color")
+            if rule_hex and "rule" not in found_colors:
+                meta["rule_color"] = hex_to_rgb(rule_hex, RULE_COLOR)
+                found_colors.add("rule")
+
+            main_hex = parsed_colors.get("primary_text") or parsed_colors.get("text_main") or parsed_colors.get("fg")
+            if main_hex and "main" not in found_colors:
+                meta["text_main"] = hex_to_rgb(main_hex, TEXT_MAIN)
+                found_colors.add("main")
+
+            muted_hex = parsed_colors.get("secondary_text") or parsed_colors.get("text_muted") or parsed_colors.get("muted")
+            if muted_hex and "muted" not in found_colors:
+                meta["text_muted"] = hex_to_rgb(muted_hex, TEXT_MUTED)
+                found_colors.add("muted")
+
+            dim_hex = parsed_colors.get("tertiary_text") or parsed_colors.get("text_dim") or parsed_colors.get("dim")
+            if dim_hex and "dim" not in found_colors:
+                meta["text_dim"] = hex_to_rgb(dim_hex, TEXT_DIM)
+                found_colors.add("dim")
+        except Exception:
+            pass
+
+    # 如果有 notes/01_cover.md，尝试提取首句与标题
     cover_note = project_dir / "notes" / "01_cover.md"
     if cover_note.exists():
-        txt = cover_note.read_text(encoding="utf-8")
-        m_cover = re.search(r"只说一句话[：:]\s*(.+)", txt)
-        if m_cover:
-            meta["headline"] = m_cover.group(1).strip()
+        try:
+            txt = cover_note.read_text(encoding="utf-8")
+            m_cover = re.search(r"只说一句话[：:]\s*(.+)", txt)
+            if m_cover:
+                meta["headline"] = m_cover.group(1).strip()
+            if not found_spec_title:
+                for line in txt.splitlines():
+                    line = line.strip()
+                    if line.startswith("#"):
+                        t_cand = line.lstrip("#").strip()
+                        if t_cand and len(t_cand) <= 30:
+                            meta["title"] = t_cand
+                            found_spec_title = True
+                            break
+        except Exception:
+            pass
+
+    # 兜底：若标题未显式指定且目录包含 agentflow
+    if not found_spec_title and "agentflow" in project_dir.name.lower():
+        meta["title"] = "智流 OS"
+
     return meta
 
 
@@ -152,6 +267,12 @@ def build_header_image(width: int, meta: dict[str, any], card_count: int) -> Ima
     header_h = 420
     bg_color = meta.get("bg_color", BG_COLOR)
     accent_color = meta.get("accent_color", ACCENT_COLOR)
+    surface_color = meta.get("surface_color", SURFACE_COLOR)
+    rule_color = meta.get("rule_color", RULE_COLOR)
+    text_main = meta.get("text_main", TEXT_MAIN)
+    text_muted = meta.get("text_muted", TEXT_MUTED)
+    text_dim = meta.get("text_dim", TEXT_DIM)
+
     img = Image.new("RGB", (width, header_h), bg_color)
     draw = ImageDraw.Draw(img)
 
@@ -160,11 +281,11 @@ def build_header_image(width: int, meta: dict[str, any], card_count: int) -> Ima
 
     # Kicker
     font_kicker = find_font(28)
-    draw.text((80, 70), "LONG FORMAT · EXCLUSIVE DECK", fill=TEXT_MUTED, font=font_kicker)
+    draw.text((80, 70), "LONG FORMAT · EXCLUSIVE DECK", fill=text_muted, font=font_kicker)
 
     # 页数标签
     chip_text = f"共 {card_count} 页精选"
-    draw.rounded_rectangle([(width - 240, 60), (width - 80, 110)], radius=25, fill=SURFACE_COLOR, outline=RULE_COLOR)
+    draw.rounded_rectangle([(width - 240, 60), (width - 80, 110)], radius=25, fill=surface_color, outline=rule_color)
     draw.text((width - 210, 72), chip_text, fill=accent_color, font=find_font(24))
 
     # 主标题
@@ -172,17 +293,17 @@ def build_header_image(width: int, meta: dict[str, any], card_count: int) -> Ima
     if len(title) > 20:
         title = title[:20] + "…"
     font_title = find_font(68, bold=True)
-    draw.text((80, 130), title, fill=TEXT_MAIN, font=font_title)
+    draw.text((80, 130), title, fill=text_main, font=font_title)
 
     # 副标 / 核心主张
     font_sub = find_font(34)
     core_msg = meta.get("core_message", "")
-    draw.text((80, 240), core_msg, fill=TEXT_MUTED, font=font_sub)
+    draw.text((80, 240), core_msg, fill=text_muted, font=font_sub)
 
     # 底部分割线
-    draw.line([(80, 370), (width - 80, 370)], fill=RULE_COLOR, width=2)
-    draw.text((80, 385), "下滑浏览完整篇章", fill=TEXT_DIM, font=find_font(24))
-    draw.text((width - 80, 385), "PPT-STUDIO 流水线", fill=TEXT_DIM, font=find_font(24), anchor="ra")
+    draw.line([(80, 370), (width - 80, 370)], fill=rule_color, width=2)
+    draw.text((80, 385), "下滑浏览完整篇章", fill=text_dim, font=find_font(24))
+    draw.text((width - 80, 385), "PPT-STUDIO 流水线", fill=text_dim, font=find_font(24), anchor="ra")
 
     return img
 
@@ -192,23 +313,28 @@ def build_footer_image(width: int, meta: dict[str, any]) -> Image.Image:
     footer_h = 320
     bg_color = meta.get("bg_color", BG_COLOR)
     accent_color = meta.get("accent_color", ACCENT_COLOR)
+    rule_color = meta.get("rule_color", RULE_COLOR)
+    text_main = meta.get("text_main", TEXT_MAIN)
+    text_muted = meta.get("text_muted", TEXT_MUTED)
+    text_dim = meta.get("text_dim", TEXT_DIM)
+
     img = Image.new("RGB", (width, footer_h), bg_color)
     draw = ImageDraw.Draw(img)
 
     # 顶部分割线
-    draw.line([(80, 40), (width - 80, 40)], fill=RULE_COLOR, width=2)
+    draw.line([(80, 40), (width - 80, 40)], fill=rule_color, width=2)
 
     # 品牌 LOGO / 签名
     font_logo = find_font(44, bold=True)
-    draw.text((80, 80), "PPT-STUDIO", fill=TEXT_MAIN, font=font_logo)
+    draw.text((80, 80), "PPT-STUDIO", fill=text_main, font=font_logo)
 
     font_desc = find_font(28)
-    draw.text((80, 150), "内容到多形态物料的可验证流水线 · 画布为唯一真源", fill=TEXT_MUTED, font=font_desc)
-    draw.text((80, 200), "PPTX · HTML · 传播卡片 · 长图模式 · 视频+配音", fill=TEXT_DIM, font=font_desc)
+    draw.text((80, 150), "内容到多形态物料的可验证流水线 · 画布为唯一真源", fill=text_muted, font=font_desc)
+    draw.text((80, 200), "PPTX · HTML · 传播卡片 · 长图模式 · 视频+配音", fill=text_dim, font=font_desc)
 
     # 底部版权与行动指引
     draw.text((width - 80, 150), "申请试点 / 了解详情", fill=accent_color, font=find_font(30, bold=True), anchor="ra")
-    draw.text((width - 80, 200), "END OF PRESENTATION", fill=TEXT_DIM, font=find_font(24), anchor="ra")
+    draw.text((width - 80, 200), "END OF PRESENTATION", fill=text_dim, font=find_font(24), anchor="ra")
 
     # 底部装饰条
     draw.rectangle([(0, footer_h - 8), (width, footer_h)], fill=accent_color)
