@@ -79,7 +79,7 @@ def run_qa_slide_preview(target_file: Path) -> bool:
         bad += 1
 
     # 2. 幻灯片容器与激活态
-    slide_matches = list(re.finditer(r'<div class="slide([^"]*)">', content))
+    slide_matches = list(re.finditer(r'<div\s+class=["\']slide([^"\']*)["\']', content))
     n_slides = len(slide_matches)
     if n_slides == 0:
         print("  [✗] 幻灯片容器与激活态  : 未检测到任何 class=\"slide\" 容器")
@@ -96,7 +96,7 @@ def run_qa_slide_preview(target_file: Path) -> bool:
             print(f"  [✓] 幻灯片容器与激活态  : {n_slides} 页幻灯片 · 首页初始激活 (第 1 页)")
 
     # 3. 矢量画布与画幅适配
-    svg_matches = re.findall(r'<svg\b[^>]*\bviewBox="([^"]+)"', content)
+    svg_matches = re.findall(r'<svg\b[^>]*\bviewBox=["\']([^"\']+)["\']', content)
     if len(svg_matches) < n_slides:
         print(f"  [✗] 矢量画布与画幅适配  : SVG 数量 ({len(svg_matches)}) 与幻灯片数 ({n_slides}) 不匹配")
         bad += 1
@@ -131,7 +131,7 @@ def run_qa_slide_preview(target_file: Path) -> bool:
                 print(f"  [✓] 矢量画布与画幅适配  : {first_w}×{first_h} ({ratio_desc}) · {len(sizes)} 页尺寸完全统一")
 
     # 4. 媒体资源内联完整性
-    img_matches = re.findall(r'<image\b[^>]*?\b(?:href|xlink:href)="([^"]+)"', content)
+    img_matches = re.findall(r'<image\b[^>]*?\b(?:href|xlink:href)=["\']([^"\']+)["\']', content)
     if not img_matches:
         print("  [✓] 媒体资源内联完整性  : 纯矢量形态 (无内嵌位图资源)")
     else:
@@ -140,11 +140,15 @@ def run_qa_slide_preview(target_file: Path) -> bool:
         for img in img_matches:
             if img.startswith("data:"):
                 try:
-                    # 检查 base64 数据
-                    payload = img.split(",", 1)[-1]
-                    raw = base64.b64decode(payload[:100] + "==")
-                    if len(raw) == 0:
+                    payload = img.split(",", 1)[-1].strip()
+                    sample_len = (min(len(payload), 128) // 4) * 4
+                    chunk = payload[:sample_len]
+                    if not chunk:
                         corrupt_b64.append("空数据")
+                    else:
+                        raw = base64.b64decode(chunk)
+                        if len(raw) == 0:
+                            corrupt_b64.append("空数据")
                 except Exception:
                     corrupt_b64.append("解码失败")
 
@@ -194,11 +198,13 @@ def run_qa_slide_preview(target_file: Path) -> bool:
     external_scripts = re.findall(r'<script\b[^>]*?\bsrc=["\'](http[^"\']+)["\']', content, re.IGNORECASE)
     external_styles = re.findall(r'<link\b[^>]*?\bhref=["\'](http[^"\']+)["\']', content, re.IGNORECASE)
     
+    min_bytes = 10 * 1024 if img_matches else 512
     if external_scripts or external_styles:
         print(f"  [✗] 零外部依赖自包含    : 存在外部 CDN 引用 (脚本 {len(external_scripts)} / 样式 {len(external_styles)})")
         bad += 1
-    elif file_kb < 10:
-        print(f"  [✗] 零外部依赖自包含    : 文件体积异常过小 ({file_kb} KB < 10 KB)，疑似截断")
+    elif target_file.stat().st_size < min_bytes:
+        threshold_str = "10 KB" if img_matches else "512 字节"
+        print(f"  [✗] 零外部依赖自包含    : 文件体积异常过小 ({target_file.stat().st_size} bytes < {threshold_str})，疑似截断")
         bad += 1
     else:
         print(f"  [✓] 零外部依赖自包含    : 无外部 CDN 依赖 · {file_kb} KB 单文件完全自包含")
@@ -333,48 +339,58 @@ def run_qa_html_file(f: Path) -> bool:
         return run_qa_slide_preview(f)
 
 
-def main():
-    parser = argparse.ArgumentParser(description="PPT-Studio HTML 预览与多形态展厅客观质量门禁")
-    parser.add_argument("target", nargs="?", default=".", help="HTML 文件路径、output 目录或项目根目录（默认当前目录自发现）")
-    args = parser.parse_args()
+def find_preview_files(target: Path | str = ".", base_dir: Path | None = None) -> list[Path]:
+    """发现并解析待质检的 HTML 预览与展厅文件列表。"""
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    target_path = Path(target)
+    if not target_path.is_absolute():
+        target_path = (base / target_path).resolve()
 
-    target = Path(args.target).resolve()
+    if not target_path.exists():
+        raise FileNotFoundError(f"目标路径不存在: {target_path}")
+
+    if target_path.is_file():
+        if target_path.suffix.lower() in [".html", ".htm"]:
+            return [target_path]
+        raise ValueError(f"目标文件不是 HTML 文件: {target_path}")
 
     files_to_check: list[Path] = []
-    if target.is_file():
-        if target.suffix.lower() in [".html", ".htm"]:
-            files_to_check = [target]
-        else:
-            print(f"[!] 目标文件不是 HTML 文件: {target}")
-            sys.exit(1)
-    elif target.is_dir():
-        # 1. 检查当前目录
-        files_to_check.extend(sorted(target.glob("*.html")))
-        # 2. 检查 output/ 子目录
-        if (target / "output").is_dir():
-            files_to_check.extend(sorted((target / "output").glob("*.html")))
-        # 3. 检查 projects/*/output/ 子目录
-        if (target / "projects").is_dir():
-            for p in sorted((target / "projects").iterdir()):
-                if p.is_dir() and (p / "output").is_dir():
-                    files_to_check.extend(sorted((p / "output").glob("*.html")))
+    # 1. 检查当前目录
+    files_to_check.extend(sorted(target_path.glob("*.html")))
+    # 2. 检查 output/ 子目录
+    if (target_path / "output").is_dir():
+        files_to_check.extend(sorted((target_path / "output").glob("*.html")))
+    # 3. 检查 projects/*/output/ 子目录
+    if (target_path / "projects").is_dir():
+        for p in sorted((target_path / "projects").iterdir()):
+            if p.is_dir() and (p / "output").is_dir():
+                files_to_check.extend(sorted((p / "output").glob("*.html")))
 
-        # 去重保持顺序
-        seen = set()
-        deduped = []
-        for f in files_to_check:
-            rf = f.resolve()
-            if rf not in seen and ".venv" not in str(rf) and "site-packages" not in str(rf):
-                seen.add(rf)
-                deduped.append(rf)
-        files_to_check = deduped
+    # 去重保持顺序，排除 .venv 与 site-packages
+    seen = set()
+    deduped = []
+    for f in files_to_check:
+        rf = f.resolve()
+        if rf not in seen and ".venv" not in str(rf) and "site-packages" not in str(rf):
+            seen.add(rf)
+            deduped.append(rf)
+    return deduped
 
-        if not files_to_check:
-            print(f"[!] 在目录 {target} 及其子目录下未发现任何可质检的 HTML 文件")
-            sys.exit(1)
-    else:
-        print(f"[!] 目标路径不存在: {target}")
-        sys.exit(1)
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="PPT-Studio HTML 预览与多形态展厅客观质量门禁")
+    parser.add_argument("target", nargs="?", default=".", help="HTML 文件路径、output 目录或项目根目录（默认当前目录自发现）")
+    args = parser.parse_args(argv)
+
+    try:
+        files_to_check = find_preview_files(args.target)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"[!] {e}")
+        return 1
+
+    if not files_to_check:
+        print(f"[!] 在目录 {args.target} 及其子目录下未发现任何可质检的 HTML 文件")
+        return 1
 
     all_ok = True
     for f in files_to_check:
@@ -383,8 +399,8 @@ def main():
         if not ok:
             all_ok = False
 
-    sys.exit(0 if all_ok else 1)
+    return 0 if all_ok else 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
