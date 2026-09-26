@@ -33,6 +33,10 @@ from scripts.prepare_agnes_image import (
     detect_seam,
     fix_seam,
     prepare,
+    resolve_image_targets,
+    resolve_manifest_target,
+    parse_postprocess_cmd,
+    check_images,
     main,
 )
 
@@ -294,6 +298,163 @@ class TestMainCLI(unittest.TestCase):
             with redirect_stdout(io.StringIO()):
                 main(["--help"])
         self.assertEqual(cm.exception.code, 0)
+
+    def test_cli_single_raw_dry_run(self):
+        buf = io.StringIO()
+        orig_mtime = self.raw_path.stat().st_mtime
+        with redirect_stdout(buf):
+            ret = main([str(self.raw_path), "--size", "100x60"])
+        self.assertEqual(ret, 0)
+        self.assertIn("[预演]", buf.getvalue())
+        self.assertIn("加 --apply 执行写盘", buf.getvalue())
+        # 文件未被修改
+        self.assertEqual(self.raw_path.stat().st_mtime, orig_mtime)
+
+    def test_cli_single_raw_apply_with_backup(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            ret = main([str(self.raw_path), "--apply", "--size", "100x60"])
+        self.assertEqual(ret, 0)
+        self.assertIn("(已写盘)", buf.getvalue())
+        # 验证备份存在
+        bak = self.raw_path.parent / f"_pre_{self.raw_path.name}"
+        self.assertTrue(bak.exists())
+        with Image.open(self.raw_path) as im:
+            self.assertEqual(im.size, (100, 60))
+
+    def test_cli_single_raw_apply_no_backup(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            ret = main([str(self.raw_path), "--apply", "--no-backup", "--size", "90x50"])
+        self.assertEqual(ret, 0)
+        with Image.open(self.raw_path) as im:
+            self.assertEqual(im.size, (90, 50))
+
+    def test_cli_check_success(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            ret = main([str(self.raw_path), "--check"])
+        self.assertEqual(ret, 0)
+        self.assertIn("ALL CLEAR ✅", buf.getvalue())
+
+    def test_cli_check_failure_on_seam(self):
+        seam_img = self.dir_path / "seam_img.png"
+        create_test_image(seam_img, width=120, height=80, left_val=20, right_val=60, seam_x=60)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            ret = main([str(seam_img), "--check"])
+        self.assertEqual(ret, 1)
+        self.assertIn("门禁未通过", buf.getvalue())
+        self.assertIn("seam_img.png", buf.getvalue())
+
+    def test_cli_json_output(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            ret = main([str(self.raw_path), "--json"])
+        self.assertEqual(ret, 0)
+        import json
+        out_data = json.loads(buf.getvalue().strip())
+        self.assertIsInstance(out_data, list)
+        self.assertEqual(out_data[0]["name"], self.raw_path.name)
+
+
+class TestTargetResolutionAndManifest(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.dir_path = Path(self.temp_dir.name)
+        self.img_dir = self.dir_path / "images"
+        self.img_dir.mkdir(parents=True)
+        self.p1 = self.img_dir / "p1.png"
+        self.p2 = self.img_dir / "p2.png"
+        create_test_image(self.p1, width=120, height=80)
+        create_test_image(self.p2, width=120, height=80)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_resolve_image_targets_directory(self):
+        targets = resolve_image_targets(self.dir_path)
+        self.assertEqual(len(targets), 2)
+        self.assertEqual([t.name for t in targets], ["p1.png", "p2.png"])
+
+    def test_resolve_image_targets_missing_raises(self):
+        with self.assertRaises(FileNotFoundError):
+            resolve_image_targets(self.dir_path / "not_exist")
+
+    def test_parse_postprocess_cmd(self):
+        cmd = "prepare_agnes_image.py --size 1308x736 --brightness 0.88 --seam auto"
+        cfg = parse_postprocess_cmd(cmd)
+        self.assertEqual(cfg["size"], (1308, 736))
+        self.assertEqual(cfg["brightness"], 0.88)
+        self.assertEqual(cfg["seam"], "auto")
+
+    def test_resolve_manifest_target_and_execution(self):
+        manifest_path = self.img_dir / "image_prompts.json"
+        import json
+        manifest_data = {
+            "project": "test-proj",
+            "items": [
+                {
+                    "filename": "p1.png",
+                    "postprocess": "prepare_agnes_image.py --size 100x50 --brightness 0.9 --seam auto",
+                },
+                {
+                    "filename": "p2.png",
+                    "postprocess": "prepare_agnes_image.py --size 120x60 --brightness 1.1 --seam auto",
+                },
+            ],
+        }
+        manifest_path.write_text(json.dumps(manifest_data, ensure_ascii=False), encoding="utf-8")
+
+        resolved_mf = resolve_manifest_target(self.dir_path)
+        self.assertEqual(resolved_mf.resolve(), manifest_path.resolve())
+
+        # 运行 CLI manifest 预演
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            ret = main(["--manifest", str(manifest_path)])
+        self.assertEqual(ret, 0)
+        self.assertIn("100x50", buf.getvalue())
+        self.assertIn("120x60", buf.getvalue())
+
+        # 运行 CLI manifest --apply
+        buf2 = io.StringIO()
+        with redirect_stdout(buf2):
+            ret2 = main(["--manifest", str(manifest_path), "--apply"])
+        self.assertEqual(ret2, 0)
+        with Image.open(self.p1) as im1:
+            self.assertEqual(im1.size, (100, 50))
+        with Image.open(self.p2) as im2:
+            self.assertEqual(im2.size, (120, 60))
+
+
+class TestCheckImagesGate(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.dir_path = Path(self.temp_dir.name)
+        self.clean_img = self.dir_path / "clean.png"
+        create_test_image(self.clean_img, width=120, height=80)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_check_images_clean(self):
+        res = check_images([self.clean_img], size=(120, 80), verbose=False)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["total"], 1)
+        self.assertEqual(len(res["failed_seams"]), 0)
+
+    def test_check_images_detects_seam(self):
+        seam_img = self.dir_path / "seam.png"
+        create_test_image(seam_img, width=120, height=80, left_val=20, right_val=60, seam_x=60)
+        res = check_images([seam_img], verbose=False)
+        self.assertFalse(res["ok"])
+        self.assertEqual(len(res["failed_seams"]), 1)
+
+    def test_check_images_detects_dimension_mismatch(self):
+        res = check_images([self.clean_img], size=(200, 100), verbose=False)
+        self.assertFalse(res["ok"])
+        self.assertEqual(len(res["dimension_mismatches"]), 1)
 
 
 if __name__ == "__main__":
