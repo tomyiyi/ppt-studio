@@ -32,6 +32,7 @@ from scripts.crop_panel import (
     cover,
     calculate_crop,
     crop_image,
+    resolve_crop_targets,
     main,
 )
 
@@ -215,6 +216,98 @@ class TestCropPanelCLI(unittest.TestCase):
         create_test_image(img_path, 400, 300)
         ret = main([str(img_path)])
         self.assertEqual(ret, 1)
+
+    def test_cli_multiple_images_batch(self):
+        img1 = self.tmp_path / "img1.png"
+        img2 = self.tmp_path / "img2.png"
+        create_test_image(img1, 500, 400, (100, 100, 150, 100))
+        create_test_image(img2, 500, 400, (120, 120, 150, 100))
+
+        ret = main([str(img1), str(img2), "--apply"])
+        self.assertEqual(ret, 0)
+        self.assertTrue((self.tmp_path / "img1_panel.png").exists())
+        self.assertTrue((self.tmp_path / "img2_panel.png").exists())
+
+    def test_cli_multiple_images_with_out_returns_1(self):
+        img1 = self.tmp_path / "img1.png"
+        img2 = self.tmp_path / "img2.png"
+        create_test_image(img1, 500, 400, (100, 100, 150, 100))
+        create_test_image(img2, 500, 400, (120, 120, 150, 100))
+
+        ret = main([str(img1), str(img2), "--out", str(self.tmp_path / "clash.png")])
+        self.assertEqual(ret, 1)
+
+    def test_cli_check_flag(self):
+        good = self.tmp_path / "good.png"
+        create_test_image(good, 500, 400, (100, 100, 200, 150))
+        ret = main([str(good), "--check"])
+        self.assertEqual(ret, 0)
+
+        # 构造一个包围盒很大但内部极度稀疏、墨量 < 3.0% 的图片
+        sparse = self.tmp_path / "sparse.png"
+        arr = np.zeros((400, 500, 3), dtype=np.uint8)
+        # 在 300x200 矩形四个角散落共 60 个点（> 50 触发有效 bbox）
+        arr[100:104, 100:104] = 220
+        arr[100:104, 396:400] = 220
+        arr[296:300, 100:104] = 220
+        arr[296:300, 396:400] = 220
+        Image.fromarray(arr, "RGB").save(sparse)
+        ret_sparse = main([str(sparse), "--check"])
+        self.assertEqual(ret_sparse, 1)
+
+
+class TestResolveCropTargets(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.tmp_path = Path(self.temp_dir.name)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_direct_file(self):
+        img = self.tmp_path / "test.png"
+        create_test_image(img, 200, 200, (20, 20, 50, 50))
+        targets = resolve_crop_targets(img)
+        self.assertEqual(targets, [img.resolve()])
+
+    def test_directory_targets(self):
+        img_dir = self.tmp_path / "images"
+        create_test_image(img_dir / "a.png", 200, 200, (20, 20, 50, 50))
+        create_test_image(img_dir / "b.png", 200, 200, (20, 20, 50, 50))
+        create_test_image(img_dir / "b_panel.png", 200, 200, (20, 20, 50, 50))
+        create_test_image(img_dir / "_raw_c.png", 200, 200, (20, 20, 50, 50))
+
+        targets = resolve_crop_targets(self.tmp_path)
+        names = [p.name for p in targets]
+        self.assertIn("a.png", names)
+        self.assertIn("b.png", names)
+        self.assertNotIn("b_panel.png", names)
+        self.assertNotIn("_raw_c.png", names)
+
+    def test_nonexistent_target_raises_error(self):
+        with self.assertRaises(FileNotFoundError):
+            resolve_crop_targets(self.tmp_path / "no_such_file.png")
+
+    def test_ambiguous_project_target_raises_value_error(self):
+        fake_repo = self.tmp_path / "mock_repo"
+        fake_projects = fake_repo / "projects"
+        p1 = fake_projects / "proj1" / "images"
+        p2 = fake_projects / "proj2" / "images"
+        create_test_image(p1 / "dup.png", 100, 100, (10, 10, 20, 20))
+        create_test_image(p2 / "dup.png", 100, 100, (10, 10, 20, 20))
+
+        base_dir = self.tmp_path / "work"
+        base_dir.mkdir(parents=True, exist_ok=True)
+
+        with self.assertRaises(ValueError) as ctx:
+            resolve_crop_targets("dup.png", base_dir=base_dir, repo_root_override=fake_repo)
+        self.assertIn("多个项目", str(ctx.exception))
+
+    def test_single_project_bare_name_discovery(self):
+        # 验证在当前 repo_root 下查找已有图片 heal_bg.png 能成功定位到 agentflow-os-launch/images/heal_bg.png
+        targets = resolve_crop_targets("heal_bg.png")
+        self.assertEqual(len(targets), 1)
+        self.assertEqual(targets[0].name, "heal_bg.png")
 
 
 if __name__ == "__main__":

@@ -126,17 +126,142 @@ def calculate_crop(
     return left, top, bw, bh
 
 
+def resolve_crop_targets(
+    src_input: str | Path | list[str | Path] | None = None,
+    base_dir: str | Path | None = None,
+    repo_root_override: str | Path | None = None,
+) -> list[Path]:
+    """解析待裁切图片文件列表。支持单个文件、图片目录、项目根目录（自动探寻 images/）、
+    纯文件名自发现、以及未指定参数时自动自发现当前或 projects/* 项目中的待裁切配图。
+    """
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    repo_root = (
+        Path(repo_root_override).resolve()
+        if repo_root_override
+        else Path(__file__).resolve().parent.parent
+    )
+
+    if src_input is not None:
+        if isinstance(src_input, (str, Path)):
+            raw_list = [src_input]
+        else:
+            raw_list = list(src_input)
+    else:
+        raw_list = []
+
+    resolved: list[Path] = []
+    seen: set[Path] = set()
+
+    def add_path(p: Path) -> None:
+        rp = p.resolve()
+        if rp not in seen and rp.is_file():
+            seen.add(rp)
+            resolved.append(rp)
+
+    if raw_list:
+        for item in raw_list:
+            item_str = str(item).strip()
+            if not item_str:
+                continue
+            p = Path(item)
+            # 1. 尝试作为绝对路径或相对于 base 的直接路径
+            candidate = p if p.is_absolute() else (base / p).resolve()
+            if candidate.is_file():
+                add_path(candidate)
+                continue
+            if candidate.is_dir():
+                img_dir = candidate / "images"
+                target_dir = img_dir if img_dir.is_dir() else candidate
+                found_imgs = [
+                    f for f in sorted(target_dir.glob("*.png"))
+                    if not f.name.startswith(("_pre_", "_raw_"))
+                    and not f.stem.endswith("_panel")
+                ]
+                if not found_imgs:
+                    found_imgs = [
+                        f for f in sorted(target_dir.glob("*.png"))
+                        if not f.name.startswith(("_pre_", "_raw_"))
+                    ]
+                if found_imgs:
+                    for f in found_imgs:
+                        add_path(f)
+                    continue
+                else:
+                    raise ValueError(f"在目录 {item} 中未找到可处理的 PNG 图片")
+
+            # 2. 尝试在 base / "images" 下按文件名寻找
+            cand_img = (base / "images" / p.name).resolve()
+            if cand_img.is_file():
+                add_path(cand_img)
+                continue
+
+            # 3. 尝试在 repo_root / "projects" / * / images 下寻找
+            projects_dir = repo_root / "projects"
+            matches: list[Path] = []
+            if projects_dir.is_dir():
+                for sub in sorted(projects_dir.iterdir()):
+                    if sub.is_dir() and not sub.name.startswith("."):
+                        cand1 = (sub / "images" / p.name).resolve()
+                        cand2 = (sub / p.name).resolve()
+                        if cand1.is_file():
+                            matches.append(cand1)
+                        elif cand2.is_file():
+                            matches.append(cand2)
+
+            if len(matches) == 1:
+                add_path(matches[0])
+                continue
+            elif len(matches) > 1:
+                names = ", ".join(str(m) for m in matches)
+                raise ValueError(f"发现多个项目包含同名图片 '{p.name}' ({names})，请显式指定完整路径")
+
+            raise FileNotFoundError(f"源图片文件不存在: {item}")
+
+        return resolved
+
+    # 未指定任何参数时：自动发现
+    if (base / "images").is_dir():
+        cand = [
+            f for f in sorted((base / "images").glob("*.png"))
+            if not f.name.startswith(("_pre_", "_raw_"))
+            and not f.stem.endswith("_panel")
+        ]
+        if cand:
+            return cand
+
+    projects_dir = repo_root / "projects"
+    if projects_dir.is_dir():
+        proj_candidates: list[Path] = []
+        for sub in sorted(projects_dir.iterdir()):
+            if sub.is_dir() and not sub.name.startswith("."):
+                img_dir = sub / "images"
+                if img_dir.is_dir():
+                    imgs = [
+                        f for f in sorted(img_dir.glob("*.png"))
+                        if not f.name.startswith(("_pre_", "_raw_"))
+                        and not f.stem.endswith("_panel")
+                    ]
+                    if imgs:
+                        proj_candidates.extend(imgs)
+        if proj_candidates:
+            return proj_candidates
+
+    raise FileNotFoundError("未指定输入图片，且在当前目录或 projects/*/images 下未发现有效待裁切图片")
+
+
 def crop_image(
     src_path: str | Path,
     out_path: str | Path | None = None,
     aspect: str | float = "580:385",
     pad: float = 1.12,
     apply: bool = False,
+    base_dir: str | Path | None = None,
 ) -> dict:
     """执行裁切计算与可选落盘，返回结果指标字典。"""
-    src_p = Path(src_path)
-    if not src_p.is_file():
+    targets = resolve_crop_targets(src_path, base_dir=base_dir)
+    if not targets:
         raise FileNotFoundError(f"源图片文件不存在: {src_path}")
+    src_p = targets[0]
 
     tgt_aspect = parse_aspect(aspect)
     if pad <= 0:
@@ -148,7 +273,7 @@ def crop_image(
 
     bb = bbox_of(a)
     if bb is None:
-        raise ValueError(f"{src_path}: 没找到主体（亮像素太少）")
+        raise ValueError(f"{src_p.name}: 没找到主体（亮像素太少）")
 
     x0, y0, x1, y1 = bb
     left, top, bw, bh = calculate_crop(w, h, bb, tgt_aspect, pad)
@@ -184,7 +309,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="按'主体包围盒'裁切配图，让主体填满面板"
     )
-    parser.add_argument("src", help="源图片路径 (PNG/JPEG 等)")
+    parser.add_argument(
+        "src",
+        nargs="*",
+        default=None,
+        help="源图片路径、纯文件名、图片目录或项目路径（默认自发现）",
+    )
     parser.add_argument(
         "--aspect",
         default="580:385",
@@ -199,53 +329,85 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--out",
         default=None,
-        help="输出图片路径 (默认: <src_stem>_panel.png)",
+        help="输出图片路径 (仅单张图片时有效，默认: <src_stem>_panel.png)",
     )
     parser.add_argument(
         "--apply",
         action="store_true",
         help="真正写盘保存裁切后图片（默认仅预演）",
     )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="运行质量门禁判定：若发现主体未检出或裁切后面板墨量 < 3.0%% 则返回退出码 1",
+    )
 
     args = parser.parse_args(argv)
 
+    src_args = args.src if args.src else None
     try:
-        res = crop_image(
-            src_path=args.src,
-            out_path=args.out,
-            aspect=args.aspect,
-            pad=args.pad,
-            apply=args.apply,
-        )
-    except FileNotFoundError as e:
+        targets = resolve_crop_targets(src_args)
+    except (FileNotFoundError, ValueError) as e:
         print(f"[!] {e}", file=sys.stderr)
         return 1
-    except ValueError as e:
-        print(f"[!] {e}", file=sys.stderr)
-        return 1
-    except Exception as e:
-        print(f"[!] 裁切失败: {e}", file=sys.stderr)
+
+    if not targets:
+        print("[!] 未找到任何可裁切的图片", file=sys.stderr)
         return 1
 
-    x0, y0, x1, y1 = res["bbox"]
-    left, top, bw, bh = res["crop_box"]
-    tgt = res["target_aspect"]
-    actual = res["actual_aspect"]
-    before = res["before_cover"]
-    after = res["after_cover"]
+    if args.out and len(targets) > 1:
+        print("[!] --out 参数仅支持单张图片裁切，批量处理时请省略该参数", file=sys.stderr)
+        return 1
 
-    print(f"{res['name']}  {res['width']}x{res['height']}")
-    print(f"  主体 bbox  x {x0:.0f}-{x1:.0f} ({x1-x0:.0f}px)  y {y0:.0f}-{y1:.0f} ({y1-y0:.0f}px)")
-    print(f"  裁切框     x {left:.0f} y {top:.0f}  {bw:.0f}x{bh:.0f}  (比例 {actual:.3f} vs 目标 {tgt:.3f})")
-    ratio_multiplier = after / max(before, 1e-6)
-    print(f"  主体占画面  {before:.2f}%  →  {after:.2f}%   ({ratio_multiplier:.1f}×)")
+    all_passed = True
+    for i, t in enumerate(targets):
+        out_p = args.out if (args.out and len(targets) == 1) else None
+        try:
+            res = crop_image(
+                src_path=t,
+                out_path=out_p,
+                aspect=args.aspect,
+                pad=args.pad,
+                apply=args.apply,
+            )
+        except (FileNotFoundError, ValueError) as e:
+            print(f"[!] {t.name}: 裁切失败: {e}", file=sys.stderr)
+            all_passed = False
+            continue
+        except Exception as e:
+            print(f"[!] {t.name}: 裁切发生异常: {e}", file=sys.stderr)
+            all_passed = False
+            continue
 
-    if res["applied"]:
-        print(f"  已保存 {res['out']}")
-    else:
-        print("  [提示] 当前为预演模式（未写盘），加 --apply 执行写盘")
+        x0, y0, x1, y1 = res["bbox"]
+        left, top, bw, bh = res["crop_box"]
+        tgt = res["target_aspect"]
+        actual = res["actual_aspect"]
+        before = res["before_cover"]
+        after = res["after_cover"]
 
-    return 0
+        print(f"{res['name']}  {res['width']}x{res['height']}")
+        print(f"  主体 bbox  x {x0:.0f}-{x1:.0f} ({x1-x0:.0f}px)  y {y0:.0f}-{y1:.0f} ({y1-y0:.0f}px)")
+        print(f"  裁切框     x {left:.0f} y {top:.0f}  {bw:.0f}x{bh:.0f}  (比例 {actual:.3f} vs 目标 {tgt:.3f})")
+        ratio_multiplier = after / max(before, 1e-6)
+        print(f"  主体占画面  {before:.2f}%  →  {after:.2f}%   ({ratio_multiplier:.1f}×)")
+
+        if res["applied"]:
+            print(f"  已保存 {res['out']}")
+        else:
+            print("  [提示] 当前为预演模式（未写盘），加 --apply 执行写盘")
+
+        if args.check:
+            if after < 3.0:
+                print(f"  [门禁] ⚠️ 主体墨量不足 3.0% (当前 {after:.2f}%)，面板可能偏空", file=sys.stderr)
+                all_passed = False
+            else:
+                print(f"  [门禁] ✓ 墨量达标 ({after:.2f}% ≥ 3.0%)")
+
+        if i < len(targets) - 1:
+            print()
+
+    return 0 if all_passed else 1
 
 
 if __name__ == "__main__":
