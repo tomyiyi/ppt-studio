@@ -43,8 +43,8 @@ Agnes 配图 (images/*.png)     ← 生图只走 Agnes，gemini 不参与生图
 ├→ 长图    1080×N 纵向长图（含统摄 Header 与收尾 Footer）
 └→ 视频    1080p / 9:16 短视频（Edge-TTS 配音 + 微运镜 + 统一字幕）
     ↓
-qa_layout.py   ← 横版 7 项质检
-qa_cards.py    ← 卡片 7 项质检
+qa_layout.py   ← 横版 8 项质检（含跨页主句一致性）
+qa_cards.py    ← 卡片 8 项质检
 qa_long_card.py← 长图 7 项质检
 qa_video.py    ← 视频 7 项质检（流/分辨率/音画同步/响度/死黑屏/字幕/码率）
 qa_pptx.py     ← 导出物 PPTX 回读 7 项质检
@@ -101,7 +101,7 @@ ppt-studio/
 | `make_cards.py` | 横版画布 → 1080×1350 竖版卡片（重排，非裁切） |
 | `make_long_card.py` | 多张卡片纵向缝合为单张长图（自适应 Header/Footer/流式过渡） |
 | `make_video.py` | **视频+配音合成**：Edge-TTS 中文解说 + 运镜动效 + 统一字幕 + FFmpeg 合成 |
-| `qa_layout.py` | **横版质检闸门**：7 项检查，字号阶梯直接从 `spec_lock.md` 读 |
+| `qa_layout.py` | **横版质检闸门**：8 项检查（字号/底图/重影/溢出/压行/面板/对比度/主句一致性），支持目录自发现 |
 | `qa_cards.py` | **卡片质检闸门**：8 项检查（字号/安全区/溢出/压行/签名竖线/对比度/底图/留白），阶梯从 `card_spec.md` 读 |
 | `qa_long_card.py` | **长图质检闸门**：7 项检查（画幅/Header/Footer/卡片分段/分段墨量/对比度/清晰度） |
 | `qa_video.py` | **视频质检闸门**：7 项检查（流完整性/1080p/音画同步/响度/死黑屏/字幕/码率） |
@@ -119,7 +119,7 @@ python3 ../../scripts/agnes_ppt_bridge.py --manifest images/image_prompts.json
 python3 ../../scripts/render_svg.py svg_output/ render/
 
 # 3. 横版质检（必跑）
-python3 ../../scripts/qa_layout.py svg_output/ render/
+python3 ../../scripts/qa_layout.py .              # 跑横版 8 项质检门禁（亦支持 svg_output/ render/）
 
 # 4. 出卡片（第三出口）
 python3 ../../scripts/make_cards.py .            # → cards/

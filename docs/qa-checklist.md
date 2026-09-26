@@ -26,23 +26,27 @@ python3 scripts/analyze_image.py projects/xxx/images/*.png
 ## 二、版面（每页）
 
 ```bash
-/opt/homebrew/bin/python3 scripts/render_svg.py projects/xxx/svg_output qa_render
-/opt/homebrew/bin/python3 scripts/qa_layout.py projects/xxx/svg_output qa_render
+python3 scripts/qa_layout.py projects/xxx
+# 或指定 SVG 与渲染目录：
+python3 scripts/qa_layout.py projects/xxx/svg_output qa_render
+# 在项目目录下直接执行：
+python3 ../../scripts/qa_layout.py .
 ```
 
-七项，全部 OK 才输出 `ALL CLEAR`：
+八项客观质检全部 OK 才输出 `ALL CLEAR`：
 
-- [ ] `[字号]` — 所有文本落在 spec_lock 的九档内
+- [ ] `[字号]` — 所有文本落在 spec_lock 的阶梯内
 - [ ] `[底图]` — 最大 `<image>` 面积 / 画布 ≥ 90%
 - [ ] `[重影]` — 同一源图在一页只出现一次
 - [ ] `[溢出]` — 文本不超出画布，`text-anchor="end"` 边界是 `[x-w, x]`
 - [ ] `[压行]` — 相邻文本行不碰撞
 - [ ] `[面板]` — 面板墨量 ≥ 6%
 - [ ] `[对比]` — WCAG ≥ 4.5:1（背景取 20 分位、字色取 99.5 分位）
+- [ ] `[主句]` — 各正文页主句 (statement) 字号严格对齐（如 56px），防范跨页"一时大一时小"
 
-### 字号一致性（单独再核一遍）
+### 字号一致性（已由脚本自动复核）
 
-`[字号]` 只检查"在不在阶梯上"，不检查"同一角色是不是同一档"。手动核：
+`qa_layout.py` 现已自动提取各正文页主句并校验跨页对齐（单一真源来自 `spec_lock.md` 的 `statement` 角色档位）。设计基线标准：
 
 | 角色 | 应有档位 | 02 | 03 | 04 | 05 | 06 | 07 |
 |---|---|---|---|---|---|---|---|

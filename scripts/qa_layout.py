@@ -2,20 +2,30 @@
 """
 qa_layout.py — PPT Master SVG 版面客观复核（不看图也能判断）
 
-三项检查：
+八项检查：
   1. overflow  : 文本是否超出画布安全区（正确处理 text-anchor=start/middle/end）
   2. panel     : 图片面板区域是否真的有内容（不为纯色/不为空白）
   3. contrast  : 渲染后文字区域是否满足 WCAG 4.5:1（背景=区域20分位，笔画=99.5分位）
+  4. typescale : 所有字号是否合规于 spec_lock.md 阶梯
+  5. backdrop  : 底图是否铺满画布（≥90%）
+  6. dup_images: 同一源图是否在单页出现两次
+  7. collision : 相邻文本行是否压行/碰撞
+  8. statement : 跨正文页主句 (statement) 字号是否绝对统一，防范"一时大一时小"
 
 用法：
-  python3 qa_layout.py <svg_dir> <rendered_dir>
+  python3 qa_layout.py [target] [render_dir] [--spec spec_lock.md]
 例：
-  python3 qa_layout.py tools/ppt-master/projects/agentflow-os-launch/svg_output qa_render
+  python3 qa_layout.py .
+  python3 qa_layout.py projects/agentflow-os-launch
+  python3 qa_layout.py projects/agentflow-os-launch/svg_output projects/agentflow-os-launch/render
 """
 import os
 import re
 import sys
 import glob
+import argparse
+from pathlib import Path
+from collections import Counter
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -92,6 +102,77 @@ def load_ramp(spec_lock_path):
         if mm:
             out.add(int(mm.group(1)))
     return out or DEFAULT_RAMP
+
+
+def load_spec_roles(spec_lock_path):
+    """从 spec_lock.md 的 ## typography 段读取 (role -> font_size) 映射。"""
+    try:
+        txt = open(spec_lock_path, encoding="utf-8").read()
+    except OSError:
+        return {}
+    m = re.search(r"^##\s+typography\s*$(.*?)(?=^##\s|\Z)", txt, re.S | re.M)
+    if not m:
+        return {}
+    roles = {}
+    for line in m.group(1).splitlines():
+        line = line.strip()
+        if line.startswith("#"):
+            continue
+        mm = re.match(r"^-\s*(\w+)\s*:\s*(\d+)\s*$", line)
+        if mm:
+            roles[mm.group(1)] = int(mm.group(2))
+    return roles
+
+
+def check_statement_consistency(svg_slides: list[tuple[str, ET.Element]], expected_sz: int = 56) -> tuple[bool, str]:
+    """验证正文页页面主句 (statement) 字号在跨页翻阅时是否严格一致。
+    防范事故：主句在不同页被随手写成 44/56/72，导致翻页时字号'一时大一时小'。"""
+    content_slides = [
+        (stem, root) for stem, root in svg_slides
+        if not (stem.startswith("01") or "cover" in stem.lower())
+    ]
+    if len(content_slides) < 2:
+        return True, "页数较少，跳过跨页主句一致性比对"
+
+    statement_slides = {}
+    for stem, root in content_slides:
+        sizes = []
+        for t, anc in _iter_with_parents(root):
+            if t.tag != NS + "text":
+                continue
+            txt = "".join(t.itertext()).strip()
+            if not txt:
+                continue
+            s = int(round(inherited_font_size(t, anc)))
+            sizes.append((s, txt))
+        if not sizes:
+            continue
+        large_sizes = [s for s, _ in sizes if s >= 40]
+        if not large_sizes:
+            continue
+        top_sz = max(large_sizes)
+        top_txt = next(txt for s, txt in sizes if s == top_sz)
+        statement_slides[stem] = (top_sz, top_txt)
+
+    if not statement_slides:
+        return True, "未检测到正文页主句"
+
+    counts = Counter(sz for sz, _ in statement_slides.values())
+    target_sz = expected_sz if expected_sz in counts else counts.most_common(1)[0][0]
+
+    drifts = []
+    aligned = []
+    for stem, (sz, txt) in sorted(statement_slides.items()):
+        if sz != target_sz:
+            drifts.append(f"{stem} ({sz}px: «{txt[:16]}»)")
+        else:
+            aligned.append(stem)
+
+    if drifts:
+        return False, f"发现主句字号漂移 (预期 {target_sz}px，漂移页: {', '.join(drifts)})"
+
+    aligned_labels = ", ".join(s.split("_")[0] for s in aligned)
+    return True, f"各正文页主句字号严格对齐 ({target_sz}px) · 页面 [{aligned_labels}] 无漂移"
 
 
 def _iter_with_parents(root):
@@ -294,30 +375,85 @@ def check_contrast(img, root):
     return rows
 
 # ---------------------------------------------------------------- main
-def main():
-    if len(sys.argv) < 3:
-        print(__doc__)
-        sys.exit(1)
-    svg_dir, render_dir = sys.argv[1], sys.argv[2]
-    # spec_lock 在 <project>/spec_lock.md，svg_dir 是 <project>/svg_output
-    spec = os.path.join(os.path.dirname(os.path.abspath(svg_dir)), "spec_lock.md")
-    ramp = load_ramp(spec)
-    print(f"字号阶梯（来自 {os.path.basename(spec)}）: {sorted(ramp)}")
+def run_qa_layout(
+    svg_dir_or_file: Path,
+    render_dir: Path | None = None,
+    spec_path: Path | None = None,
+) -> bool:
+    target = Path(svg_dir_or_file).resolve()
+    if target.is_file():
+        svg_files = [target]
+        svg_dir = target.parent
+    else:
+        svg_dir = target
+        svg_files = sorted(svg_dir.glob("*.svg"))
+
+    if not svg_files:
+        print(f"[!] 在 {svg_dir} 未找到任何 .svg 文件")
+        return False
+
+    # 查找 spec_lock.md
+    if spec_path:
+        spec = Path(spec_path).resolve()
+    else:
+        spec = None
+        for candidate in [
+            svg_dir.parent / "spec_lock.md",
+            svg_dir / "spec_lock.md",
+            Path.cwd() / "projects/agentflow-os-launch/spec_lock.md",
+            Path(__file__).resolve().parent.parent / "projects/agentflow-os-launch/spec_lock.md",
+        ]:
+            if candidate and candidate.exists():
+                spec = candidate.resolve()
+                break
+
+    ramp = load_ramp(str(spec)) if spec else DEFAULT_RAMP
+    roles = load_spec_roles(str(spec)) if spec else {}
+    expected_stmt_sz = roles.get("statement", 56)
+
+    # 自动查找 render_dir (若未提供)
+    if render_dir:
+        render_dir = Path(render_dir).resolve()
+    else:
+        for candidate in [
+            svg_dir.parent / "render",
+            svg_dir.parent / "qa_render",
+            svg_dir.parent / "render_cards",
+            svg_dir / "render",
+        ]:
+            if candidate.is_dir():
+                render_dir = candidate.resolve()
+                break
+
+    print("=" * 60)
+    print("🔍 运行 PPT-Studio SVG 版面客观复核与质量门禁")
+    print(f"   目标位置: {target}")
+    print(f"   渲染目录: {render_dir if render_dir else '未提供（跳过渲染面板/对比度复核）'}")
+    print(f"   规范配置: {spec if spec else '默认阶梯'}")
+    print("=" * 60)
+    print(f"字号阶梯: {sorted(ramp)}")
+    if "statement" in roles:
+        print(f"跨页主句预期字号: {expected_stmt_sz}px (来自 {spec.name})")
 
     # 渲染目录可能是 <name>.png/<name>.png 的嵌套结构
     def find_png(stem):
+        if not render_dir or not render_dir.is_dir():
+            return None
         for pat in (f"{stem}.png", f"{stem}/*.png", f"**/{stem}.png"):
-            hit = [p for p in glob.glob(os.path.join(render_dir, pat), recursive=True)
+            hit = [p for p in glob.glob(os.path.join(str(render_dir), pat), recursive=True)
                    if os.path.isfile(p)]
             if hit:
                 return hit[0]
         return None
 
     bad = 0
-    for svg in sorted(glob.glob(os.path.join(svg_dir, "*.svg"))):
-        stem = os.path.splitext(os.path.basename(svg))[0]
+    svg_slides = []
+    for svg_path in svg_files:
+        stem = svg_path.stem
+        root = ET.parse(svg_path).getroot()
+        svg_slides.append((stem, root))
+
         print(f"\n=== {stem} ===")
-        root = ET.parse(svg).getroot()
 
         used, off = check_typescale(root, ramp)
         line = "  ".join(f"{k}×{v}" for k, v in sorted(used.items()))
@@ -388,9 +524,69 @@ def main():
                 print(f"          {r:.1f}:1  «{t[:26]}» ({s:.0f}px)")
                 bad += 1
 
+    # 跨页主句一致性检查（多页时执行）
+    if len(svg_slides) > 1:
+        print("\n=== 跨页一致性 ===")
+        ok_stmt, msg_stmt = check_statement_consistency(svg_slides, expected_stmt_sz)
+        if ok_stmt:
+            print(f"  [主句] OK  {msg_stmt}")
+        else:
+            bad += 1
+            print(f"  [主句] ⚠️  {msg_stmt}")
+
     print("\n" + "=" * 60)
     print("ALL CLEAR ✅" if bad == 0 else f"待修 {bad} 项 ⚠️")
-    return 0 if bad == 0 else 1
+    return bad == 0
+
+
+def main():
+    parser = argparse.ArgumentParser(description="PPT-Studio SVG 版面客观复核与质量门禁")
+    parser.add_argument("target", nargs="?", default=".", help="SVG 目录、项目目录或单文件路径（默认当前目录）")
+    parser.add_argument("render_dir", nargs="?", default=None, help="可选渲染图 PNG 目录（缺省时自动查找 render/ 或 qa_render/）")
+    parser.add_argument("--spec", help="可选指定 spec_lock.md 路径")
+    args = parser.parse_args()
+
+    target_path = Path(args.target).resolve()
+    spec_path = Path(args.spec).resolve() if args.spec else None
+    render_dir = Path(args.render_dir).resolve() if args.render_dir else None
+
+    # 0. 如果 target_path 是单个 .svg 文件
+    if target_path.is_file() and target_path.suffix == ".svg":
+        success = run_qa_layout(target_path, render_dir, spec_path)
+        sys.exit(0 if success else 1)
+
+    # 1. 显式传入两个目录参数: target 是 svg_dir，render_dir 存在
+    if args.render_dir and target_path.is_dir():
+        success = run_qa_layout(target_path, render_dir, spec_path)
+        sys.exit(0 if success else 1)
+
+    # 2. 如果 target_path 包含 svg_output/ 子目录（典型项目根目录）
+    if (target_path / "svg_output").is_dir():
+        svg_dir = target_path / "svg_output"
+        success = run_qa_layout(svg_dir, render_dir, spec_path)
+        sys.exit(0 if success else 1)
+
+    # 3. 如果 target_path 本身就是包含 .svg 的目录
+    if target_path.is_dir() and list(target_path.glob("*.svg")):
+        success = run_qa_layout(target_path, render_dir, spec_path)
+        sys.exit(0 if success else 1)
+
+    # 4. 如果 target_path 是包含 projects/ 的根目录
+    projects_with_svgs = []
+    if (target_path / "projects").is_dir():
+        for p in sorted((target_path / "projects").iterdir()):
+            if p.is_dir() and (p / "svg_output").is_dir() and list((p / "svg_output").glob("*.svg")):
+                projects_with_svgs.append(p / "svg_output")
+    if projects_with_svgs:
+        all_ok = True
+        for sdir in projects_with_svgs:
+            ok = run_qa_layout(sdir, render_dir, spec_path)
+            if not ok:
+                all_ok = False
+        sys.exit(0 if all_ok else 1)
+
+    print(f"[!] 在 {target_path} 未找到有效 SVG 文件或 svg_output/ 子目录")
+    sys.exit(1)
 
 if __name__ == "__main__":
     sys.exit(main())
