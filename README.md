@@ -128,6 +128,7 @@ python3 ../../scripts/qa_cards.py cards/ render_cards/
 
 # 5. 缝合长图（长图模式）
 python3 ../../scripts/make_long_card.py .        # → output/agentflow-os-launch_长图.png
+python3 ../../scripts/qa_long_card.py .          # 跑长图 7 项质检门禁
 
 # 6. 出视频 + 配音（第四出口）
 python3 ../../scripts/make_video.py .            # → output/agentflow-os-launch_1080p.mp4

@@ -281,6 +281,17 @@ def run_qa_long_card(target_path: Path, project_dir: Path | None = None) -> bool
     # 卡片切片解析
     n_cards, gap, slices = parse_card_segments(arr, ok_header, ok_footer)
 
+    if project_dir is None:
+        for candidate in [
+            target_path.parent.parent,
+            target_path.parent,
+            Path.cwd(),
+            Path(__file__).resolve().parent.parent / "projects/agentflow-os-launch",
+        ]:
+            if (candidate / "cards").is_dir():
+                project_dir = candidate.resolve()
+                break
+
     expected_count = None
     if project_dir and (project_dir / "cards").exists():
         expected_count = len([p for p in (project_dir / "cards").glob("*.svg") if not p.name.startswith("long_card")])
@@ -312,33 +323,46 @@ def run_qa_long_card(target_path: Path, project_dir: Path | None = None) -> bool
 
 def main():
     parser = argparse.ArgumentParser(description="PPT-Studio 长图客观质量门禁")
-    parser.add_argument("target", help="长图 PNG 文件路径或包含长图的输出目录")
+    parser.add_argument("target", help="长图 PNG 文件路径或包含长图/output/*.png 的项目目录")
     parser.add_argument("--project", help="项目根目录（用于校验源卡片数量）")
     args = parser.parse_args()
 
     target = Path(args.target).resolve()
     project = Path(args.project).resolve() if args.project else None
 
-    # 如果是目录，自动查找长图
+    # 如果是目录，自动查找长图（支持当前目录与 output/ 子目录）
     files_to_check = []
     if target.is_dir():
-        patterns = ["*长图*.png", "*long_card*.png"]
-        for p in patterns:
-            files_to_check.extend(sorted(target.glob(p)))
+        def find_in_dir(d: Path) -> list[Path]:
+            found = []
+            for p in ["*长图*.png", "*long_card*.png"]:
+                found.extend(sorted(d.glob(p)))
+            if not found:
+                found = [f for f in sorted(d.glob("*.png")) if "卡片" not in f.name]
+            return found
+
+        files_to_check = find_in_dir(target)
+        if not files_to_check and (target / "output").is_dir():
+            files_to_check = find_in_dir(target / "output")
+
         if not files_to_check:
-            # 搜索全部 PNG
-            files_to_check = [f for f in sorted(target.glob("*.png")) if "卡片" not in f.name]
-        if not files_to_check:
-            print(f"[!] 在目录 {target} 下未发现长图 PNG 文件")
+            print(f"[!] 在目录 {target} 或 {target / 'output'} 下未发现长图 PNG 文件")
             sys.exit(1)
     else:
         files_to_check = [target]
 
     # 自动探测 project 目录
     if project is None:
-        cand_proj = Path("projects/agentflow-os-launch")
-        if cand_proj.exists():
-            project = cand_proj.resolve()
+        for candidate in [
+            target,
+            target.parent,
+            Path.cwd(),
+            Path(__file__).resolve().parent.parent / "projects/agentflow-os-launch",
+            Path("projects/agentflow-os-launch"),
+        ]:
+            if candidate and candidate.exists() and (candidate / "cards").is_dir():
+                project = candidate.resolve()
+                break
 
     all_ok = True
     for f in files_to_check:
