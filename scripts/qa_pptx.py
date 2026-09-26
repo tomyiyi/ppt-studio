@@ -50,32 +50,52 @@ DEFAULT_RAMP = [11, 13, 16, 20, 24, 32, 44, 56, 96]
 
 
 def load_spec_typography(spec_path: Path | None) -> tuple[list[int], int]:
-    """从 spec_lock.md 加载字号阶梯及预期 statement 字号。"""
+    """从 spec_lock.md 加载字号阶梯及预期 statement 字号。
+    支持 - sizes: [11, 13, ...] 与 ## typography 角色映射，过滤行内注释。"""
     ramp = list(DEFAULT_RAMP)
     stmt_sz = 56
-    if spec_path and spec_path.exists():
-        try:
-            content = spec_path.read_text(encoding="utf-8")
-            m_sizes = re.search(r"-\s*sizes:\s*\[([0-9,\s]+)\]", content)
-            if m_sizes:
-                ramp = sorted(int(x.strip()) for x in m_sizes.group(1).split(","))
+    if not spec_path:
+        return ramp, stmt_sz
+    p = Path(spec_path)
+    if not p.is_file():
+        return ramp, stmt_sz
 
-            m_typo = re.search(r"^##\s+typography\s*$(.*?)(?=^##\s|\Z)", content, re.S | re.M)
-            if m_typo:
-                roles = {}
-                for line in m_typo.group(1).splitlines():
-                    line = line.strip()
-                    if line.startswith("#"):
-                        continue
-                    mm = re.match(r"^-\s*(\w+)\s*:\s*(\d+)\s*$", line)
-                    if mm:
-                        roles[mm.group(1)] = int(mm.group(2))
-                if roles:
-                    ramp = sorted(set(ramp + list(roles.values())))
-                    if "statement" in roles:
-                        stmt_sz = roles["statement"]
-        except Exception:
-            pass
+    try:
+        content = p.read_text(encoding="utf-8")
+        # 格式 1: - sizes: [11, 13, 16, 20, 24, 32, 44, 56, 96]
+        m_sizes = re.search(r"-\s*sizes:\s*\[([0-9,\s]+)\]", content)
+        if m_sizes:
+            parsed_sizes = []
+            for x in m_sizes.group(1).split(","):
+                s = x.strip()
+                if s.isdigit():
+                    parsed_sizes.append(int(s))
+            if parsed_sizes:
+                ramp = sorted(set(parsed_sizes))
+
+        # 格式 2: ## typography 段
+        m_typo = re.search(r"^##\s+typography\s*$(.*?)(?=^##\s|\Z)", content, re.S | re.M)
+        if m_typo:
+            roles = {}
+            for line in m_typo.group(1).splitlines():
+                line = line.split("#")[0].strip()
+                if not line:
+                    continue
+                # 支持 56 statement 或 - 56 statement
+                mm1 = re.match(r"^[-*]?\s*(\d+)\s+([a-zA-Z_]\w*)", line)
+                if mm1:
+                    roles[mm1.group(2)] = int(mm1.group(1))
+                    continue
+                # 支持 - statement: 56 或 statement: 56
+                mm2 = re.match(r"^[-*]?\s*([a-zA-Z_]\w*)\s*[:=]\s*(\d+)", line)
+                if mm2:
+                    roles[mm2.group(1)] = int(mm2.group(2))
+            if roles:
+                ramp = sorted(set(ramp + list(roles.values())))
+                if "statement" in roles:
+                    stmt_sz = roles["statement"]
+    except Exception:
+        pass
     return ramp, stmt_sz
 
 
@@ -244,44 +264,45 @@ def check_role_consistency(slide_text_map: dict[str, list[tuple[int, str]]], exp
     if len(slides) < 3:
         return True, "页数较少，跳过跨页主句一致性比对"
 
-    # 正文页: 排除第 1 页 (封面)，检查后续页面的最大主句
+    # 正文页: 排除第 1 页 (封面)，检查后续页面的主句候选（字号 >= 40px 的大标题文本）
     content_slides = slides[1:]
-    statement_sizes = {}
+    statement_slides = {}
 
     for s in content_slides:
         entries = slide_text_map.get(s, [])
         if not entries:
             continue
+        large_entries = [e for e in entries if round(e[0] / 75.0) >= 40]
+        if not large_entries:
+            continue
         # 排序取该页最高字号（一般为 statement 或 headline）
-        top_sz, top_txt = max(entries, key=lambda x: x[0])
+        top_sz, top_txt = max(large_entries, key=lambda x: x[0])
         px = round(top_sz / 75.0)
-        statement_sizes[s] = (px, top_txt[:15])
+        statement_slides[s] = (px, top_txt[:15])
 
     # 聚类正文页的 statement 尺寸（通常为 56px / 42pt = 4200）
-    if not statement_sizes:
+    if not statement_slides:
         return True, "未检测到内联主句标记"
 
-    px_values = [v[0] for v in statement_sizes.values()]
-    # 统计出现频率最高的主句尺寸
     from collections import Counter
-    counts = Counter(px_values)
+    counts = Counter(v[0] for v in statement_slides.values())
     dominant_px, dominant_count = counts.most_common(1)[0]
+
+    target_px = expected_stmt_sz if (expected_stmt_sz and expected_stmt_sz in counts) else dominant_px
 
     # 如果 dominant_px 与规范预期发生档位漂移
     if expected_stmt_sz and dominant_px != expected_stmt_sz and dominant_px in (44, 56, 72):
         return False, f"页面主句字号 ({dominant_px}px) 与规范期望 ({expected_stmt_sz}px) 不符"
 
-    # 检查正文页是否有非预期的漂移（例如 44/72 冲突）
     drifts = []
-    for s, (px, txt) in statement_sizes.items():
-        # 如果是图表/对比页（如 06），最高字可能属于副标题或指标，允许例外，但若接近主句则应一致
-        if px != dominant_px and px in (44, 72) and dominant_px in (56, 44):
+    for s, (px, txt) in sorted(statement_slides.items()):
+        if px != target_px:
             drifts.append(f"{s}({px}px: {txt})")
 
     if drifts:
-        return False, f"页面主句字号不一致 (主流为 {dominant_px}px，漂移页: {', '.join(drifts)})"
+        return False, f"页面主句字号不一致 (主流为 {target_px}px，漂移页: {', '.join(drifts)})"
 
-    return True, f"各正文页页面主句字号严格对齐 ({dominant_px}px / {dominant_px * 0.75:.0f}pt)"
+    return True, f"各正文页页面主句字号严格对齐 ({target_px}px / {target_px * 0.75:.0f}pt)"
 
 
 def check_relationships(z: zipfile.ZipFile, slide_names: list[str]) -> tuple[bool, str]:
@@ -388,19 +409,32 @@ def find_spec_lock(target_path: Path | str | None = None) -> Path | None:
     candidates: list[Path] = []
     if target_path:
         tp = Path(target_path).resolve()
-        candidates.extend([
-            tp / "spec_lock.md",
-            tp.parent / "spec_lock.md",
-            tp.parent.parent / "spec_lock.md",
-        ])
-    candidates.extend([
-        Path.cwd() / "spec_lock.md",
-        Path.cwd() / "projects/agentflow-os-launch/spec_lock.md",
-        Path(__file__).resolve().parent.parent / "projects/agentflow-os-launch/spec_lock.md",
-    ])
+        if tp.is_file():
+            candidates.extend([
+                tp.parent / "spec_lock.md",
+                tp.parent.parent / "spec_lock.md",
+            ])
+        else:
+            candidates.extend([
+                tp / "spec_lock.md",
+                tp.parent / "spec_lock.md",
+                tp.parent.parent / "spec_lock.md",
+            ])
+
+    repo_root = Path(__file__).resolve().parent.parent
+    for candidate_dir in [Path.cwd(), repo_root]:
+        candidates.append(candidate_dir / "spec_lock.md")
+
     for c in candidates:
         if c and c.is_file():
             return c.resolve()
+
+    # 动态扫描 projects/*/spec_lock.md，避免硬编码项目名
+    for candidate_dir in [Path.cwd(), repo_root]:
+        p_cands = sorted((candidate_dir / "projects").glob("*/spec_lock.md"))
+        if len(p_cands) == 1:
+            return p_cands[0].resolve()
+
     return None
 
 

@@ -178,6 +178,29 @@ class TestLoadSpecTypography(unittest.TestCase):
             self.assertIn(96, ramp)
             self.assertEqual(load_spec_ramp(spec), ramp)
 
+    def test_sizes_directive_and_inline_comments(self):
+        content = """# spec
+- sizes: [11, 13, 16, 20, 24, 32, 44, 56, 96] # 阶梯
+
+## typography
+- statement: 44 # 统摄主句
+- 96 headline # 封面主标
+- body: 16 # 正文
+"""
+        with tempfile.TemporaryDirectory() as td:
+            spec = Path(td) / "spec_lock.md"
+            spec.write_text(content, encoding="utf-8")
+            ramp, stmt_sz = load_spec_typography(spec)
+            self.assertEqual(stmt_sz, 44)
+            self.assertIn(16, ramp)
+            self.assertIn(44, ramp)
+            self.assertIn(96, ramp)
+
+    def test_nonexistent_spec_path_fallback(self):
+        ramp, stmt_sz = load_spec_typography(Path("/path/to/nonexistent/spec_lock.md"))
+        self.assertEqual(ramp, [11, 13, 16, 20, 24, 32, 44, 56, 96])
+        self.assertEqual(stmt_sz, 56)
+
 
 class TestCheckZipAndStructure(unittest.TestCase):
     """测试 PPTX Zip 基础结构与 presentation.xml 检验。"""
@@ -373,6 +396,55 @@ class TestCheckRoleConsistency(unittest.TestCase):
         ok, msg = check_role_consistency(mapping, 56)
         self.assertFalse(ok)
         self.assertIn("不一致", msg)
+
+    def test_slide_with_only_small_elements_not_treated_as_statement(self):
+        # 模拟如 06_before_after 仅有正文或指标标注（最大 24px = 1800），不误判为主句漂移
+        mapping = {
+            "ppt/slides/slide1.xml": [(7200, "封面大标题")],
+            "ppt/slides/slide2.xml": [(4200, "正文一主句")],
+            "ppt/slides/slide3.xml": [(4200, "正文二主句")],
+            "ppt/slides/slide4.xml": [(1800, "对比图表标注")],
+            "ppt/slides/slide5.xml": [(4200, "正文四主句")],
+        }
+        ok, msg = check_role_consistency(mapping, 56)
+        self.assertTrue(ok)
+        self.assertIn("严格对齐", msg)
+
+    def test_mismatch_with_expected_statement_size(self):
+        mapping = {
+            "ppt/slides/slide1.xml": [(7200, "封面大标题")],
+            "ppt/slides/slide2.xml": [(5400, "正文一主句")],  # 72px
+            "ppt/slides/slide3.xml": [(5400, "正文二主句")],  # 72px
+            "ppt/slides/slide4.xml": [(5400, "正文三主句")],  # 72px
+        }
+        ok, msg = check_role_consistency(mapping, 56)
+        self.assertFalse(ok)
+        self.assertIn("与规范期望", msg)
+
+
+class TestFindSpecLock(unittest.TestCase):
+    """测试 spec_lock.md 动态发现。"""
+
+    def test_find_spec_lock_from_output_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "my_project"
+            proj.mkdir()
+            (proj / "spec_lock.md").touch()
+            out_pptx = proj / "output" / "deck.pptx"
+            out_pptx.parent.mkdir()
+            out_pptx.touch()
+
+            found = find_spec_lock(out_pptx)
+            self.assertEqual(found, (proj / "spec_lock.md").resolve())
+
+    def test_find_spec_lock_from_project_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "my_project"
+            proj.mkdir()
+            (proj / "spec_lock.md").touch()
+
+            found = find_spec_lock(proj)
+            self.assertEqual(found, (proj / "spec_lock.md").resolve())
 
 
 class TestCheckRelationships(unittest.TestCase):
