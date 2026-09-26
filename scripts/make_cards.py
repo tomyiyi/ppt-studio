@@ -297,7 +297,40 @@ def pick(texts, badge, focus):
                 title=titles[0] if titles else None, hero=hero)
 
 # ---------------------------------------------------------------- 生成卡片
-def card_svg(name, page, c, bg_img, idx, total, W, H):
+def card_svg(
+    name: str,
+    page: str,
+    c: dict,
+    bg_img: str | None,
+    idx: int,
+    total: int,
+    W: int,
+    H: int,
+    colors: dict[str, str] | None = None,
+    sizes: dict[str, int] | None = None,
+) -> str:
+    if colors is None:
+        colors = {}
+    if sizes is None:
+        sizes = {}
+
+    c_bg = colors.get("bg", BG)
+    c_bg_top = colors.get("bg_top", BG_TOP)
+    c_bg_bottom = colors.get("bg_bottom", colors.get("background", "#08090C"))
+    c_fg = colors.get("fg", FG)
+    c_muted = colors.get("muted", MUTED)
+    c_dim = colors.get("dim", DIM)
+    c_accent = colors.get("accent", ACCENT)
+    c_rule = colors.get("rule", RULE)
+
+    s_hero = sizes.get("hero", CARD_SIZE["hero"])
+    s_statement = sizes.get("statement", CARD_SIZE["statement"])
+    s_metric = sizes.get("metric", CARD_SIZE["metric"])
+    s_title = sizes.get("title", CARD_SIZE["title"])
+    s_subtitle = sizes.get("subtitle", CARD_SIZE["subtitle"])
+    s_body = sizes.get("body", CARD_SIZE["body"])
+    s_kicker = sizes.get("kicker", CARD_SIZE["kicker"])
+
     content_w = W - MARGIN - (MARGIN + 44)      # 左侧留主句竖线的位置
     text_x = MARGIN + 44
     o, a = [], None
@@ -326,19 +359,19 @@ def card_svg(name, page, c, bg_img, idx, total, W, H):
 
     p = c["primary"]
     if p:
-        size = CARD_SIZE["hero"] if c["kind"] == "hero" else CARD_SIZE["statement"]
+        size = s_hero if c["kind"] == "hero" else s_statement
         lh = 1.12 if c["kind"] == "hero" else 1.34
         maxl = 2 if c["kind"] == "hero" else 3
-        h, draw, _ = text_block(p["runs"], size, FG, lh, 0.0, True, maxl, text_x, content_w)
+        h, draw, _ = text_block(p["runs"], size, c_fg, lh, 0.0, True, maxl, text_x, content_w)
         blocks_fixed.append(("primary", h, draw))
 
     if c["title"] and c["kind"] == "hero":
-        h, draw, _ = text_block(c["title"]["runs"], CARD_SIZE["title"], ACCENT, 1.25,
+        h, draw, _ = text_block(c["title"]["runs"], s_title, c_accent, 1.25,
                                 0.0, False, 1, text_x, content_w)
         blocks_fixed.append(("title", h, draw))
 
     for i, s in enumerate(c["support"]):
-        h, draw, _ = text_block(s["runs"], CARD_SIZE["body"], MUTED, 1.50,
+        h, draw, _ = text_block(s["runs"], s_body, c_muted, 1.50,
                                 0.0, False, 2, text_x, content_w)
         support_blocks.append((f"support{i}", h, draw))
 
@@ -348,15 +381,15 @@ def card_svg(name, page, c, bg_img, idx, total, W, H):
             col_w = content_w / n
             for i, (m, lab) in enumerate(c["metrics"][:n]):
                 cx = text_x + int(col_w * i)
-                out.append(f'    <text x="{cx}" y="{y + 76:.0f}" font-size="96" '
+                out.append(f'    <text x="{cx}" y="{y + 76:.0f}" font-size="{s_metric}" '
                            f'font-weight="bold" font-family=\'{NUM_FONT}\' '
-                           f'fill="{ACCENT}">{esc(m["text"])}</text>')
+                           f'fill="{c_accent}">{esc(m["text"])}</text>')
                 if lab:
                     lt = lab["text"]
                     if len(lt) > 8:
                         lt = lt[:8] + "…"
-                    out.append(f'    <text x="{cx}" y="{y + 120:.0f}" font-size="28" '
-                               f'fill="{DIM}">{esc(lt)}</text>')
+                    out.append(f'    <text x="{cx}" y="{y + 120:.0f}" font-size="{s_kicker}" '
+                               f'fill="{c_dim}">{esc(lt)}</text>')
             return out
         return ("metrics", 140, draw_m)
 
@@ -413,24 +446,24 @@ def card_svg(name, page, c, bg_img, idx, total, W, H):
     a('  <linearGradient id="band-scrim" x1="0" y1="0" x2="0" y2="1">')
     # ⚠️ 遮罩别压太狠：第一版 0.88/0.42/0.08/0.30 把 P99≈60 的暗图压到
     #    全带墨量 0.7%，等于没图。现在只护住顶部眉标那一条。
-    a('    <stop offset="0" stop-color="#08090C" stop-opacity="0.78"/>')
-    a('    <stop offset="0.22" stop-color="#08090C" stop-opacity="0.28"/>')
-    a('    <stop offset="0.58" stop-color="#08090C" stop-opacity="0.05"/>')
-    a('    <stop offset="1" stop-color="#08090C" stop-opacity="0.16"/>')
+    a(f'    <stop offset="0" stop-color="{c_bg_bottom}" stop-opacity="0.78"/>')
+    a(f'    <stop offset="0.22" stop-color="{c_bg_bottom}" stop-opacity="0.28"/>')
+    a(f'    <stop offset="0.58" stop-color="{c_bg_bottom}" stop-opacity="0.05"/>')
+    a(f'    <stop offset="1" stop-color="{c_bg_bottom}" stop-opacity="0.16"/>')
     a("  </linearGradient>")
     a(f'  <linearGradient id="band-fade" x1="0" y1="0" x2="0" y2="1">')
-    a(f'    <stop offset="0" stop-color="{BG}" stop-opacity="0"/>')
-    a(f'    <stop offset="1" stop-color="{BG}" stop-opacity="0.96"/>')
+    a(f'    <stop offset="0" stop-color="{c_bg}" stop-opacity="0"/>')
+    a(f'    <stop offset="1" stop-color="{c_bg}" stop-opacity="0.96"/>')
     a("  </linearGradient>")
     a(f'  <linearGradient id="panel-grad" x1="0" y1="0" x2="0" y2="1">')
-    a(f'    <stop offset="0" stop-color="{BG_TOP}" stop-opacity="1"/>')
-    a(f'    <stop offset="1" stop-color="#08090C" stop-opacity="1"/>')
+    a(f'    <stop offset="0" stop-color="{c_bg_top}" stop-opacity="1"/>')
+    a(f'    <stop offset="1" stop-color="{c_bg_bottom}" stop-opacity="1"/>')
     a("  </linearGradient>")
     a("</defs>")
 
     # ---- 图片带
     a('<g id="card-image">')
-    a(f'  <rect width="{W}" height="{band_h}" fill="#08090C"/>')
+    a(f'  <rect width="{W}" height="{band_h}" fill="{c_bg_bottom}"/>')
     if bg_img:
         a(f'  <image href="{esc(bg_img)}" x="0" y="0" width="{W}" height="{band_h}" '
           f'preserveAspectRatio="xMidYMid slice"/>')
@@ -440,7 +473,7 @@ def card_svg(name, page, c, bg_img, idx, total, W, H):
 
     # ---- 眉标
     if c["kicker"]:
-        a(f'  <text x="{MARGIN}" y="112" font-size="28" fill="{MUTED}" '
+        a(f'  <text x="{MARGIN}" y="112" font-size="{s_kicker}" fill="{c_muted}" '
           f'letter-spacing="6">{esc(c["kicker"])}</text>')
 
     # ---- 徽章（右上角）：数字进圆牌，标签排在下面
@@ -453,10 +486,10 @@ def card_svg(name, page, c, bg_img, idx, total, W, H):
         bx = W - MARGIN - bw
         a(f'  <rect x="{bx}" y="80" width="{bw}" height="60" rx="30" fill="{chip}"/>')
         a(f'  <text x="{bx + bw // 2}" y="121" text-anchor="middle" font-size="36" '
-          f'font-weight="bold" font-family=\'{bf}\' fill="#08090C">{esc(bt)}</text>')
+          f'font-weight="bold" font-family=\'{bf}\' fill="{c_bg_bottom}">{esc(bt)}</text>')
         if c["badge"].get("lab"):
-            a(f'  <text x="{W - MARGIN}" y="168" text-anchor="end" font-size="28" '
-              f'fill="{MUTED}">{esc(c["badge"]["lab"])}</text>')
+            a(f'  <text x="{W - MARGIN}" y="168" text-anchor="end" font-size="{s_kicker}" '
+              f'fill="{c_muted}">{esc(c["badge"]["lab"])}</text>')
 
     # ---- 内容面板
     a('<g id="card-panel">')
@@ -474,14 +507,14 @@ def card_svg(name, page, c, bg_img, idx, total, W, H):
     if p is not None and blocks:
         ph = blocks[0][1]
         a(f'  <rect x="{MARGIN}" y="{y0 + 8:.0f}" width="6" height="{ph - 16:.0f}" '
-          f'rx="3" fill="{ACCENT}"/>')
+          f'rx="3" fill="{c_accent}"/>')
 
     # ---- 页脚
     a(f'  <line x1="{MARGIN}" y1="{FOOTER_Y - 44}" x2="{W - MARGIN}" '
-      f'y2="{FOOTER_Y - 44}" stroke="{RULE}" stroke-width="1"/>')
-    a(f'  <text x="{W - MARGIN}" y="{FOOTER_Y}" text-anchor="end" font-size="28" '
-      f'fill="{DIM}">{idx:02d} / {total:02d}</text>')
-    a(f'  <text x="{MARGIN}" y="{FOOTER_Y}" font-size="28" fill="{DIM}">'
+      f'y2="{FOOTER_Y - 44}" stroke="{c_rule}" stroke-width="1"/>')
+    a(f'  <text x="{W - MARGIN}" y="{FOOTER_Y}" text-anchor="end" font-size="{s_kicker}" '
+      f'fill="{c_dim}">{idx:02d} / {total:02d}</text>')
+    a(f'  <text x="{MARGIN}" y="{FOOTER_Y}" font-size="{s_kicker}" fill="{c_dim}">'
       f'{esc(page)}</text>')
     a("</g>")
     a("</svg>")
@@ -505,6 +538,236 @@ def ratio_wh(spec: str):
     return W, H, int(H * 0.52)
 
 # ---------------------------------------------------------------- main
+def parse_colors_from_spec_text(content: str) -> dict[str, str]:
+    """从规范文本解析颜色定义（支持 colors 段落、YAML 列表、键值对以及行内注释）。"""
+    colors: dict[str, str] = {}
+    m_sec = re.search(r"^##\s+colors\s*$(.*?)(?=^##\s|\Z)", content, re.S | re.M)
+    search_text = m_sec.group(1) if m_sec else content
+
+    for line in search_text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        # 支持:
+        # - background: #08090C / background: "#08090C"
+        # - bg: #0B0C12 / bg #0B0C12
+        # - accent: #6E7BFF / accent #6E7BFF
+        # accent_color: #6E7BFF
+        m = re.search(r"^[-*]?\s*([a-zA-Z_]\w*)\s*[:=\s]\s*\"?(#[0-9a-fA-F]{6})\"?", line)
+        if m:
+            key = m.group(1).lower()
+            val = m.group(2).upper()
+            colors[key] = val
+            # 检查是否有渐变终点颜色，如 bg #0B0C12 → #08090C
+            m_arrow = re.search(r"(?:→|->)\s*\"?(#[0-9a-fA-F]{6})\"?", line)
+            if m_arrow:
+                colors[f"{key}_bottom"] = m_arrow.group(1).upper()
+
+    if "accent" not in colors and "accent_color" not in colors:
+        m = re.search(r"\baccent(?:_color)?\s*[:=\s]\s*\"?(#[0-9a-fA-F]{6})\"?", content)
+        if m:
+            colors["accent"] = m.group(1).upper()
+
+    if "bg" not in colors and "background" not in colors and "bg_color" not in colors:
+        m = re.search(r"\b(?:bg|background)(?:_color)?\s*[:=\s]\s*\"?(#[0-9a-fA-F]{6})\"?", content)
+        if m:
+            colors["bg"] = m.group(1).upper()
+
+    return colors
+
+
+def load_spec_colors(project_dir: str | Path | None) -> dict[str, str]:
+    """从 card_spec.md 或 spec_lock.md 读取色彩配置，支持 YAML 列表、行内注释与双规范回退。"""
+    colors = {
+        "bg": BG,
+        "bg_top": BG_TOP,
+        "bg_bottom": "#08090C",
+        "fg": FG,
+        "muted": MUTED,
+        "dim": DIM,
+        "accent": ACCENT,
+        "rule": RULE,
+    }
+    if not project_dir:
+        return colors
+
+    p = Path(project_dir).resolve()
+    candidate_files: list[Path] = []
+    if p.is_file():
+        candidate_files.append(p)
+        candidate_files.append(p.parent / "card_spec.md")
+        candidate_files.append(p.parent / "spec_lock.md")
+    elif p.is_dir():
+        candidate_files.append(p / "card_spec.md")
+        candidate_files.append(p / "spec_lock.md")
+
+    repo_root = Path(__file__).resolve().parent.parent
+    for base in [Path.cwd(), repo_root]:
+        candidate_files.append(base / "card_spec.md")
+        candidate_files.append(base / "spec_lock.md")
+
+    seen = set()
+    for cand in candidate_files:
+        if not cand.is_file():
+            continue
+        rcand = cand.resolve()
+        if rcand in seen:
+            continue
+        seen.add(rcand)
+
+        try:
+            txt = rcand.read_text(encoding="utf-8")
+            parsed = parse_colors_from_spec_text(txt)
+            if "accent" in parsed:
+                colors["accent"] = parsed["accent"]
+            elif "accent_color" in parsed:
+                colors["accent"] = parsed["accent_color"]
+
+            if "bg" in parsed:
+                colors["bg"] = parsed["bg"]
+            elif "background" in parsed:
+                colors["bg"] = parsed["background"]
+            elif "bg_color" in parsed:
+                colors["bg"] = parsed["bg_color"]
+
+            if "bg_bottom" in parsed:
+                colors["bg_bottom"] = parsed["bg_bottom"]
+            elif "background" in parsed:
+                colors["bg_bottom"] = parsed["background"]
+
+            if "bg_top" in parsed:
+                colors["bg_top"] = parsed["bg_top"]
+
+            if "fg" in parsed:
+                colors["fg"] = parsed["fg"]
+            elif "text_main" in parsed:
+                colors["fg"] = parsed["text_main"]
+
+            if "muted" in parsed:
+                colors["muted"] = parsed["muted"]
+            elif "text_muted" in parsed:
+                colors["muted"] = parsed["text_muted"]
+
+            if "dim" in parsed:
+                colors["dim"] = parsed["dim"]
+            elif "text_dim" in parsed:
+                colors["dim"] = parsed["text_dim"]
+
+            if "rule" in parsed:
+                colors["rule"] = parsed["rule"]
+        except (OSError, UnicodeError):
+            pass
+
+    return colors
+
+
+def load_spec_roles(project_dir: str | Path | None) -> dict[str, int]:
+    """从 card_spec.md 读取字号角色映射 (statement, hero, metric, title, subtitle, body, kicker)。"""
+    roles = dict(CARD_SIZE)
+    if not project_dir:
+        return roles
+
+    p = Path(project_dir).resolve()
+    candidate_files: list[Path] = []
+    if p.is_file():
+        candidate_files.append(p)
+        candidate_files.append(p.parent / "card_spec.md")
+    elif p.is_dir():
+        candidate_files.append(p / "card_spec.md")
+
+    repo_root = Path(__file__).resolve().parent.parent
+    for base in [Path.cwd(), repo_root]:
+        candidate_files.append(base / "card_spec.md")
+
+    seen = set()
+    for cand in candidate_files:
+        if not cand.is_file():
+            continue
+        rcand = cand.resolve()
+        if rcand in seen:
+            continue
+        seen.add(rcand)
+
+        try:
+            txt = rcand.read_text(encoding="utf-8")
+            m = re.search(r"^##\s+typography\s*$(.*?)(?=^##\s|\Z)", txt, re.S | re.M)
+            if m:
+                for line in m.group(1).splitlines():
+                    line = line.split("#")[0].strip()
+                    if not line:
+                        continue
+                    # 支持 72 statement 或 - 72 statement
+                    mm1 = re.match(r"^[-*]?\s*(\d+)\s+([a-zA-Z_]\w*)", line)
+                    if mm1:
+                        roles[mm1.group(2)] = int(mm1.group(1))
+                        continue
+                    # 支持 - statement: 72 或 statement: 72
+                    mm2 = re.match(r"^[-*]?\s*([a-zA-Z_]\w*)\s*[:=]\s*(\d+)", line)
+                    if mm2:
+                        roles[mm2.group(1)] = int(mm2.group(2))
+        except (OSError, UnicodeError):
+            pass
+
+    return roles
+
+
+def load_deck_title(
+    project_dir: str | Path | None,
+    src_svg_files: list[Path] | None = None,
+) -> str:
+    """提取卡片页脚项目/演示标题。"""
+    # 1. 尝试从封面 SVG (如 01_cover.svg) 提取大标题
+    if src_svg_files:
+        for f in src_svg_files:
+            if "01" in f.name or "cover" in f.name:
+                try:
+                    texts, _, _ = parse_page(str(f))
+                    heroes = [t for t in texts if t.get("fs", 0) >= 72 and t.get("text", "").strip()]
+                    if heroes:
+                        title_candidate = heroes[0]["text"].strip()
+                        if title_candidate and len(title_candidate) <= 20:
+                            return title_candidate
+                except Exception:
+                    pass
+
+    if project_dir:
+        p = Path(project_dir)
+        proj_dir = p.parent if p.is_file() else p
+        # 2. 尝试从 notes/01_cover.md 提取
+        cover_note = proj_dir / "notes" / "01_cover.md"
+        if cover_note.is_file():
+            try:
+                for line in cover_note.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if line.startswith("#"):
+                        t = line.lstrip("#").strip()
+                        if t:
+                            return t
+            except Exception:
+                pass
+
+        # 3. 尝试从 card_spec.md / spec_lock.md 提取 title
+        for spec_f in [proj_dir / "card_spec.md", proj_dir / "spec_lock.md"]:
+            if spec_f.is_file():
+                try:
+                    content = spec_f.read_text(encoding="utf-8")
+                    m = re.search(r"-\s*title\s*[:=]\s*(.+)", content)
+                    if m:
+                        return m.group(1).strip()
+                except Exception:
+                    pass
+
+        # 4. 根据项目目录名推断
+        name = proj_dir.name
+        if "agentflow" in name.lower():
+            return "智流 OS"
+        cleaned = name.replace("-", " ").replace("_", " ").title()
+        if cleaned:
+            return cleaned
+
+    return "智流 OS"
+
+
 def load_focus(project):
     """card_spec.md 的 ## focus 段：页码: 主句（源页没有 statement 档时人工指定）。"""
     p = os.path.join(project, "card_spec.md")
@@ -631,6 +894,11 @@ def main(argv: list[str] | None = None) -> int:
     focus = load_focus(proj)
     total = len(files)
 
+    colors = load_spec_colors(proj)
+    sizes = load_spec_roles(proj)
+    all_src_files = [Path(src_dir) / f for f in sorted(os.listdir(src_dir)) if f.endswith(".svg")]
+    deck_title = load_deck_title(proj, all_src_files)
+
     ok = 0
     for i, fn in enumerate(files, 1):
         stem = os.path.splitext(fn)[0]
@@ -640,7 +908,7 @@ def main(argv: list[str] | None = None) -> int:
         if not c["primary"] and not c["metrics"]:
             print(f"  [skip] {fn} 无可提取内容")
             continue
-        svg = card_svg(stem, "智流 OS", c, bg_img, i, total, W, H)
+        svg = card_svg(stem, deck_title, c, bg_img, i, total, W, H, colors=colors, sizes=sizes)
         dst = os.path.join(out_dir, f"{stem}.svg")
         open(dst, "w", encoding="utf-8").write(svg)
         print(f"✓ {fn} → {dst}  主句[{c['kind']}] {c['primary']['text'][:24] if c['primary'] else '—'}"

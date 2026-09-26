@@ -19,7 +19,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.make_cards import resolve_project_dir, main
+from scripts.make_cards import (
+    resolve_project_dir,
+    main,
+    parse_colors_from_spec_text,
+    load_spec_colors,
+    load_spec_roles,
+    load_deck_title,
+    card_svg,
+)
 
 
 def create_minimal_svg(svg_path: Path) -> None:
@@ -103,6 +111,168 @@ class TestResolveProjectDir(unittest.TestCase):
             self.assertEqual(resolved, p_real.resolve())
 
 
+class TestSpecLoading(unittest.TestCase):
+    """测试规范文本解析与色彩、字号与项目标题加载。"""
+
+    def test_parse_colors_from_spec_text_basic(self):
+        text = """## colors
+bg #0B0C12
+accent #6E7BFF
+"""
+        colors = parse_colors_from_spec_text(text)
+        self.assertEqual(colors.get("bg"), "#0B0C12")
+        self.assertEqual(colors.get("accent"), "#6E7BFF")
+
+    def test_parse_colors_from_spec_text_yaml_and_comments(self):
+        text = """## colors
+- background: "#08090C" # 背景底色
+- accent: #FF6600       # 品牌强调色
+- rule: #334455
+"""
+        colors = parse_colors_from_spec_text(text)
+        self.assertEqual(colors.get("background"), "#08090C")
+        self.assertEqual(colors.get("accent"), "#FF6600")
+        self.assertEqual(colors.get("rule"), "#334455")
+
+    def test_parse_colors_gradient_arrow(self):
+        text = """## colors
+bg #0B0C12 → #08090C（面板竖向渐变）
+accent #6E7BFF
+"""
+        colors = parse_colors_from_spec_text(text)
+        self.assertEqual(colors.get("bg"), "#0B0C12")
+        self.assertEqual(colors.get("bg_bottom"), "#08090C")
+
+    def test_load_spec_colors_from_card_spec(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "proj"
+            proj.mkdir()
+            (proj / "card_spec.md").write_text(
+                "## colors\naccent #FF5500\nbg #010203\n",
+                encoding="utf-8",
+            )
+            colors = load_spec_colors(proj)
+            self.assertEqual(colors.get("accent"), "#FF5500")
+            self.assertEqual(colors.get("bg"), "#010203")
+
+    def test_load_spec_colors_fallback_to_spec_lock(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "proj"
+            proj.mkdir()
+            (proj / "spec_lock.md").write_text(
+                "## colors\n- background: #020304\n- accent: #112233\n",
+                encoding="utf-8",
+            )
+            colors = load_spec_colors(proj)
+            self.assertEqual(colors.get("accent"), "#112233")
+            self.assertEqual(colors.get("bg"), "#020304")
+
+    def test_load_spec_roles_from_card_spec(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "proj"
+            proj.mkdir()
+            (proj / "card_spec.md").write_text(
+                """## typography
+- statement: 64 # 自定义主句
+- hero: 120 # 封面
+- metric: 88
+""",
+                encoding="utf-8",
+            )
+            roles = load_spec_roles(proj)
+            self.assertEqual(roles.get("statement"), 64)
+            self.assertEqual(roles.get("hero"), 120)
+            self.assertEqual(roles.get("metric"), 88)
+
+    def test_load_deck_title_from_cover_svg(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "proj"
+            proj.mkdir()
+            cover_svg = proj / "01_cover.svg"
+            cover_svg.write_text(
+                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">'
+                '<text x="80" y="300" font-size="96" fill="#FFF">超流引擎</text>'
+                '</svg>',
+                encoding="utf-8",
+            )
+            title = load_deck_title(proj, [cover_svg])
+            self.assertEqual(title, "超流引擎")
+
+    def test_load_deck_title_from_notes(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "proj"
+            proj.mkdir()
+            notes_dir = proj / "notes"
+            notes_dir.mkdir()
+            (notes_dir / "01_cover.md").write_text("# 极速发布会\n\n- 开场\n", encoding="utf-8")
+            title = load_deck_title(proj)
+            self.assertEqual(title, "极速发布会")
+
+    def test_load_deck_title_from_project_name(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "super-system-demo"
+            proj.mkdir()
+            title = load_deck_title(proj)
+            self.assertEqual(title, "Super System Demo")
+
+
+class TestCardSvgCustomization(unittest.TestCase):
+    """测试 card_svg 接收自定义颜色、字号与页脚标题的渲染表现。"""
+
+    def test_card_svg_applies_custom_accent_color(self):
+        c = {
+            "primary": {"text": "系统主句测试", "runs": [("系统主句测试", None)]},
+            "kind": "statement",
+            "support": [],
+            "metrics": [({"text": "99.9%", "runs": []}, None)],
+            "kicker": "KICKER",
+            "badge": None,
+            "title": None,
+            "hero": None,
+        }
+        svg = card_svg(
+            "02_test",
+            "演示标题",
+            c,
+            None,
+            1,
+            5,
+            1080,
+            1350,
+            colors={"accent": "#FF5500", "bg": "#101010"},
+        )
+        # 验证 6px 签名竖线应用了自定义强调色
+        self.assertIn('fill="#FF5500"', svg)
+        # 验证指标文本使用了强调色
+        self.assertIn('fill="#FF5500">99.9%</text>', svg)
+        # 验证页脚包含传入的演示标题
+        self.assertIn('>演示标题</text>', svg)
+
+    def test_card_svg_applies_custom_statement_size(self):
+        c = {
+            "primary": {"text": "主句字号测试", "runs": [("主句字号测试", None)]},
+            "kind": "statement",
+            "support": [],
+            "metrics": [],
+            "kicker": None,
+            "badge": None,
+            "title": None,
+            "hero": None,
+        }
+        svg = card_svg(
+            "02_test",
+            "标题",
+            c,
+            None,
+            1,
+            5,
+            1080,
+            1350,
+            sizes={"statement": 64},
+        )
+        self.assertIn('font-size="64"', svg)
+
+
 class TestMakeCardsCLI(unittest.TestCase):
     def test_cli_explicit_argument(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -168,6 +338,44 @@ class TestMakeCardsCLI(unittest.TestCase):
             )
             self.assertEqual(res.returncode, 1)
             self.assertIn("无法安全确定", res.stderr)
+
+    def test_cli_custom_spec_integration_passes_qa(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "custom_brand_proj"
+            create_minimal_svg(proj / "svg_output" / "01_cover.svg")
+            (proj / "card_spec.md").write_text(
+                """## typography
+- sizes: [28, 36, 44, 56, 72, 96, 132]
+- statement: 72
+- hero: 132
+
+## colors
+- accent: #FF6600 # 品牌橙
+- bg: #0A0D14
+""",
+                encoding="utf-8",
+            )
+            script_make = REPO_ROOT / "scripts" / "make_cards.py"
+            res_make = subprocess.run(
+                [sys.executable, str(script_make), str(proj)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(res_make.returncode, 0, msg=f"make_cards failed: {res_make.stderr}")
+
+            out_card = proj / "cards" / "01_cover.svg"
+            self.assertTrue(out_card.exists())
+            card_content = out_card.read_text(encoding="utf-8")
+            self.assertIn('fill="#FF6600"', card_content)
+
+            script_qa = REPO_ROOT / "scripts" / "qa_cards.py"
+            res_qa = subprocess.run(
+                [sys.executable, str(script_qa), str(proj)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(res_qa.returncode, 0, msg=f"qa_cards failed: {res_qa.stdout}\n{res_qa.stderr}")
+            self.assertIn("ALL CLEAR", res_qa.stdout)
 
 
 if __name__ == "__main__":
