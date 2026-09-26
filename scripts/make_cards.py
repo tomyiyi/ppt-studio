@@ -15,7 +15,8 @@ make_cards.py —— SVG 画布 → 竖版传播卡片
 内容源是 SVG 本身（不是 notes/*.md），保证卡片和 PPT 说的是同一件事。
 
 用法：
-  python3 make_cards.py <project> [--out cards] [--ratio 3:4|9:16] [--only 02]
+  python3 make_cards.py [project] [--out cards] [--ratio 3:4|9:16] [--only 02]
+  （未传 project 时自动从当前目录或 projects/ 下发现唯一有效项目）
 
 产物：
   <project>/<out>/NN_name.svg
@@ -29,6 +30,7 @@ import os
 import re
 import sys
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 # ---------------------------------------------------------------- 画布常量
 MARGIN = 80
@@ -519,18 +521,104 @@ def load_focus(project):
             out[mm.group(1)] = mm.group(2)
     return out
 
-def main():
+def resolve_project_dir(
+    project_arg: str | Path | None = None,
+    base_dir: str | Path | None = None,
+) -> Path:
+    """自适应探测包含 svg_output/*.svg 的项目目录。
+
+    保留显式 project 参数行为；
+    未传时从当前目录或 projects/ 下安全发现唯一包含 svg_output/*.svg 的项目。
+    """
+    if project_arg is not None and str(project_arg).strip() != "":
+        proj = Path(project_arg)
+        if not proj.is_absolute() and base_dir is not None:
+            proj = (Path(base_dir) / proj).resolve()
+        else:
+            proj = proj.resolve()
+        if not proj.exists():
+            raise FileNotFoundError(f"指定的项目目录不存在: {project_arg}")
+        return proj
+
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+
+    def has_svg_output(p: Path) -> bool:
+        svg_dir = p / "svg_output"
+        return svg_dir.is_dir() and any(svg_dir.glob("*.svg"))
+
+    # 1. 当前目录本身包含 svg_output/*.svg
+    if has_svg_output(base):
+        return base
+
+    # 2. 从 projects/ 目录下安全发现
+    candidate_projects_dirs: list[Path] = []
+    if base.is_dir() and base.name == "projects":
+        candidate_projects_dirs.append(base)
+    elif (base / "projects").is_dir():
+        candidate_projects_dirs.append(base / "projects")
+    elif base_dir is None:
+        for cand in [base.parent, base.parent.parent, Path(__file__).resolve().parent.parent]:
+            try:
+                p_cand = cand / "projects"
+                if p_cand.is_dir() and p_cand.resolve() not in [d.resolve() for d in candidate_projects_dirs]:
+                    candidate_projects_dirs.append(p_cand)
+                    break
+            except Exception:
+                pass
+
+    found: list[Path] = []
+    seen: set[Path] = set()
+
+    for p_dir in candidate_projects_dirs:
+        for sub in sorted(p_dir.iterdir()):
+            if sub.is_dir() and has_svg_output(sub):
+                r_sub = sub.resolve()
+                if r_sub not in seen:
+                    seen.add(r_sub)
+                    found.append(r_sub)
+        if found:
+            break
+
+    if len(found) == 1:
+        return found[0]
+    elif len(found) == 0:
+        raise FileNotFoundError(
+            "未在当前目录或 projects/ 下发现包含 svg_output/*.svg 的项目，请显式指定 project 参数"
+        )
+    else:
+        names = ", ".join(p.name for p in found)
+        raise ValueError(
+            f"发现多个包含 svg_output 的项目 ({names})，无法安全确定，请显式指定 project 参数"
+        )
+
+
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="SVG 画布 → 竖版传播卡片")
-    ap.add_argument("project")
+    ap.add_argument(
+        "project",
+        nargs="?",
+        default=None,
+        help="项目根目录，例如 projects/agentflow-os-launch（默认自动发现）",
+    )
     ap.add_argument("--out", default="cards")
     ap.add_argument("--ratio", default="3:4")
     ap.add_argument("--only", help="只处理文件名包含该串的页")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
-    proj = args.project
+    try:
+        proj_dir = resolve_project_dir(args.project)
+    except (FileNotFoundError, ValueError) as err:
+        print(f"[err] {err}", file=sys.stderr)
+        return 1
+
+    proj = str(proj_dir)
     src_dir = os.path.join(proj, "svg_output")
     out_dir = os.path.join(proj, args.out)
     os.makedirs(out_dir, exist_ok=True)
+
+    if not os.path.isdir(src_dir):
+        print(f"[err] 项目缺少 svg_output 目录: {src_dir}", file=sys.stderr)
+        return 2
 
     files = sorted(f for f in os.listdir(src_dir) if f.endswith(".svg"))
     if args.only:
