@@ -60,7 +60,7 @@ def load_ramp(spec_path):
     if not spec_path or not os.path.exists(str(spec_path)):
         print(f"[warn] 找不到 {spec_path}，用默认阶梯")
         return set(DEFAULT_RAMP)
-    txt = open(str(spec_path), encoding="utf-8").read()
+    txt = Path(spec_path).read_text(encoding="utf-8")
     m = re.search(r"^##\s+typography\s*$(.*?)(?=^##\s|\Z)", txt, re.S | re.M)
     if not m:
         return set(DEFAULT_RAMP)
@@ -79,7 +79,7 @@ def load_spec_roles(spec_path):
     """从 card_spec.md 的 ## typography 段读取 (role -> font_size) 映射。"""
     if not spec_path or not os.path.exists(str(spec_path)):
         return {}
-    txt = open(str(spec_path), encoding="utf-8").read()
+    txt = Path(spec_path).read_text(encoding="utf-8")
     m = re.search(r"^##\s+typography\s*$(.*?)(?=^##\s|\Z)", txt, re.S | re.M)
     if not m:
         return {}
@@ -98,7 +98,7 @@ def load_spec_colors(spec_path):
     """从 card_spec.md 的 ## colors 段读取色彩配置。"""
     if not spec_path or not os.path.exists(str(spec_path)):
         return {}
-    txt = open(str(spec_path), encoding="utf-8").read()
+    txt = Path(spec_path).read_text(encoding="utf-8")
     m = re.search(r"^##\s+colors\s*$(.*?)(?=^##\s|\Z)", txt, re.S | re.M)
     if not m:
         return {}
@@ -278,8 +278,6 @@ def run_qa_cards(
             card_path.parent / "card_spec.md",
             card_path.parent.parent / "card_spec.md",
             Path.cwd() / "card_spec.md",
-            Path.cwd() / "projects/agentflow-os-launch/card_spec.md",
-            Path(__file__).resolve().parent.parent / "projects/agentflow-os-launch/card_spec.md",
         ]:
             if candidate and candidate.exists():
                 spec_file = candidate.resolve()
@@ -515,58 +513,157 @@ def run_qa_cards(
     return bad == 0
 
 
-def main():
+def resolve_card_dirs(
+    target_arg: str | Path | None = None,
+    base_dir: str | Path | None = None,
+) -> list[Path]:
+    """自适应解析待质检的卡片目录。
+
+    1. 若显式指定非 '.' 的 target_arg：
+       - 转换为绝对路径并校验存在性，若不存在抛出 FileNotFoundError；
+       - 若 target 为文件：若是 SVG 文件，返回 [target.parent.resolve()]；否则抛出 ValueError；
+       - 若 target 为目录：
+         * 若 (target / "cards").is_dir() 且包含 *.svg，返回 [(target / "cards").resolve()]；
+         * 若 target 包含 *.svg，返回 [target.resolve()]；
+         * 若 target 包含 projects/ 目录或自身名为 projects，从中安全发现包含 cards/ 的项目；
+         * 否则抛出 FileNotFoundError；
+    2. 若未显式指定 target_arg 或为 '.'：
+       - 探测 base_dir：
+         * 若 (base / "cards").is_dir() 且包含 *.svg，返回 [(base / "cards").resolve()]；
+         * 若 base 包含 *.svg，返回 [base.resolve()]；
+       - 从 base/projects 或仓库根目录 projects/ 探测：
+         * 收集所有包含 cards/ 且有 *.svg 的项目；
+         * 若唯一匹配，返回 [唯一目录]；
+         * 若有多个匹配，抛出 ValueError；
+         * 若未发现匹配，抛出 FileNotFoundError。
+    """
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    is_default = (target_arg is None or str(target_arg).strip() in ("", "."))
+
+    if not is_default:
+        p = Path(target_arg)
+        if not p.is_absolute():
+            p = (base / p).resolve()
+        else:
+            p = p.resolve()
+
+        if not p.exists():
+            raise FileNotFoundError(f"指定的目标路径不存在: {target_arg}")
+
+        if p.is_file():
+            if p.suffix.lower() == ".svg":
+                return [p.parent.resolve()]
+            raise ValueError(f"指定的 target 文件不是 SVG 文件: {target_arg}")
+
+        cards_sub = p / "cards"
+        if cards_sub.is_dir() and list(cards_sub.glob("*.svg")):
+            return [cards_sub.resolve()]
+
+        if list(p.glob("*.svg")):
+            return [p.resolve()]
+
+        candidate_projects_dirs: list[Path] = []
+        if (p / "projects").is_dir():
+            candidate_projects_dirs.append(p / "projects")
+        elif p.name == "projects":
+            candidate_projects_dirs.append(p)
+
+        p_subprojects: list[Path] = []
+        for s_dir in candidate_projects_dirs:
+            for sub in sorted(s_dir.iterdir()):
+                if sub.is_dir():
+                    c_sub = sub / "cards"
+                    if c_sub.is_dir() and list(c_sub.glob("*.svg")):
+                        p_subprojects.append(c_sub.resolve())
+
+        if len(p_subprojects) == 1:
+            return p_subprojects
+        elif len(p_subprojects) > 1:
+            names = ", ".join(d.parent.name for d in p_subprojects)
+            raise ValueError(
+                f"发现多个包含 cards/ 的项目 ({names})，无法安全确定，请显式指定 target 参数"
+            )
+
+        raise FileNotFoundError(f"在目录 {target_arg} 下未找到有效卡片 SVG 文件或 cards/ 子目录")
+
+    # 默认/自适应探测
+    if (base / "cards").is_dir() and list((base / "cards").glob("*.svg")):
+        return [(base / "cards").resolve()]
+    if list(base.glob("*.svg")):
+        return [base.resolve()]
+
+    candidate_projects_dirs: list[Path] = []
+    if base.is_dir() and base.name == "projects":
+        candidate_projects_dirs.append(base)
+    elif (base / "projects").is_dir():
+        candidate_projects_dirs.append(base / "projects")
+    elif base_dir is None:
+        repo_root = Path(__file__).resolve().parent.parent
+        p_cand = repo_root / "projects"
+        if p_cand.is_dir():
+            candidate_projects_dirs.append(p_cand)
+
+    found_cards: list[Path] = []
+    seen: set[Path] = set()
+    for p_dir in candidate_projects_dirs:
+        for sub in sorted(p_dir.iterdir()):
+            if sub.is_dir():
+                c_dir = sub / "cards"
+                if c_dir.is_dir() and list(c_dir.glob("*.svg")):
+                    r = c_dir.resolve()
+                    if r not in seen:
+                        seen.add(r)
+                        found_cards.append(r)
+        if found_cards:
+            break
+
+    if len(found_cards) == 1:
+        return found_cards
+    elif len(found_cards) > 1:
+        names = ", ".join(d.parent.name for d in found_cards)
+        raise ValueError(
+            f"发现多个包含 cards/ 的项目 ({names})，无法安全确定，请显式指定 target 参数"
+        )
+
+    raise FileNotFoundError("在当前目录或 projects/ 下未找到有效卡片 SVG 文件")
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="PPT-Studio 卡片客观质量门禁（交付前必跑）")
     parser.add_argument("target", nargs="?", default=".", help="卡片目录、项目目录或目标路径（默认当前目录）")
     parser.add_argument("render_dir", nargs="?", default=None, help="可选渲染图 PNG 目录（缺省时自动查找 render_cards/ 或 render/）")
     parser.add_argument("--spec", help="可选指定 card_spec.md 路径")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-    target_path = Path(args.target).resolve()
     spec_path = Path(args.spec).resolve() if args.spec else None
     render_dir = Path(args.render_dir).resolve() if args.render_dir else None
 
-    # 如果显式传入两个目录 (card_dir, render_dir)
+    # 如果显式传入两个目录 (target, render_dir)
     if args.render_dir:
-        success = run_qa_cards(target_path, render_dir, spec_path)
-        sys.exit(0 if success else 1)
-
-    # 如果 target_path 包含 cards/ 子目录
-    if (target_path / "cards").is_dir():
-        card_dir = target_path / "cards"
+        t_path = Path(args.target).resolve()
+        if not t_path.exists():
+            print(f"[!] 指定的目标路径不存在: {args.target}", file=sys.stderr)
+            return 1
+        card_dir = (t_path / "cards").resolve() if (t_path / "cards").is_dir() else t_path
         success = run_qa_cards(card_dir, render_dir, spec_path)
-        sys.exit(0 if success else 1)
+        return 0 if success else 1
 
-    # 如果 target_path 本身就是包含 .svg 的目录
-    if target_path.is_dir() and list(target_path.glob("*.svg")):
-        success = run_qa_cards(target_path, render_dir, spec_path)
-        sys.exit(0 if success else 1)
+    try:
+        card_dirs = resolve_card_dirs(args.target)
+    except FileNotFoundError as err:
+        print(f"[!] {err}", file=sys.stderr)
+        return 1
+    except ValueError as err:
+        print(f"[!] {err}", file=sys.stderr)
+        return 1
 
-    # 如果 target_path 是项目根目录且 projects/ 下有项目，或向上级查找 projects/
-    projects_with_cards = []
-    search_dirs = [target_path]
-    if not (target_path / "projects").is_dir():
-        for cand in [target_path.parent, target_path.parent.parent, Path.cwd()]:
-            if cand and (cand / "projects").is_dir():
-                search_dirs.append(cand)
-                break
-    for base_dir in search_dirs:
-        if (base_dir / "projects").is_dir():
-            for p in sorted((base_dir / "projects").iterdir()):
-                if p.is_dir() and (p / "cards").is_dir() and list((p / "cards").glob("*.svg")):
-                    projects_with_cards.append(p / "cards")
-            if projects_with_cards:
-                break
-    if projects_with_cards:
-        all_ok = True
-        for cdir in projects_with_cards:
-            ok = run_qa_cards(cdir, render_dir, spec_path)
-            if not ok:
-                all_ok = False
-        sys.exit(0 if all_ok else 1)
+    all_ok = True
+    for cdir in card_dirs:
+        ok = run_qa_cards(cdir, render_dir, spec_path)
+        if not ok:
+            all_ok = False
 
-    print(f"[!] 在 {target_path} 未找到有效卡片 SVG 文件或 cards/ 子目录")
-    sys.exit(1)
+    return 0 if all_ok else 1
 
 if __name__ == "__main__":
     sys.exit(main())
