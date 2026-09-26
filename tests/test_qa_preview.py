@@ -329,6 +329,14 @@ class TestRunQaSlidePreview(unittest.TestCase):
             p.write_text(html, encoding="utf-8")
             self.assertTrue(run_qa_slide_preview(p))
 
+    def test_comma_separated_viewbox_slide_preview(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "preview.html"
+            html = make_valid_slide_preview_html(slides_count=2, include_img=False)
+            html = html.replace('viewBox="0 0 1280 720"', 'viewBox="0, 0, 1280, 720"')
+            p.write_text(html, encoding="utf-8")
+            self.assertTrue(run_qa_slide_preview(p))
+
     def test_valid_slide_preview_with_embedded_image(self):
         with tempfile.TemporaryDirectory() as td:
             p = Path(td) / "preview.html"

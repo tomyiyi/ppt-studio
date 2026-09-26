@@ -18,7 +18,11 @@ import re
 import sys
 from pathlib import Path
 
-IMAGE_RE = re.compile(r'(<image\b[^>]*?\b(?:href|xlink:href)=")([^"]+)(")')
+# 支持标准 href 与 xlink:href，支持双引号与单引号，支持属性前后空格与大小写
+IMAGE_RE = re.compile(
+    r'(<image\b[^>]*?\b(?:href|xlink:href)\s*=\s*["\'])([^"\']+)(["\'])',
+    re.IGNORECASE,
+)
 
 
 def inline_images(t: str, svg_dir: str | Path) -> str:
@@ -26,10 +30,14 @@ def inline_images(t: str, svg_dir: str | Path) -> str:
     svg_dir_path = Path(svg_dir)
 
     def repl(m: re.Match) -> str:
-        href = m.group(2)
+        href = m.group(2).strip()
         if href.startswith("data:"):
             return m.group(0)
-        p = (svg_dir_path / href).resolve()
+        p = Path(href)
+        if not p.is_absolute():
+            p = (svg_dir_path / p).resolve()
+        else:
+            p = p.resolve()
         if not p.exists():
             print(f"  [warn] 缺图 {href}")
             return m.group(0)
@@ -41,10 +49,10 @@ def inline_images(t: str, svg_dir: str | Path) -> str:
 
 
 def extract_aspect(svg_text: str) -> tuple[float, float]:
-    """提取 SVG viewBox 画幅尺寸。"""
-    m = re.search(r'viewBox=["\']([\d.\s-]+)["\']', svg_text)
+    """提取 SVG viewBox 或 width/height 画幅尺寸。"""
+    m = re.search(r'viewBox\s*=\s*["\']([\d.\s,-]+)["\']', svg_text, re.IGNORECASE)
     if m:
-        parts = m.group(1).split()
+        parts = re.split(r'[\s,]+', m.group(1).strip())
         if len(parts) == 4:
             try:
                 w, h = float(parts[2]), float(parts[3])
@@ -52,6 +60,15 @@ def extract_aspect(svg_text: str) -> tuple[float, float]:
                     return w, h
             except ValueError:
                 pass
+    w_m = re.search(r'<svg\b[^>]*\bwidth\s*=\s*["\']([\d.]+)p?x?["\']', svg_text, re.IGNORECASE)
+    h_m = re.search(r'<svg\b[^>]*\bheight\s*=\s*["\']([\d.]+)p?x?["\']', svg_text, re.IGNORECASE)
+    if w_m and h_m:
+        try:
+            w, h = float(w_m.group(1)), float(h_m.group(1))
+            if w > 0 and h > 0:
+                return w, h
+        except ValueError:
+            pass
     return 1280.0, 720.0
 
 

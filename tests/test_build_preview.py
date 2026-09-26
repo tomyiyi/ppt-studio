@@ -19,7 +19,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.build_preview import build_preview, resolve_src_dir, main
+from scripts.build_preview import build_preview, resolve_src_dir, inline_images, extract_aspect, main
 
 
 def create_minimal_svg(svg_path: Path, title: str = "智流 OS 测试") -> None:
@@ -241,6 +241,42 @@ class TestBuildPreviewCLI(unittest.TestCase):
             )
             self.assertEqual(res.returncode, 1)
             self.assertIn("不存在", res.stderr)
+
+
+class TestInlineImagesAndExtractAspect(unittest.TestCase):
+    def test_extract_aspect_standard_space(self):
+        svg = '<svg viewBox="0 0 1080 1350"></svg>'
+        self.assertEqual(extract_aspect(svg), (1080.0, 1350.0))
+
+    def test_extract_aspect_comma_separated(self):
+        svg = '<svg viewBox="0, 0, 1920, 1080"></svg>'
+        self.assertEqual(extract_aspect(svg), (1920.0, 1080.0))
+
+    def test_extract_aspect_width_height_fallback(self):
+        svg = '<svg width="1080px" height="1350px"><text>test</text></svg>'
+        self.assertEqual(extract_aspect(svg), (1080.0, 1350.0))
+
+    def test_extract_aspect_default_fallback(self):
+        svg = '<svg><text>test</text></svg>'
+        self.assertEqual(extract_aspect(svg), (1280.0, 720.0))
+
+    def test_inline_images_single_quote_and_spaces(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            img_file = tmp / "icon.png"
+            img_file.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR...")
+            svg_snippet = "<svg><image  xlink:href = 'icon.png'  width='10' height='10' /></svg>"
+            inlined = inline_images(svg_snippet, tmp)
+            self.assertIn("data:image/png;base64,", inlined)
+
+    def test_inline_images_already_data_uri_and_missing(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            already_data = '<image href="data:image/png;base64,1234" />'
+            self.assertEqual(inline_images(already_data, tmp), already_data)
+
+            missing = '<image href="not_exists.png" />'
+            self.assertEqual(inline_images(missing, tmp), missing)
 
 
 if __name__ == "__main__":

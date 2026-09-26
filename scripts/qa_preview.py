@@ -96,7 +96,7 @@ def run_qa_slide_preview(target_file: Path) -> bool:
             print(f"  [✓] 幻灯片容器与激活态  : {n_slides} 页幻灯片 · 首页初始激活 (第 1 页)")
 
     # 3. 矢量画布与画幅适配
-    svg_matches = re.findall(r'<svg\b[^>]*\bviewBox=["\']([^"\']+)["\']', content)
+    svg_matches = re.findall(r'<svg\b[^>]*\bviewBox\s*=\s*["\']([^"\']+)["\']', content, re.IGNORECASE)
     if len(svg_matches) < n_slides:
         print(f"  [✗] 矢量画布与画幅适配  : SVG 数量 ({len(svg_matches)}) 与幻灯片数 ({n_slides}) 不匹配")
         bad += 1
@@ -105,7 +105,7 @@ def run_qa_slide_preview(target_file: Path) -> bool:
         sizes = []
         parse_err = False
         for vb in svg_matches:
-            parts = vb.strip().split()
+            parts = re.split(r'[\s,]+', vb.strip())
             if len(parts) == 4:
                 try:
                     w, h = float(parts[2]), float(parts[3])
@@ -131,7 +131,7 @@ def run_qa_slide_preview(target_file: Path) -> bool:
                 print(f"  [✓] 矢量画布与画幅适配  : {first_w}×{first_h} ({ratio_desc}) · {len(sizes)} 页尺寸完全统一")
 
     # 4. 媒体资源内联完整性
-    img_matches = re.findall(r'<image\b[^>]*?\b(?:href|xlink:href)=["\']([^"\']+)["\']', content)
+    img_matches = re.findall(r'<image\b[^>]*?\b(?:href|xlink:href)\s*=\s*["\']([^"\']+)["\']', content, re.IGNORECASE)
     if not img_matches:
         print("  [✓] 媒体资源内联完整性  : 纯矢量形态 (无内嵌位图资源)")
     else:
@@ -195,8 +195,8 @@ def run_qa_slide_preview(target_file: Path) -> bool:
         print("  [✓] 键盘响应与全屏控制  : 监听 Arrow/Space 翻页 · F 全屏监听闭环")
 
     # 7. 零外部依赖自包含
-    external_scripts = re.findall(r'<script\b[^>]*?\bsrc=["\'](http[^"\']+)["\']', content, re.IGNORECASE)
-    external_styles = re.findall(r'<link\b[^>]*?\bhref=["\'](http[^"\']+)["\']', content, re.IGNORECASE)
+    external_scripts = re.findall(r'<script\b[^>]*?\bsrc\s*=\s*["\'](http[^"\']+)["\']', content, re.IGNORECASE)
+    external_styles = re.findall(r'<link\b[^>]*?\bhref\s*=\s*["\'](http[^"\']+)["\']', content, re.IGNORECASE)
     
     min_bytes = 10 * 1024 if img_matches else 512
     if external_scripts or external_styles:
@@ -262,7 +262,7 @@ def run_qa_showroom_portal(target_file: Path) -> bool:
         print("  [✓] 多形态物料链路覆盖  : 覆盖 PPTX / 卡片集 / 长图 / 1080p视频 / 竖版短视频")
 
     # 4. 导出物超链接真实连通
-    href_targets = re.findall(r'<a\b[^>]*?\bhref=["\']([^"\']+)["\']', content)
+    href_targets = re.findall(r'<a\b[^>]*?\bhref\s*=\s*["\']([^"\']+)["\']', content, re.IGNORECASE)
     local_links = [h for h in href_targets if not h.startswith("http") and not h.startswith("#") and not h.startswith("mailto:")]
     
     broken_links = []
@@ -284,8 +284,8 @@ def run_qa_showroom_portal(target_file: Path) -> bool:
         print(f"  [✓] 导出物链接真实连通  : {len(local_links)} 个导出物超链接全部真实存在且体积有效")
 
     # 5. 多媒体内嵌与播放源
-    source_srcs = re.findall(r'<source\b[^>]*?\bsrc=["\']([^"\']+)["\']', content)
-    poster_srcs = re.findall(r'<video\b[^>]*?\bposter=["\']([^"\']+)["\']', content)
+    source_srcs = re.findall(r'<source\b[^>]*?\bsrc\s*=\s*["\']([^"\']+)["\']', content, re.IGNORECASE)
+    poster_srcs = re.findall(r'<video\b[^>]*?\bposter\s*=\s*["\']([^"\']+)["\']', content, re.IGNORECASE)
     media_refs = source_srcs + poster_srcs
 
     broken_media = []
