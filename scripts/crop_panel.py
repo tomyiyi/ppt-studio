@@ -13,9 +13,19 @@ crop_panel.py — 按"主体包围盒"裁切配图，让主体填满面板
 """
 import os
 import sys
+from pathlib import Path
 
-import numpy as np
-from PIL import Image
+# 确保在未显式激活 .venv 时也能从项目内 .venv 加载依赖
+try:
+    import numpy as np
+    from PIL import Image
+except ImportError:
+    repo_root = Path(__file__).resolve().parent.parent
+    for site_pkg in repo_root.glob(".venv/lib/python*/site-packages"):
+        if site_pkg.is_dir() and str(site_pkg) not in sys.path:
+            sys.path.insert(0, str(site_pkg))
+    import numpy as np
+    from PIL import Image
 
 INK_T = 80          # max 通道 > 80 视为"有笔画"
 TRIM = 0.5          # 坐标取 0.5%~99.5% 分位，丢掉零星噪点

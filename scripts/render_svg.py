@@ -25,6 +25,19 @@ import shutil
 import sys
 from pathlib import Path
 
+# 确保在未显式激活 .venv 时也能从项目内 .venv 加载依赖
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError:
+    repo_root = Path(__file__).resolve().parent.parent
+    for site_pkg in repo_root.glob(".venv/lib/python*/site-packages"):
+        if site_pkg.is_dir() and str(site_pkg) not in sys.path:
+            sys.path.insert(0, str(site_pkg))
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        sync_playwright = None
+
 CHROME_CANDIDATES = [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "/Applications/Chromium.app/Contents/MacOS/Chromium",
@@ -73,7 +86,8 @@ def svg_size(svg_text: str) -> tuple[int, int]:
 
 
 def render_one(svg_path: Path, out_path: Path, scale: float = 1.0) -> bool:
-    from playwright.sync_api import sync_playwright
+    if sync_playwright is None:
+        raise RuntimeError("未安装 playwright，且未在 .venv 中找到该依赖")
 
     text = inline_images(svg_path.read_text(encoding="utf-8"), svg_path.parent)
     w, h = svg_size(text)

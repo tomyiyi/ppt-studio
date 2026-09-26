@@ -25,7 +25,16 @@ import os
 import re
 import sys
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont
+
+# 确保在未显式激活 .venv 时也能从项目内 .venv 加载依赖
+try:
+    from PIL import Image, ImageDraw, ImageFont
+except ImportError:
+    repo_root = Path(__file__).resolve().parent.parent
+    for site_pkg in repo_root.glob(".venv/lib/python*/site-packages"):
+        if site_pkg.is_dir() and str(site_pkg) not in sys.path:
+            sys.path.insert(0, str(site_pkg))
+    from PIL import Image, ImageDraw, ImageFont
 
 BG_COLOR = (11, 12, 18)        # #0B0C12
 SURFACE_COLOR = (18, 19, 27)   # #12131B
@@ -36,22 +45,45 @@ TEXT_DIM = (127, 128, 144)     # #7F8090
 ACCENT_COLOR = (110, 123, 255) # #6E7BFF
 
 
-def read_project_meta(project_dir: Path) -> dict[str, str]:
-    """从 spec_lock.md 提取核心项目元信息。"""
+def hex_to_rgb(hex_str: str, default: tuple[int, int, int]) -> tuple[int, int, int]:
+    """十六进制颜色转 RGB 元组。"""
+    hex_str = hex_str.strip().lstrip("#")
+    if len(hex_str) == 6:
+        try:
+            return (int(hex_str[0:2], 16), int(hex_str[2:4], 16), int(hex_str[4:6], 16))
+        except ValueError:
+            pass
+    return default
+
+
+def read_project_meta(project_dir: Path) -> dict[str, any]:
+    """从 spec_lock.md / card_spec.md 提取核心项目元信息与品牌色。"""
     meta = {
         "title": project_dir.name.replace("-", " ").title(),
         "core_message": "内容到多形态物料的可验证流水线",
         "objective": "全景长图浏览",
+        "accent_color": ACCENT_COLOR,
+        "bg_color": BG_COLOR,
     }
-    spec_path = project_dir / "spec_lock.md"
-    if spec_path.exists():
-        content = spec_path.read_text(encoding="utf-8")
-        m_obj = re.search(r"-\s*objective:\s*(.+)", content)
-        if m_obj:
-            meta["objective"] = m_obj.group(1).strip()
-        m_msg = re.search(r"-\s*core_message:\s*(.+)", content)
-        if m_msg:
-            meta["core_message"] = m_msg.group(1).strip()
+    for spec_name in ["card_spec.md", "spec_lock.md"]:
+        spec_path = project_dir / spec_name
+        if spec_path.exists():
+            try:
+                content = spec_path.read_text(encoding="utf-8")
+                m_obj = re.search(r"-\s*objective:\s*(.+)", content)
+                if m_obj and meta["objective"] == "全景长图浏览":
+                    meta["objective"] = m_obj.group(1).strip()
+                m_msg = re.search(r"-\s*core_message:\s*(.+)", content)
+                if m_msg and meta["core_message"] == "内容到多形态物料的可验证流水线":
+                    meta["core_message"] = m_msg.group(1).strip()
+                m_acc = re.search(r"accent(?:_color)?\s*[:=]?\s*\"?(#[0-9a-fA-F]{6})\"?", content)
+                if m_acc:
+                    meta["accent_color"] = hex_to_rgb(m_acc.group(1), ACCENT_COLOR)
+                m_bg = re.search(r"bg(?:_color)?\s*[:=]?\s*\"?(#[0-9a-fA-F]{6})\"?", content)
+                if m_bg:
+                    meta["bg_color"] = hex_to_rgb(m_bg.group(1), BG_COLOR)
+            except Exception:
+                pass
 
     # 如果有 notes/01_cover.md，尝试提取首句
     cover_note = project_dir / "notes" / "01_cover.md"
@@ -114,14 +146,16 @@ def find_font(size: int, bold: bool = False):
     return ImageFont.load_default()
 
 
-def build_header_image(width: int, meta: dict[str, str], card_count: int) -> Image.Image:
+def build_header_image(width: int, meta: dict[str, any], card_count: int) -> Image.Image:
     """构建顶部 Header 区域。"""
     header_h = 420
-    img = Image.new("RGB", (width, header_h), BG_COLOR)
+    bg_color = meta.get("bg_color", BG_COLOR)
+    accent_color = meta.get("accent_color", ACCENT_COLOR)
+    img = Image.new("RGB", (width, header_h), bg_color)
     draw = ImageDraw.Draw(img)
 
     # 顶部装饰线与品牌条
-    draw.rectangle([(0, 0), (width, 8)], fill=ACCENT_COLOR)
+    draw.rectangle([(0, 0), (width, 8)], fill=accent_color)
 
     # Kicker
     font_kicker = find_font(28)
@@ -130,7 +164,7 @@ def build_header_image(width: int, meta: dict[str, str], card_count: int) -> Ima
     # 页数标签
     chip_text = f"共 {card_count} 页精选"
     draw.rounded_rectangle([(width - 240, 60), (width - 80, 110)], radius=25, fill=SURFACE_COLOR, outline=RULE_COLOR)
-    draw.text((width - 210, 72), chip_text, fill=ACCENT_COLOR, font=find_font(24))
+    draw.text((width - 210, 72), chip_text, fill=accent_color, font=find_font(24))
 
     # 主标题
     title = meta.get("headline", meta["title"])
@@ -152,10 +186,12 @@ def build_header_image(width: int, meta: dict[str, str], card_count: int) -> Ima
     return img
 
 
-def build_footer_image(width: int, meta: dict[str, str]) -> Image.Image:
+def build_footer_image(width: int, meta: dict[str, any]) -> Image.Image:
     """构建底部 Footer 区域。"""
     footer_h = 320
-    img = Image.new("RGB", (width, footer_h), BG_COLOR)
+    bg_color = meta.get("bg_color", BG_COLOR)
+    accent_color = meta.get("accent_color", ACCENT_COLOR)
+    img = Image.new("RGB", (width, footer_h), bg_color)
     draw = ImageDraw.Draw(img)
 
     # 顶部分割线
@@ -170,13 +206,32 @@ def build_footer_image(width: int, meta: dict[str, str]) -> Image.Image:
     draw.text((80, 200), "PPTX · HTML · 传播卡片 · 长图模式 · 视频+配音", fill=TEXT_DIM, font=font_desc)
 
     # 底部版权与行动指引
-    draw.text((width - 80, 150), "申请试点 / 了解详情", fill=ACCENT_COLOR, font=find_font(30, bold=True), anchor="ra")
+    draw.text((width - 80, 150), "申请试点 / 了解详情", fill=accent_color, font=find_font(30, bold=True), anchor="ra")
     draw.text((width - 80, 200), "END OF PRESENTATION", fill=TEXT_DIM, font=find_font(24), anchor="ra")
 
     # 底部装饰条
-    draw.rectangle([(0, footer_h - 8), (width, footer_h)], fill=ACCENT_COLOR)
+    draw.rectangle([(0, footer_h - 8), (width, footer_h)], fill=accent_color)
 
     return img
+
+
+def resolve_project_dir(target_arg: str | None = None) -> Path:
+    """自适应探测包含卡片 SVG 的项目目录。"""
+    target = Path(target_arg or ".").resolve()
+    # 1. 目标目录内直接包含 cards/
+    if (target / "cards").is_dir() and list((target / "cards").glob("*.svg")):
+        return target
+    # 2. 目标本身就是 cards/
+    if target.name == "cards" and target.is_dir() and list(target.glob("*.svg")):
+        return target.parent
+    # 3. 探索 projects/ 子目录
+    for base in [target, target.parent, Path.cwd(), Path(__file__).resolve().parent.parent]:
+        p_dir = base / "projects"
+        if p_dir.is_dir():
+            for sub in sorted(p_dir.iterdir()):
+                if sub.is_dir() and (sub / "cards").is_dir() and list((sub / "cards").glob("*.svg")):
+                    return sub
+    return target
 
 
 def make_long_card(
@@ -218,7 +273,7 @@ def make_long_card(
     print(f"[*] 长图规格: {card_w} × {total_h} px (内含 {len(card_images)} 页卡片)")
 
     # 创建大画布并粘贴
-    long_canvas = Image.new("RGB", (card_w, total_h), BG_COLOR)
+    long_canvas = Image.new("RGB", (card_w, total_h), meta.get("bg_color", BG_COLOR))
     curr_y = 0
 
     if header_img:
@@ -236,7 +291,13 @@ def make_long_card(
         long_canvas.paste(footer_img, (0, curr_y))
 
     if out_path is None:
-        out_path = project_dir / "output" / f"{project_dir.name}_长图.png"
+        repo_root = Path(__file__).resolve().parent.parent
+        if (project_dir / "output").is_dir():
+            out_path = project_dir / "output" / f"{project_dir.name}_长图.png"
+        elif (repo_root / "output").is_dir():
+            out_path = repo_root / "output" / f"{project_dir.name}_长图.png"
+        else:
+            out_path = project_dir / "output" / f"{project_dir.name}_长图.png"
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     long_canvas.save(out_path, format="PNG", optimize=True)
@@ -247,14 +308,14 @@ def make_long_card(
 
 def main():
     parser = argparse.ArgumentParser(description="多卡片纵向缝合为单张长图")
-    parser.add_argument("project", help="项目根目录，例如 projects/agentflow-os-launch")
+    parser.add_argument("project", nargs="?", default=".", help="项目根目录，例如 projects/agentflow-os-launch（默认当前目录自发现）")
     parser.add_argument("--out", help="输出图片路径，默认输出至 <project>/output/<name>_长图.png")
     parser.add_argument("--gap", type=int, default=16, help="卡片之间的纵向缝隙像素，默认 16")
     parser.add_argument("--no-header", action="store_true", help="不包含顶部 Header")
     parser.add_argument("--no-footer", action="store_true", help="不包含底部 Footer")
     args = parser.parse_args()
 
-    proj_dir = Path(args.project).resolve()
+    proj_dir = resolve_project_dir(args.project)
     out_p = Path(args.out).resolve() if args.out else None
 
     make_long_card(

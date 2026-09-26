@@ -20,8 +20,17 @@ import argparse
 import sys
 from pathlib import Path
 
-import numpy as np
-from PIL import Image, ImageEnhance
+# 确保在未显式激活 .venv 时也能从项目内 .venv 加载依赖
+try:
+    import numpy as np
+    from PIL import Image, ImageEnhance
+except ImportError:
+    repo_root = Path(__file__).resolve().parent.parent
+    for site_pkg in repo_root.glob(".venv/lib/python*/site-packages"):
+        if site_pkg.is_dir() and str(site_pkg) not in sys.path:
+            sys.path.insert(0, str(site_pkg))
+    import numpy as np
+    from PIL import Image, ImageEnhance
 
 
 # ---------------------------------------------------------------- 去接缝
