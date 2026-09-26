@@ -62,10 +62,18 @@ def check_streams(streams_data: dict) -> tuple[bool, str]:
     if a_codec != "aac":
         return False, f"音频编码非 AAC (当前: {a_codec})"
 
-    return True, f"视频 {v_codec} · 音频 {a_codec}"
+    sample_rate = a_streams[0].get("sample_rate", "")
+    channels = int(a_streams[0].get("channels", 0))
+    if channels < 1:
+        return False, "音频声道配置异常 (声道数 < 1)"
+
+    sr_str = f" · {sample_rate}Hz/{channels}ch" if sample_rate else ""
+    return True, f"视频 {v_codec} · 音频 {a_codec}{sr_str}"
 
 
-def check_resolution(v_stream: dict) -> tuple[bool, str]:
+def check_resolution(v_stream: dict | None) -> tuple[bool, str]:
+    if not v_stream:
+        return False, "缺少视频流，无法核验分辨率"
     w = int(v_stream.get("width", 0))
     h = int(v_stream.get("height", 0))
     pix_fmt = v_stream.get("pix_fmt", "")
@@ -81,8 +89,11 @@ def check_resolution(v_stream: dict) -> tuple[bool, str]:
 
 
 def check_av_sync(streams_data: dict) -> tuple[bool, str]:
-    v_stream = next(s for s in streams_data["streams"] if s["codec_type"] == "video")
-    a_stream = next(s for s in streams_data["streams"] if s["codec_type"] == "audio")
+    v_stream = next((s for s in streams_data.get("streams", []) if s.get("codec_type") == "video"), None)
+    a_stream = next((s for s in streams_data.get("streams", []) if s.get("codec_type") == "audio"), None)
+
+    if not v_stream or not a_stream:
+        return False, "缺少视频或音频流，无法核验音画同步"
 
     v_dur = float(v_stream.get("duration") or streams_data.get("format", {}).get("duration", 0))
     a_dur = float(a_stream.get("duration") or v_dur)
@@ -177,7 +188,11 @@ def check_subtitles(srt_path: Path | None, video_duration: float) -> tuple[bool,
     if srt_path is None or not srt_path.exists():
         return True, "无独立字幕文件（跳过外部 SRT 检查）"
 
-    content = srt_path.read_text(encoding="utf-8").strip()
+    try:
+        content = srt_path.read_text(encoding="utf-8").strip()
+    except Exception as e:
+        return False, f"字幕文件读取失败: {e}"
+
     blocks = re.split(r"\n\s*\n", content)
     if not blocks:
         return False, "SRT 文件为空"
@@ -203,13 +218,19 @@ def check_subtitles(srt_path: Path | None, video_duration: float) -> tuple[bool,
         last_end = end_s
         valid_cues += 1
 
+    if valid_cues == 0:
+        return False, "SRT 文件未解析出任何有效字幕时序条目"
+
     if last_end > video_duration + 1.0:
         return False, f"字幕超出视频时长 (字幕尾 {last_end:.1f}s > 视频尾 {video_duration:.1f}s)"
 
     return True, f"{valid_cues} 条字幕时序合规 · 尾部对齐良好"
 
 
-def check_bitrate_and_fps(v_stream: dict, format_info: dict) -> tuple[bool, str]:
+def check_bitrate_and_fps(v_stream: dict | None, format_info: dict) -> tuple[bool, str]:
+    if not v_stream:
+        return False, "缺少视频流，无法核验帧率与码率"
+
     r_fps = v_stream.get("r_frame_rate", "30/1")
     if "/" in r_fps:
         num, den = r_fps.split("/")
@@ -277,7 +298,7 @@ def qa_video(video_path: Path, srt_path: Path | None = None) -> bool:
 
 def main():
     parser = argparse.ArgumentParser(description="PPT-Studio 视频质量自动化门禁")
-    parser.add_argument("target", help="视频文件路径或包含 *.mp4 / output/*.mp4 的项目目录")
+    parser.add_argument("target", nargs="?", default=".", help="视频文件路径、包含 *.mp4 的目录或项目目录（默认当前目录）")
     parser.add_argument("--srt", help="可选指定 SRT 文件路径")
     args = parser.parse_args()
 
@@ -289,13 +310,19 @@ def main():
         sys.exit(0 if passed else 2)
 
     elif target_path.is_dir():
-        # 支持传入 output 目录，或包含 output/ 的项目目录
-        mp4s = sorted(target_path.glob("*.mp4"))
-        if not mp4s and (target_path / "output").is_dir():
-            mp4s = sorted((target_path / "output").glob("*.mp4"))
+        def find_videos(d: Path) -> list[Path]:
+            found = sorted(d.glob("*.mp4"))
+            if not found and (d / "output").is_dir():
+                found = sorted((d / "output").glob("*.mp4"))
+            if not found and (d / "projects").is_dir():
+                for p in sorted((d / "projects").iterdir()):
+                    if p.is_dir() and (p / "output").is_dir():
+                        found.extend(sorted((p / "output").glob("*.mp4")))
+            return found
 
+        mp4s = find_videos(target_path)
         if not mp4s:
-            print(f"[ERROR] 在 {target_path} 或 {target_path}/output 下未找到 mp4 视频")
+            print(f"[ERROR] 在 {target_path} 或 output/、projects/*/output/ 下未找到 mp4 视频")
             sys.exit(1)
 
         all_ok = True
