@@ -105,72 +105,146 @@ def fix_seam(im: Image.Image, x: int, band: int = 0) -> Image.Image:
     w = a.shape[1]
     x = int(np.clip(x, 1, w - 1))
 
-    left_mean = a[:, :x].reshape(-1, a.shape[2]).mean(axis=0)
-    right_mean = a[:, x:].reshape(-1, a.shape[2]).mean(axis=0)
-    delta = (right_mean - left_mean).astype(np.float32)
+    if a.ndim == 2:
+        left_mean = a[:, :x].mean()
+        right_mean = a[:, x:].mean()
+        delta = right_mean - left_mean
+        a[:, :x] += delta
+    elif a.ndim == 3 and a.shape[2] == 4:
+        left_mean = a[:, :x, :3].reshape(-1, 3).mean(axis=0)
+        right_mean = a[:, x:, :3].reshape(-1, 3).mean(axis=0)
+        delta = (right_mean - left_mean).astype(np.float32)
+        a[:, :x, :3] += delta
+    else:
+        left_mean = a[:, :x].reshape(-1, a.shape[2]).mean(axis=0)
+        right_mean = a[:, x:].reshape(-1, a.shape[2]).mean(axis=0)
+        delta = (right_mean - left_mean).astype(np.float32)
+        a[:, :x] += delta
 
-    # 左侧整体抬 delta：两侧均值对齐，且在 x 处的反向阶跃正好抵消原台阶
-    a[:, :x] += delta
-    return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))
+    mode = im.mode if im.mode in ("RGB", "RGBA", "L") else None
+    return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8), mode=mode)
 
 
 # ---------------------------------------------------------------- 主流程
 
-def prepare(raw: Path, out: Path, size: tuple[int, int],
-            brightness: float, seam: str) -> dict:
-    im = Image.open(raw).convert("RGB")
+def parse_size(size_str: str) -> tuple[int, int]:
+    """解析并校验类似 '2560x1440' 格式的目标分辨率字符串。"""
+    if "x" not in size_str.lower():
+        raise ValueError(f"尺寸格式无效: '{size_str}'，应为类似 '2560x1440' 格式")
+    parts = size_str.lower().split("x")
+    if len(parts) != 2:
+        raise ValueError(f"尺寸格式无效: '{size_str}'，应为类似 '2560x1440' 格式")
+    try:
+        tw = int(parts[0].strip())
+        th = int(parts[1].strip())
+    except ValueError:
+        raise ValueError(f"尺寸数值无效: '{size_str}'，长宽必须为整数")
+    if tw <= 0 or th <= 0:
+        raise ValueError(f"目标尺寸长宽必须大于 0: '{size_str}'")
+    return tw, th
+
+
+def prepare(
+    raw: Path | str,
+    out: Path | str,
+    size: tuple[int, int] = (2560, 1440),
+    brightness: float = 1.0,
+    seam: str = "auto",
+) -> dict:
+    raw_path = Path(raw)
+    out_path = Path(out)
+    if not raw_path.is_file():
+        raise FileNotFoundError(f"源图片文件不存在: {raw_path}")
+    tw, th = size
+    if tw <= 0 or th <= 0:
+        raise ValueError(f"目标尺寸长宽必须大于 0: {size}")
+    if brightness < 0:
+        raise ValueError(f"亮度系数必须 >= 0，当前为: {brightness}")
+
+    with Image.open(raw_path) as src_im:
+        im = src_im.convert("RGB")
     src_size = im.size
-    report = {"src": f"{src_size[0]}x{src_size[1]}", "seam": None, "fixed": False}
+    report: dict[str, object] = {
+        "src": f"{src_size[0]}x{src_size[1]}",
+        "seam": None,
+        "fixed": False,
+    }
 
     # 1) 去接缝（在原始分辨率上做，缩放后更干净）
-    if seam == "off":
+    seam_norm = seam.strip().lower()
+    if seam_norm == "off":
         pass
-    elif seam == "auto":
+    elif seam_norm == "auto":
         x = detect_seam(im)
-        if x:
+        if x is not None:
             report["seam"] = x
             im = fix_seam(im, x)
             report["fixed"] = True
     else:
-        x = int(seam.split(",")[0])
-        report["seam"] = x
-        im = fix_seam(im, x)
-        report["fixed"] = True
+        parts = [p.strip() for p in seam.split(",") if p.strip()]
+        if not parts:
+            raise ValueError(f"接缝参数格式无效: '{seam}'")
+        fixed_cols = []
+        for p in parts:
+            try:
+                col = int(p)
+            except ValueError:
+                raise ValueError(f"无效的接缝列号: '{p}' (完整参数: '{seam}')")
+            if col <= 0 or col >= im.size[0]:
+                raise ValueError(f"接缝列号 {col} 超出图像有效跨度 [1, {im.size[0] - 1}]")
+            im = fix_seam(im, col)
+            fixed_cols.append(col)
+        report["seam"] = fixed_cols[0] if len(fixed_cols) == 1 else fixed_cols
+        report["fixed"] = bool(fixed_cols)
 
     # 2) 精确裁到目标比例
-    tw, th = size
     w, h = im.size
     scale = max(tw / w, th / h)
     if scale != 1.0:
-        im = im.resize((max(1, int(round(w * scale))), max(1, int(round(h * scale)))),
-                       Image.LANCZOS)
+        im = im.resize(
+            (max(1, int(round(w * scale))), max(1, int(round(h * scale)))),
+            Image.LANCZOS,
+        )
     w, h = im.size
-    im = im.crop(((w - tw) // 2, (h - th) // 2, (w - tw) // 2 + tw, (h - th) // 2 + th))
+    crop_x = (w - tw) // 2
+    crop_y = (h - th) // 2
+    im = im.crop((crop_x, crop_y, crop_x + tw, crop_y + th))
 
     # 3) 亮度
     if brightness != 1.0:
         im = ImageEnhance.Brightness(im).enhance(brightness)
 
-    out.parent.mkdir(parents=True, exist_ok=True)
-    im.save(out, "PNG", optimize=True)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    im.save(out_path, "PNG", optimize=True)
     report["out"] = f"{im.size[0]}x{im.size[1]}"
-    report["kb"] = out.stat().st_size // 1024
+    report["kb"] = out_path.stat().st_size // 1024
     return report
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description="Agnes 配图后处理")
-    ap.add_argument("raw")
-    ap.add_argument("out")
-    ap.add_argument("--size", default="2560x1440")
-    ap.add_argument("--brightness", type=float, default=1.0)
-    ap.add_argument("--seam", default="auto", help="auto | off | 列号[,列号]")
-    a = ap.parse_args()
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description="Agnes 配图后处理：裁 16:9 + 去接缝 + 压暗")
+    ap.add_argument("raw", help="原始输入图片路径")
+    ap.add_argument("out", help="处理后输出图片路径")
+    ap.add_argument("--size", default="2560x1440", help="目标分辨率 (默认: 2560x1440)")
+    ap.add_argument("--brightness", type=float, default=1.0, help="亮度缩放系数 (默认: 1.0)")
+    ap.add_argument("--seam", default="auto", help="接缝处理模式: auto | off | 列号[,列号] (默认: auto)")
+    a = ap.parse_args(argv)
 
-    tw, th = (int(v) for v in a.size.lower().split("x"))
-    rep = prepare(Path(a.raw), Path(a.out), (tw, th), a.brightness, a.seam)
+    try:
+        tw, th = parse_size(a.size)
+        rep = prepare(Path(a.raw), Path(a.out), (tw, th), a.brightness, a.seam)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"[!] {e}", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"[!] 处理失败: {e}", file=sys.stderr)
+        return 1
+
     if rep["seam"]:
-        seam_txt = f"接缝@x={rep['seam']} ✓已抹平"
+        if isinstance(rep["seam"], list):
+            seam_txt = f"接缝@{','.join(str(c) for c in rep['seam'])} ✓已抹平"
+        else:
+            seam_txt = f"接缝@x={rep['seam']} ✓已抹平"
     else:
         seam_txt = "无接缝"
     print(f"✓ {Path(a.out).name}  {rep['src']} → {rep['out']}  {rep['kb']}KB  [{seam_txt}]")
