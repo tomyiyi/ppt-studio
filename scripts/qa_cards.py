@@ -1,41 +1,49 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-qa_cards.py —— 卡片质检（交付前必跑）
-=====================================
+qa_cards.py —— 卡片客观质量门禁（交付前必跑）
+=============================================
 
 用法：
-  python3 qa_cards.py <project>/cards <render_dir>
+  python3 qa_cards.py [target] [render_dir] [--spec card_spec.md]
 
-七项检查，全部 OK 才输出 ALL CLEAR：
+例：
+  python3 scripts/qa_cards.py .                          # 自动探测项目及卡片目录
+  python3 scripts/qa_cards.py projects/agentflow-os-launch
+  python3 scripts/qa_cards.py cards/ render_cards/
 
-  [字号]   所有文本落在 card_spec.md 的阶梯内
-  [安全区] 文本不出 64px 硬安全边（SVG 估算 + 渲染像素双重校验）
-  [溢出]   文本不出画布
-  [压行]   相邻文本块不重叠
-  [对比]   每个文本块 WCAG ≥ 4.5:1（背景取 20 分位、字色取 99.5 分位）
-  [底图]   图片带面积 / 画布 ≥ 45%
-  [留白]   内容面板墨量 3%–35%（太空 = 没内容，太满 = 拥挤）
+八项客观检查，全部 OK 才输出 ALL CLEAR：
+
+  [字号]     所有文本落在 card_spec.md 的阶梯内
+  [安全区]   文本不出 64px 硬安全边（SVG 估算 + 渲染像素双重校验）
+  [溢出]     文本不出画布
+  [压行]     相邻文本块不重叠
+  [签名竖线] 包含 6px 品牌强调竖线签名元素且规格一致
+  [对比]     每个文本块 WCAG ≥ 4.5:1（背景取 20 分位、字色取 99.5 分位）
+  [底图]     图片带面积 / 画布 ≥ 40% 且墨量 ≥ 2%（防漏图）
+  [留白]     内容面板墨量 3%–35%（太空 = 没内容，太满 = 拥挤）
 
 依赖：Pillow + numpy
 """
 
 from __future__ import annotations
 
+import argparse
 import glob
 import os
 import re
 import sys
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 DEFAULT_RAMP = {28, 36, 44, 56, 72, 96, 132}
 
 # ---------------------------------------------------------------- 字号阶梯
 def load_ramp(spec_path):
-    if not os.path.exists(spec_path):
+    if not spec_path or not os.path.exists(str(spec_path)):
         print(f"[warn] 找不到 {spec_path}，用默认阶梯")
         return set(DEFAULT_RAMP)
-    txt = open(spec_path, encoding="utf-8").read()
+    txt = open(str(spec_path), encoding="utf-8").read()
     m = re.search(r"^##\s+typography\s*$(.*?)(?=^##\s|\Z)", txt, re.S | re.M)
     if not m:
         return set(DEFAULT_RAMP)
@@ -139,15 +147,56 @@ def hex2rgb(h):
     return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
 
 # ---------------------------------------------------------------- 主流程
-def main():
-    if len(sys.argv) < 3:
-        print(__doc__)
-        return 1
-    card_dir, render_dir = sys.argv[1], sys.argv[2]
-    proj = os.path.dirname(os.path.abspath(card_dir))
-    spec = os.path.join(proj, "card_spec.md")
-    ramp = load_ramp(spec)
-    print(f"卡片字号阶梯（来自 {os.path.basename(spec)}）: {sorted(ramp)}\n")
+def run_qa_cards(
+    card_dir: str | Path,
+    render_dir: str | Path | None = None,
+    spec_path: str | Path | None = None,
+) -> bool:
+    card_path = Path(card_dir).resolve()
+    render_path = Path(render_dir).resolve() if render_dir else None
+    spec_file = Path(spec_path).resolve() if spec_path else None
+
+    # 如果 card_path 包含 cards/ 子目录，优先使用 cards/
+    if not list(card_path.glob("*.svg")) and (card_path / "cards").is_dir():
+        card_path = (card_path / "cards").resolve()
+
+    # 自动探测 card_spec.md
+    if not spec_file:
+        for candidate in [
+            card_path / "card_spec.md",
+            card_path.parent / "card_spec.md",
+            card_path.parent.parent / "card_spec.md",
+            Path.cwd() / "card_spec.md",
+            Path.cwd() / "projects/agentflow-os-launch/card_spec.md",
+            Path(__file__).resolve().parent.parent / "projects/agentflow-os-launch/card_spec.md",
+        ]:
+            if candidate and candidate.exists():
+                spec_file = candidate.resolve()
+                break
+
+    # 自动探测 render_cards 目录
+    if not render_path:
+        for candidate in [
+            card_path.parent / "render_cards",
+            card_path / "render_cards",
+            card_path.parent / "render",
+            card_path / "render",
+            card_path,
+        ]:
+            if candidate and candidate.is_dir() and list(candidate.glob("*.png")):
+                render_path = candidate.resolve()
+                break
+
+    print("=" * 60)
+    print("🔍 运行 PPT-Studio 卡片客观质量门禁")
+    print(f"   卡片目录: {card_path}")
+    if render_path:
+        print(f"   渲染目录: {render_path}")
+    print("=" * 60)
+
+    ramp = load_ramp(spec_file)
+    spec_label = spec_file.name if spec_file else "默认阶梯"
+    print(f"卡片字号阶梯（来自 {spec_label}）: {sorted(ramp)}\n")
 
     try:
         import numpy as np
@@ -156,9 +205,15 @@ def main():
         np = None
         print("[warn] 缺 numpy/Pillow，跳过像素级检查（对比/留白/安全区像素校验）")
 
+    svg_files = sorted(card_path.glob("*.svg"))
+    if not svg_files:
+        print(f"[!] 目录 {card_path} 下未找到 SVG 卡片文件")
+        print("=" * 60)
+        return False
+
     bad = 0
-    for svg in sorted(glob.glob(os.path.join(card_dir, "*.svg"))):
-        stem = os.path.splitext(os.path.basename(svg))[0]
+    for svg in svg_files:
+        stem = svg.stem
         print(f"=== {stem} ===")
         root = ET.parse(svg).getroot()
         vb = root.get("viewBox", "0 0 1080 1350").split()
@@ -214,14 +269,36 @@ def main():
         if coll:
             bad += 1
 
+        # ---- [签名竖线]
+        bars = []
+        for e, _ in iter_with_parents(root):
+            if e.tag.split("}")[-1] == "rect":
+                try:
+                    w_val = float(e.get("width", 0) or 0)
+                    if abs(w_val - 6.0) < 0.1:
+                        bars.append((
+                            float(e.get("x", 0) or 0),
+                            float(e.get("y", 0) or 0),
+                            float(e.get("height", 0) or 0),
+                            e.get("fill", "")
+                        ))
+                except (ValueError, TypeError):
+                    pass
+        ok_bar = len(bars) >= 1
+        print(f"  [签名竖线] {'OK' if ok_bar else 'WARN'}  "
+              + (f"6px 强调竖线 (h={bars[0][2]:.0f}, fill={bars[0][3]})" if ok_bar else "缺少 6px 主句签名强调竖线"))
+        if not ok_bar:
+            bad += 1
+
         # ---- 像素级
         png = None
-        for pat in (f"{stem}.png", f"{stem}/*.png", f"**/{stem}.png"):
-            hit = [p for p in glob.glob(os.path.join(render_dir, pat), recursive=True)
-                   if os.path.isfile(p)]
-            if hit:
-                png = hit[0]
-                break
+        if render_path and render_path.is_dir():
+            for pat in (f"{stem}.png", f"{stem}/*.png", f"**/{stem}.png"):
+                hit = [p for p in glob.glob(os.path.join(str(render_path), pat), recursive=True)
+                       if os.path.isfile(p)]
+                if hit:
+                    png = hit[0]
+                    break
 
         if png and np is not None:
             im = np.asarray(Image.open(png).convert("RGB")).astype(float)
@@ -291,8 +368,54 @@ def main():
             print("  [对比]/[底图]/[留白]  跳过（无渲染图）")
         print()
 
+    print("=" * 60)
     print("ALL CLEAR ✅" if bad == 0 else f"❌ {bad} 项需要处理")
-    return 0 if bad == 0 else 1
+    return bad == 0
+
+
+def main():
+    parser = argparse.ArgumentParser(description="PPT-Studio 卡片客观质量门禁（交付前必跑）")
+    parser.add_argument("target", nargs="?", default=".", help="卡片目录、项目目录或目标路径（默认当前目录）")
+    parser.add_argument("render_dir", nargs="?", default=None, help="可选渲染图 PNG 目录（缺省时自动查找 render_cards/ 或 render/）")
+    parser.add_argument("--spec", help="可选指定 card_spec.md 路径")
+    args = parser.parse_args()
+
+    target_path = Path(args.target).resolve()
+    spec_path = Path(args.spec).resolve() if args.spec else None
+    render_dir = Path(args.render_dir).resolve() if args.render_dir else None
+
+    # 如果显式传入两个目录 (card_dir, render_dir)
+    if args.render_dir:
+        success = run_qa_cards(target_path, render_dir, spec_path)
+        sys.exit(0 if success else 1)
+
+    # 如果 target_path 包含 cards/ 子目录
+    if (target_path / "cards").is_dir():
+        card_dir = target_path / "cards"
+        success = run_qa_cards(card_dir, render_dir, spec_path)
+        sys.exit(0 if success else 1)
+
+    # 如果 target_path 本身就是包含 .svg 的目录
+    if target_path.is_dir() and list(target_path.glob("*.svg")):
+        success = run_qa_cards(target_path, render_dir, spec_path)
+        sys.exit(0 if success else 1)
+
+    # 如果 target_path 是项目根目录且 projects/ 下有项目
+    projects_with_cards = []
+    if (target_path / "projects").is_dir():
+        for p in (target_path / "projects").iterdir():
+            if p.is_dir() and (p / "cards").is_dir() and list((p / "cards").glob("*.svg")):
+                projects_with_cards.append(p / "cards")
+    if projects_with_cards:
+        all_ok = True
+        for cdir in projects_with_cards:
+            ok = run_qa_cards(cdir, render_dir, spec_path)
+            if not ok:
+                all_ok = False
+        sys.exit(0 if all_ok else 1)
+
+    print(f"[!] 在 {target_path} 未找到有效卡片 SVG 文件或 cards/ 子目录")
+    sys.exit(1)
 
 if __name__ == "__main__":
     sys.exit(main())

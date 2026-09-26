@@ -102,7 +102,7 @@ ppt-studio/
 | `make_long_card.py` | 多张卡片纵向缝合为单张长图（自适应 Header/Footer/流式过渡） |
 | `make_video.py` | **视频+配音合成**：Edge-TTS 中文解说 + 运镜动效 + 统一字幕 + FFmpeg 合成 |
 | `qa_layout.py` | **横版质检闸门**：7 项检查，字号阶梯直接从 `spec_lock.md` 读 |
-| `qa_cards.py` | **卡片质检闸门**：7 项检查，阶梯从 `card_spec.md` 读 |
+| `qa_cards.py` | **卡片质检闸门**：8 项检查（字号/安全区/溢出/压行/签名竖线/对比度/底图/留白），阶梯从 `card_spec.md` 读 |
 | `qa_long_card.py` | **长图质检闸门**：7 项检查（画幅/Header/Footer/卡片分段/分段墨量/对比度/清晰度） |
 | `qa_video.py` | **视频质检闸门**：7 项检查（流完整性/1080p/音画同步/响度/死黑屏/字幕/码率） |
 | `qa_pptx.py` | **PPTX 质检闸门**：7 项检查（OpenXML/16:9比例/媒体资源/幻灯片图元/字号阶梯/角色一致性/引用链） |
@@ -124,7 +124,7 @@ python3 ../../scripts/qa_layout.py svg_output/ render/
 # 4. 出卡片（第三出口）
 python3 ../../scripts/make_cards.py .            # → cards/
 python3 ../../scripts/render_svg.py cards/ render_cards/
-python3 ../../scripts/qa_cards.py cards/ render_cards/
+python3 ../../scripts/qa_cards.py .              # 跑卡片 8 项质检门禁（亦支持 cards/ render_cards/）
 
 # 5. 缝合长图（长图模式）
 python3 ../../scripts/make_long_card.py .        # → output/agentflow-os-launch_长图.png

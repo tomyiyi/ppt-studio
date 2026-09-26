@@ -58,17 +58,23 @@ python3 scripts/analyze_image.py projects/xxx/images/*.png
 ## 二·五、卡片（如果出了卡片）
 
 ```bash
+python3 scripts/qa_cards.py projects/xxx
+# 或指定卡片与渲染目录：
 python3 scripts/qa_cards.py projects/xxx/cards qa_cards_render
+# 在项目目录下直接执行：
+python3 ../../scripts/qa_cards.py .
 ```
 
+八项客观质检全部 OK 才输出 `ALL CLEAR`：
+
 - [ ] `[字号]` 落在 `card_spec.md` 的七档内（28/36/44/56/72/96/132）
-- [ ] `[安全区]` 文本不越 64px 硬安全边
-- [ ] `[溢出]` 不出画布
+- [ ] `[安全区]` 文本不越 64px 硬安全边（SVG 几何 + 像素渲染双校验）
+- [ ] `[溢出]` 文本不出画布
 - [ ] `[压行]` 文本块之间不重叠
+- [ ] `[签名竖线]` 主句左侧 6px 强调竖线在所有卡片上规范统一
 - [ ] `[对比]` WCAG ≥ 4.5:1
 - [ ] `[底图]` 图片带 ≥ 40% 且墨量 ≥ 2%（防图没加载上）
 - [ ] `[留白]` 面板墨量 3%–35%
-- [ ] 主句左侧 6px 强调竖线在所有卡片上一致
 - [ ] 检查 `[fit]` 输出：被砍掉的副句 / 指标是不是可以接受的取舍
 
 ## 二·六、视频与配音（第四出口）
