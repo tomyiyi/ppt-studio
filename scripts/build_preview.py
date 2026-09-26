@@ -55,8 +55,95 @@ def extract_aspect(svg_text: str) -> tuple[float, float]:
     return 1280.0, 720.0
 
 
-def build_preview(src: str | Path, out: str | Path, title: str) -> None:
-    src_path = Path(src).resolve()
+def resolve_src_dir(
+    src_arg: str | Path | None = None,
+    base_dir: str | Path | None = None,
+) -> Path:
+    """自适应探测包含 SVG 画布的源目录。
+
+    保留显式 src 参数行为；
+    未传时从当前目录或 projects/ 下安全自动发现唯一有效项目的 svg_output。
+    """
+    if src_arg is not None and str(src_arg).strip() not in ("", "-"):
+        p = Path(src_arg)
+        if not p.is_absolute() and base_dir is not None:
+            p = (Path(base_dir) / p).resolve()
+        else:
+            p = p.resolve()
+        if not p.exists():
+            raise FileNotFoundError(f"指定的源目录不存在: {src_arg}")
+        if p.is_dir() and not any(p.glob("*.svg")) and (p / "svg_output").is_dir() and any((p / "svg_output").glob("*.svg")):
+            return (p / "svg_output").resolve()
+        return p
+
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+
+    def has_svg_files(p: Path) -> bool:
+        return p.is_dir() and any(p.glob("*.svg"))
+
+    def has_svg_output(p: Path) -> bool:
+        return has_svg_files(p / "svg_output")
+
+    # 1. 当前工作目录本身是 svg_output 且包含 svg 文件
+    if base.name == "svg_output" and has_svg_files(base):
+        return base
+
+    # 2. 当前目录直接包含有效 svg_output（且不是包含 projects/ 的工作区根目录）
+    if not (base / "projects").is_dir() and has_svg_output(base):
+        return (base / "svg_output").resolve()
+
+    # 3. 从 projects/ 目录下安全发现
+    candidate_projects_dirs: list[Path] = []
+    if base.is_dir() and base.name == "projects":
+        candidate_projects_dirs.append(base)
+    elif (base / "projects").is_dir():
+        candidate_projects_dirs.append(base / "projects")
+    elif base_dir is None:
+        for cand in [base.parent, base.parent.parent, Path(__file__).resolve().parent.parent]:
+            try:
+                p_cand = cand / "projects"
+                if p_cand.is_dir() and p_cand.resolve() not in [d.resolve() for d in candidate_projects_dirs]:
+                    candidate_projects_dirs.append(p_cand)
+                    break
+            except Exception:
+                pass
+
+    found: list[Path] = []
+    seen: set[Path] = set()
+
+    for p_dir in candidate_projects_dirs:
+        for sub in sorted(p_dir.iterdir()):
+            if sub.is_dir() and has_svg_output(sub):
+                r_sub = (sub / "svg_output").resolve()
+                if r_sub not in seen:
+                    seen.add(r_sub)
+                    found.append(r_sub)
+        if found:
+            break
+
+    # 4. 若 projects/ 下未找到，但 base 本身有 svg_output/*.svg（兜底）
+    if not found and has_svg_output(base):
+        return (base / "svg_output").resolve()
+
+    if len(found) == 1:
+        return found[0]
+    elif len(found) == 0:
+        raise FileNotFoundError(
+            "未在当前目录或 projects/ 下发现包含 svg_output/*.svg 的有效项目，请显式指定 src 参数"
+        )
+    else:
+        names = ", ".join(p.parent.name for p in found)
+        raise ValueError(
+            f"发现多个包含 svg_output 的有效项目 ({names})，无法安全确定，请显式指定 src 参数"
+        )
+
+
+def build_preview(
+    src: str | Path | None = None,
+    out: str | Path = "output/预览.html",
+    title: str = "智流 OS · 幻灯片预览",
+) -> None:
+    src_path = resolve_src_dir(src)
     out_path = Path(out).resolve()
 
     if not src_path.is_dir():
@@ -109,14 +196,24 @@ window.addEventListener('keydown',e=>{{if(e.key==='ArrowRight'||e.key===' '){{e.
     print(f"saved: {out_path} {out_path.stat().st_size} bytes, {n} slides")
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="把若干 SVG 打包成单文件 HTML 翻页预览")
-    parser.add_argument("src", nargs="?", default="projects/agentflow-os-launch/svg_output", help="包含 SVG 文件的目录")
+    parser.add_argument(
+        "src",
+        nargs="?",
+        default=None,
+        help="包含 SVG 文件的目录（默认安全自动发现唯一有效项目的 svg_output）",
+    )
     parser.add_argument("out", nargs="?", default="output/预览.html", help="输出 HTML 路径")
     parser.add_argument("title", nargs="?", default="智流 OS · 幻灯片预览", help="HTML 页面标题")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-    build_preview(args.src, args.out, args.title)
+    try:
+        build_preview(args.src, args.out, args.title)
+    except (FileNotFoundError, ValueError) as err:
+        print(f"[err] {err}", file=sys.stderr)
+        return 1
+
     return 0
 
 

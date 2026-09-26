@@ -151,11 +151,11 @@ def check_black_frames(video_path: Path) -> tuple[bool, str]:
 
 
 def parse_srt_time(t_str: str) -> float:
-    t_str = t_str.strip().replace(".", ",")
+    t_str = t_str.strip().replace(",", ".")
     parts = t_str.split(":")
     h, m = float(parts[0]), float(parts[1])
-    s, ms = parts[2].split(",")
-    return h * 3600 + m * 60 + float(s) + float(ms) / 1000.0
+    s = float(parts[2])
+    return h * 3600 + m * 60 + s
 
 
 def find_associated_srt(video_path: Path, explicit_srt: Path | None = None) -> Path | None:
@@ -193,13 +193,16 @@ def check_subtitles(srt_path: Path | None, video_duration: float) -> tuple[bool,
     except Exception as e:
         return False, f"字幕文件读取失败: {e}"
 
-    blocks = re.split(r"\n\s*\n", content)
+    if not content:
+        return False, "SRT 文件为空"
+
+    blocks = [b.strip() for b in re.split(r"\n\s*\n", content) if b.strip()]
     if not blocks:
         return False, "SRT 文件为空"
 
     last_end = 0.0
     valid_cues = 0
-    time_pat = re.compile(r"(\d+:\d+:\d+,\d+)\s*-->\s*(\d+:\d+:\d+,\d+)")
+    time_pat = re.compile(r"(\d+:\d+:\d+(?:[,\.]\d+)?)\s*-->\s*(\d+:\d+:\d+(?:[,\.]\d+)?)")
 
     for b in blocks:
         lines = [l.strip() for l in b.splitlines() if l.strip()]
@@ -296,34 +299,73 @@ def qa_video(video_path: Path, srt_path: Path | None = None) -> bool:
         return False
 
 
-def main():
+def find_videos(target: Path) -> list[Path]:
+    """在目标路径或其子目录中查找 mp4 视频文件。"""
+    if target.is_file():
+        return [target] if target.suffix.lower() == ".mp4" else []
+
+    if not target.is_dir():
+        return []
+
+    # 1. 目标目录内直接包含的 mp4
+    found = sorted(target.glob("*.mp4"))
+    if found:
+        return found
+
+    # 2. 目标目录内的 output/ 子目录
+    if (target / "output").is_dir():
+        found = sorted((target / "output").glob("*.mp4"))
+        if found:
+            return found
+
+    # 3. 目标目录下的 projects/*/output/ 或目标本身为 projects 时的子项目
+    candidate_p_dirs: list[Path] = []
+    if (target / "projects").is_dir():
+        candidate_p_dirs.append(target / "projects")
+    elif target.name == "projects":
+        candidate_p_dirs.append(target)
+    elif (target.parent / "projects").is_dir():
+        candidate_p_dirs.append(target.parent / "projects")
+
+    for p_dir in candidate_p_dirs:
+        for p in sorted(p_dir.iterdir()):
+            if p.is_dir() and (p / "output").is_dir():
+                found.extend(sorted((p / "output").glob("*.mp4")))
+
+    # 4. 向上查找 output 目录（如从项目根目录或子目录调用）
+    if not found and (target.parent / "output").is_dir():
+        found = sorted((target.parent / "output").glob("*.mp4"))
+
+    # 去重保持顺序
+    seen: set[Path] = set()
+    deduped: list[Path] = []
+    for f in found:
+        rf = f.resolve()
+        if rf not in seen:
+            seen.add(rf)
+            deduped.append(rf)
+
+    return deduped
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="PPT-Studio 视频质量自动化门禁")
     parser.add_argument("target", nargs="?", default=".", help="视频文件路径、包含 *.mp4 的目录或项目目录（默认当前目录）")
     parser.add_argument("--srt", help="可选指定 SRT 文件路径")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     target_path = Path(args.target).resolve()
     srt_p = Path(args.srt).resolve() if args.srt else None
 
     if target_path.is_file():
         passed = qa_video(target_path, srt_p)
-        sys.exit(0 if passed else 2)
+        return 0 if passed else 2
 
     elif target_path.is_dir():
-        def find_videos(d: Path) -> list[Path]:
-            found = sorted(d.glob("*.mp4"))
-            if not found and (d / "output").is_dir():
-                found = sorted((d / "output").glob("*.mp4"))
-            if not found and (d / "projects").is_dir():
-                for p in sorted((d / "projects").iterdir()):
-                    if p.is_dir() and (p / "output").is_dir():
-                        found.extend(sorted((p / "output").glob("*.mp4")))
-            return found
-
         mp4s = find_videos(target_path)
         if not mp4s:
-            print(f"[ERROR] 在 {target_path} 或 output/、projects/*/output/ 下未找到 mp4 视频")
-            sys.exit(1)
+            print(f"[ERROR] 在 {target_path} 或 output/、projects/*/output/ 下未找到 mp4 视频", file=sys.stderr)
+            return 1
 
         all_ok = True
         for p in mp4s:
@@ -331,11 +373,11 @@ def main():
             if not ok:
                 all_ok = False
             print()
-        sys.exit(0 if all_ok else 2)
+        return 0 if all_ok else 2
     else:
-        print(f"[ERROR] 路径不存在: {target_path}")
-        sys.exit(1)
+        print(f"[ERROR] 路径不存在: {target_path}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
