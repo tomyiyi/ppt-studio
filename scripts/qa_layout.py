@@ -104,29 +104,39 @@ def check_overflow(root):
     return issues
 
 # ---------------------------------------------------------------- 面板
-DEFAULT_RAMP = {11, 13, 16, 20, 24, 32, 44, 96}
+DEFAULT_RAMP = {11, 13, 16, 20, 24, 32, 44, 56, 96}
 
 
 def load_ramp(spec_lock_path):
-    """从 spec_lock.md 的 ## typography 段读字号阶梯（单一事实源）。
-    解析 `- role: 数字` 这行，跳过 # 开头的注释。"""
+    """从 spec_lock.md 读字号阶梯（单一事实源）。
+    支持 `- role: 数字`、`- sizes: [11, 13, ...]` 两种规范格式，支持行内注释。"""
     try:
         with open(spec_lock_path, encoding="utf-8") as f:
             txt = f.read()
     except OSError:
-        return DEFAULT_RAMP
-    m = re.search(r"^##\s+typography\s*$(.*?)(?=^##\s|\Z)", txt, re.S | re.M)
-    if not m:
-        return DEFAULT_RAMP
+        return set(DEFAULT_RAMP)
+
     out = set()
-    for line in m.group(1).splitlines():
-        line = line.strip()
-        if line.startswith("#"):
-            continue
-        mm = re.match(r"^-\s*\w+\s*:\s*(\d+)\s*$", line)
-        if mm:
-            out.add(int(mm.group(1)))
-    return out or DEFAULT_RAMP
+    # 格式 1: - sizes: [11, 13, 16, 20, 24, 32, 44, 56, 96]
+    m_sizes = re.search(r"-\s*sizes:\s*\[([0-9,\s]+)\]", txt)
+    if m_sizes:
+        for x in m_sizes.group(1).split(","):
+            s = x.strip()
+            if s.isdigit():
+                out.add(int(s))
+
+    # 格式 2: ## typography 段下的 - role: 数字
+    m = re.search(r"^##\s+typography\s*$(.*?)(?=^##\s|\Z)", txt, re.S | re.M)
+    if m:
+        for line in m.group(1).splitlines():
+            line = line.split("#")[0].strip()
+            if not line:
+                continue
+            mm = re.match(r"^-\s*\w+\s*:\s*(\d+)\s*$", line)
+            if mm:
+                out.add(int(mm.group(1)))
+
+    return out or set(DEFAULT_RAMP)
 
 
 def load_spec_roles(spec_lock_path):
@@ -141,8 +151,8 @@ def load_spec_roles(spec_lock_path):
         return {}
     roles = {}
     for line in m.group(1).splitlines():
-        line = line.strip()
-        if line.startswith("#"):
+        line = line.split("#")[0].strip()
+        if not line:
             continue
         mm = re.match(r"^-\s*(\w+)\s*:\s*(\d+)\s*$", line)
         if mm:
@@ -435,14 +445,25 @@ def run_qa_layout(
     else:
         spec = None
         for candidate in [
-            svg_dir.parent / "spec_lock.md",
             svg_dir / "spec_lock.md",
-            Path.cwd() / "projects/agentflow-os-launch/spec_lock.md",
-            Path(__file__).resolve().parent.parent / "projects/agentflow-os-launch/spec_lock.md",
+            svg_dir.parent / "spec_lock.md",
+            svg_dir.parent.parent / "spec_lock.md",
         ]:
-            if candidate and candidate.exists():
+            if candidate and candidate.is_file():
                 spec = candidate.resolve()
                 break
+
+        if not spec:
+            repo_root = Path(__file__).resolve().parent.parent
+            for candidate_dir in [Path.cwd(), repo_root]:
+                spec_cand = candidate_dir / "spec_lock.md"
+                if spec_cand.is_file():
+                    spec = spec_cand.resolve()
+                    break
+                p_cands = sorted((candidate_dir / "projects").glob("*/spec_lock.md"))
+                if len(p_cands) == 1:
+                    spec = p_cands[0].resolve()
+                    break
 
     ramp = load_ramp(str(spec)) if spec else DEFAULT_RAMP
     roles = load_spec_roles(str(spec)) if spec else {}

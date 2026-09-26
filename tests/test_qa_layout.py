@@ -176,6 +176,58 @@ class TestTypescaleAndBackdrop(unittest.TestCase):
         used, off = check_typescale(root, {16, 56})
         self.assertEqual(off, [14, 50])
 
+
+class TestDefaultRampAndSpecLoading(unittest.TestCase):
+    """测试默认字号阶梯规范、spec 规格加载与行内注释过滤。"""
+
+    def test_default_ramp_includes_standard_statement(self):
+        expected = {11, 13, 16, 20, 24, 32, 44, 56, 96}
+        self.assertEqual(DEFAULT_RAMP, expected)
+        self.assertIn(56, DEFAULT_RAMP)
+
+    def test_load_ramp_from_sizes_directive(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            spec_file = Path(tmp_dir) / "spec_lock.md"
+            spec_file.write_text(
+                "## canvas\n- viewBox: 0 0 1280 720\n\n- sizes: [11, 13, 16, 20, 24, 32, 44, 56, 96]\n",
+                encoding="utf-8",
+            )
+            ramp = load_ramp(str(spec_file))
+            self.assertEqual(ramp, {11, 13, 16, 20, 24, 32, 44, 56, 96})
+
+    def test_load_ramp_from_role_mapping_with_comments(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            spec_file = Path(tmp_dir) / "spec_lock.md"
+            spec_file.write_text(
+                "## typography\n"
+                "- body: 16 # 正文标准\n"
+                "- statement: 56 # 跨页统摄主句\n"
+                "- cover: 96\n",
+                encoding="utf-8",
+            )
+            ramp = load_ramp(str(spec_file))
+            self.assertEqual(ramp, {16, 56, 96})
+
+    def test_load_ramp_nonexistent_fallback(self):
+        ramp = load_ramp("/non_existent_spec_lock_path.md")
+        self.assertEqual(ramp, DEFAULT_RAMP)
+
+    def test_load_spec_roles_with_inline_comments(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            spec_file = Path(tmp_dir) / "spec_lock.md"
+            spec_file.write_text(
+                "## typography\n"
+                "- body: 16 # 正文字号\n"
+                "- statement: 56 # 统一主句\n",
+                encoding="utf-8",
+            )
+            roles = load_spec_roles(str(spec_file))
+            self.assertEqual(roles, {"body": 16, "statement": 56})
+
+    def test_load_spec_roles_nonexistent_returns_empty(self):
+        roles = load_spec_roles("/non_existent_spec_lock_path.md")
+        self.assertEqual(roles, {})
+
     def test_backdrop_full_cover(self):
         xml_str = (
             f'<svg xmlns="http://www.w3.org/2000/svg">'
@@ -328,6 +380,15 @@ class TestRunQaLayout(unittest.TestCase):
             create_test_svg(svg_dir / "01_cover.svg", title_sz=96, body_sz=16)
             create_test_svg(svg_dir / "02_tension.svg", title_sz=56, body_sz=16)
             ok = run_qa_layout(svg_dir)
+            self.assertTrue(ok)
+
+    def test_run_qa_layout_with_default_ramp_statement_56(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            svg_dir = Path(tmp_dir) / "isolated_svgs"
+            create_test_svg(svg_dir / "01.svg", title_sz=56, body_sz=16)
+            # 传入不存在的 spec 路径，验证默认阶梯是否包含 56 且判定通过
+            non_exist_spec = Path(tmp_dir) / "no_spec.md"
+            ok = run_qa_layout(svg_dir, spec_path=non_exist_spec)
             self.assertTrue(ok)
 
     def test_corrupted_svg_handled_gracefully(self):
