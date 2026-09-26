@@ -45,7 +45,9 @@ Agnes 配图 (images/*.png)     ← 生图只走 Agnes，gemini 不参与生图
     ↓
 qa_layout.py   ← 横版 7 项质检
 qa_cards.py    ← 卡片 7 项质检
+qa_long_card.py← 长图 7 项质检
 qa_video.py    ← 视频 7 项质检（流/分辨率/音画同步/响度/死黑屏/字幕/码率）
+qa_pptx.py     ← 导出物 PPTX 回读 7 项质检
 ```
 
 ### 卡片不是「把横版裁一裁」
@@ -101,7 +103,9 @@ ppt-studio/
 | `make_video.py` | **视频+配音合成**：Edge-TTS 中文解说 + 运镜动效 + 统一字幕 + FFmpeg 合成 |
 | `qa_layout.py` | **横版质检闸门**：7 项检查，字号阶梯直接从 `spec_lock.md` 读 |
 | `qa_cards.py` | **卡片质检闸门**：7 项检查，阶梯从 `card_spec.md` 读 |
+| `qa_long_card.py` | **长图质检闸门**：7 项检查（画幅/Header/Footer/卡片分段/分段墨量/对比度/清晰度） |
 | `qa_video.py` | **视频质检闸门**：7 项检查（流完整性/1080p/音画同步/响度/死黑屏/字幕/码率） |
+| `qa_pptx.py` | **PPTX 质检闸门**：7 项检查（OpenXML/16:9比例/媒体资源/幻灯片图元/字号阶梯/角色一致性/引用链） |
 
 ### 跑一遍样例
 

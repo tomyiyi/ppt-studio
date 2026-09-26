@@ -241,6 +241,7 @@ def make_long_card(
 
     long_canvas.save(out_path, format="PNG", optimize=True)
     print(f"✓ 长图导出成功: {out_path} ({out_path.stat().st_size // 1024} KB)")
+    print(f"[i] 建议质检: python3 scripts/qa_long_card.py {out_path}")
     return out_path
 
 
