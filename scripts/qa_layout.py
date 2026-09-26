@@ -45,6 +45,21 @@ CANVAS_W, CANVAS_H = 1280, 720
 MARGIN = 60
 WCAG_MIN = 4.5
 
+# ---------------------------------------------------------------- 基础数值解析
+def parse_num(val, default: float = 0.0) -> float:
+    """安全解析可能包含单位 (如 px) 或空白的数值字符串。"""
+    if val is None:
+        return float(default)
+    s = str(val).strip()
+    m = re.search(r"[-+]?\d*\.?\d+", s)
+    if m:
+        try:
+            return float(m.group(0))
+        except ValueError:
+            pass
+    return float(default)
+
+
 # ---------------------------------------------------------------- 文本测宽
 def char_w(ch, mono=False):
     o = ord(ch)
@@ -70,9 +85,9 @@ def check_overflow(root):
         txt = "".join(t.itertext())
         if not txt.strip():
             continue
-        x = float(t.get("x", 0) or 0)
+        x = parse_num(t.get("x", 0))
         size = inherited_font_size(t, anc)
-        ls = float(t.get("letter-spacing", 0) or 0)
+        ls = parse_num(t.get("letter-spacing", 0))
         anchor = t.get("text-anchor", "start")
         mono = mono_family(t.get("font-family", "") or t.get("style", ""))
         w = text_width(txt, size, mono, ls)
@@ -96,7 +111,8 @@ def load_ramp(spec_lock_path):
     """从 spec_lock.md 的 ## typography 段读字号阶梯（单一事实源）。
     解析 `- role: 数字` 这行，跳过 # 开头的注释。"""
     try:
-        txt = open(spec_lock_path, encoding="utf-8").read()
+        with open(spec_lock_path, encoding="utf-8") as f:
+            txt = f.read()
     except OSError:
         return DEFAULT_RAMP
     m = re.search(r"^##\s+typography\s*$(.*?)(?=^##\s|\Z)", txt, re.S | re.M)
@@ -116,7 +132,8 @@ def load_ramp(spec_lock_path):
 def load_spec_roles(spec_lock_path):
     """从 spec_lock.md 的 ## typography 段读取 (role -> font_size) 映射。"""
     try:
-        txt = open(spec_lock_path, encoding="utf-8").read()
+        with open(spec_lock_path, encoding="utf-8") as f:
+            txt = f.read()
     except OSError:
         return {}
     m = re.search(r"^##\s+typography\s*$(.*?)(?=^##\s|\Z)", txt, re.S | re.M)
@@ -200,17 +217,15 @@ def _iter_with_parents(root):
 def inherited_font_size(t, anc, default=16.0):
     v = t.get("font-size")
     if v:
-        try:
-            return float(v)
-        except ValueError:
-            pass
+        s = parse_num(v, -1.0)
+        if s > 0:
+            return s
     for a in reversed(anc):
         v = a.get("font-size")
         if v:
-            try:
-                return float(v)
-            except ValueError:
-                pass
+            s = parse_num(v, -1.0)
+            if s > 0:
+                return s
     return float(default)
 
 
@@ -235,10 +250,10 @@ def check_backdrop(root):
     判据：最大的 <image> 面积 / 画布面积 ≥ 90%"""
     areas = []
     for im in root.iter(NS + "image"):
-        try:
-            areas.append(float(im.get("width", 0)) * float(im.get("height", 0)))
-        except ValueError:
-            pass
+        w = parse_num(im.get("width", 0))
+        h = parse_num(im.get("height", 0))
+        if w > 0 and h > 0:
+            areas.append(w * h)
     if not areas:
         return None
     return 100.0 * max(areas) / (CANVAS_W * CANVAS_H)
@@ -249,8 +264,15 @@ def check_dup_images(root):
     典型事故：全幅铺底用 xxx_bg.png，右半面板又用 xxx_bg_panel.png。"""
     srcs = []
     for im in root.iter(NS + "image"):
-        h = os.path.basename(im.get("href", ""))
-        srcs.append(re.sub(r"_panel(\.\w+)?$", "", h))
+        href = im.get("href") or im.get("{http://www.w3.org/1999/xlink}href") or ""
+        if not href:
+            continue
+        h = os.path.basename(href)
+        # 去除扩展名，并去除 _panel 后缀以对齐源图名称
+        stem = Path(h).stem
+        normalized = re.sub(r"_panel$", "", stem)
+        if normalized:
+            srcs.append(normalized)
     seen, dup = set(), set()
     for s in srcs:
         (dup if s in seen else seen).add(s)
@@ -265,7 +287,7 @@ def panels_of(root):
         cid = cp.get("id")
         r = cp.find(NS + "rect")
         if cid and r is not None:
-            clips[cid] = tuple(float(r.get(k, 0)) for k in ("x", "y", "width", "height"))
+            clips[cid] = tuple(parse_num(r.get(k, 0)) for k in ("x", "y", "width", "height"))
     for im in root.iter(NS + "image"):
         ref = im.get("clip-path", "")
         m = re.search(r"url\(#([^)]+)\)", ref)
@@ -319,7 +341,7 @@ def check_line_collisions(root):
         txt = "".join(t.itertext()).strip()
         if not txt:
             continue
-        x = float(t.get("x", 0) or 0); y = float(t.get("y", 0) or 0)
+        x = parse_num(t.get("x", 0)); y = parse_num(t.get("y", 0))
         rows.append((x, y, inherited_font_size(t, anc), txt))
     rows.sort(key=lambda r: (r[0], r[1]))
     out = []
@@ -348,12 +370,12 @@ def check_contrast(img, root):
         txt = "".join(t.itertext()).strip()
         if not txt:
             continue
-        x = float(t.get("x", 0) or 0)
-        y = float(t.get("y", 0) or 0)
+        x = parse_num(t.get("x", 0))
+        y = parse_num(t.get("y", 0))
         size = inherited_font_size(t, anc)
         anchor = t.get("text-anchor", "start")
         mono = mono_family(t.get("font-family", "") or t.get("style", ""))
-        ls = float(t.get("letter-spacing", 0) or 0)
+        ls = parse_num(t.get("letter-spacing", 0))
         w = text_width(txt, size, mono, ls)
         if anchor == "middle":
             left = x - w / 2
@@ -391,6 +413,9 @@ def run_qa_layout(
 ) -> bool:
     target = Path(svg_dir_or_file).resolve()
     if target.is_file():
+        if target.suffix.lower() != ".svg":
+            print(f"[!] 指定文件不是 SVG 文件: {target}", file=sys.stderr)
+            return False
         svg_files = [target]
         svg_dir = target.parent
     else:
@@ -398,12 +423,15 @@ def run_qa_layout(
         svg_files = sorted(svg_dir.glob("*.svg"))
 
     if not svg_files:
-        print(f"[!] 在 {svg_dir} 未找到任何 .svg 文件")
+        print(f"[!] 在 {svg_dir} 未找到任何 .svg 文件", file=sys.stderr)
         return False
 
     # 查找 spec_lock.md
     if spec_path:
         spec = Path(spec_path).resolve()
+        if not spec.exists():
+            print(f"[warn] 找不到指定的 spec_lock.md ({spec})，用默认阶梯", file=sys.stderr)
+            spec = None
     else:
         spec = None
         for candidate in [
@@ -459,7 +487,13 @@ def run_qa_layout(
     svg_slides = []
     for svg_path in svg_files:
         stem = svg_path.stem
-        root = ET.parse(svg_path).getroot()
+        try:
+            root = ET.parse(svg_path).getroot()
+        except Exception as e:
+            print(f"\n=== {stem} ===")
+            print(f"  [XML] ⚠️ 无法解析 SVG 文件: {e}")
+            bad += 1
+            continue
         svg_slides.append((stem, root))
 
         print(f"\n=== {stem} ===")
@@ -548,63 +582,162 @@ def run_qa_layout(
     return bad == 0
 
 
-def main():
+def resolve_layout_dirs(
+    target_arg: str | Path | None = None,
+    base_dir: str | Path | None = None,
+) -> list[Path]:
+    """自适应解析待质检的 SVG 目录或文件。
+
+    1. 若显式指定非 '.' 的 target_arg：
+       - 转换为绝对路径并校验存在性，若不存在抛出 FileNotFoundError；
+       - 若 target 为文件：若是 SVG 文件，返回 [target.resolve()]；否则抛出 ValueError；
+       - 若 target 为目录：
+         * 若 (target / "svg_output").is_dir() 且包含 *.svg，返回 [(target / "svg_output").resolve()]；
+         * 若 target 包含 *.svg，返回 [target.resolve()]；
+         * 若 target 包含 projects/ 目录或自身名为 projects，从中安全发现包含 svg_output/ 或 *.svg 的项目；
+         * 否则抛出 FileNotFoundError；
+    2. 若未显式指定 target_arg 或为 '.'：
+       - 探测 base_dir：
+         * 若 (base / "svg_output").is_dir() 且包含 *.svg，返回 [(base / "svg_output").resolve()]；
+         * 若 base 包含 *.svg 且 base.name != "ppt-studio"，返回 [base.resolve()]；
+       - 从 base/projects 或仓库根目录 projects/ 探测：
+         * 收集所有包含 svg_output/ 且有 *.svg 的项目；
+         * 若唯一匹配，返回 [唯一目录]；
+         * 若有多个匹配，抛出 ValueError；
+         * 若未发现匹配，抛出 FileNotFoundError。
+    """
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    is_default = (target_arg is None or str(target_arg).strip() in ("", "."))
+
+    if not is_default:
+        p = Path(target_arg)
+        if not p.is_absolute():
+            p = (base / p).resolve()
+        else:
+            p = p.resolve()
+
+        if not p.exists():
+            raise FileNotFoundError(f"指定的目标路径不存在: {target_arg}")
+
+        if p.is_file():
+            if p.suffix.lower() == ".svg":
+                return [p]
+            raise ValueError(f"指定的 target 文件不是 SVG 文件: {target_arg}")
+
+        svg_sub = p / "svg_output"
+        if svg_sub.is_dir() and list(svg_sub.glob("*.svg")):
+            return [svg_sub.resolve()]
+
+        if list(p.glob("*.svg")):
+            return [p.resolve()]
+
+        candidate_projects_dirs: list[Path] = []
+        if (p / "projects").is_dir():
+            candidate_projects_dirs.append(p / "projects")
+        elif p.name == "projects":
+            candidate_projects_dirs.append(p)
+
+        p_subprojects: list[Path] = []
+        for s_dir in candidate_projects_dirs:
+            for sub in sorted(s_dir.iterdir()):
+                if sub.is_dir():
+                    s_sub = sub / "svg_output"
+                    if s_sub.is_dir() and list(s_sub.glob("*.svg")):
+                        p_subprojects.append(s_sub.resolve())
+                    elif list(sub.glob("*.svg")):
+                        p_subprojects.append(sub.resolve())
+
+        if len(p_subprojects) == 1:
+            return p_subprojects
+        elif len(p_subprojects) > 1:
+            names = ", ".join(d.parent.name if d.name == "svg_output" else d.name for d in p_subprojects)
+            raise ValueError(
+                f"发现多个包含 SVG 的项目 ({names})，无法安全确定，请显式指定 target 参数"
+            )
+
+        raise FileNotFoundError(f"在目录 {target_arg} 下未找到有效 SVG 文件或 svg_output/ 子目录")
+
+    # 默认/自适应探测
+    if (base / "svg_output").is_dir() and list((base / "svg_output").glob("*.svg")):
+        return [(base / "svg_output").resolve()]
+    if base.name != "ppt-studio" and list(base.glob("*.svg")):
+        return [base.resolve()]
+
+    candidate_projects_dirs = []
+    if base.is_dir() and base.name == "projects":
+        candidate_projects_dirs.append(base)
+    elif (base / "projects").is_dir():
+        candidate_projects_dirs.append(base / "projects")
+    elif base_dir is None:
+        repo_root = Path(__file__).resolve().parent.parent
+        p_cand = repo_root / "projects"
+        if p_cand.is_dir():
+            candidate_projects_dirs.append(p_cand)
+
+    found_svgs: list[Path] = []
+    seen: set[Path] = set()
+    for p_dir in candidate_projects_dirs:
+        for sub in sorted(p_dir.iterdir()):
+            if sub.is_dir():
+                s_dir = sub / "svg_output"
+                if s_dir.is_dir() and list(s_dir.glob("*.svg")):
+                    r = s_dir.resolve()
+                    if r not in seen:
+                        seen.add(r)
+                        found_svgs.append(r)
+                elif list(sub.glob("*.svg")):
+                    r = sub.resolve()
+                    if r not in seen:
+                        seen.add(r)
+                        found_svgs.append(r)
+        if found_svgs:
+            break
+
+    if len(found_svgs) == 1:
+        return found_svgs
+    elif len(found_svgs) > 1:
+        names = ", ".join(d.parent.name if d.name == "svg_output" else d.name for d in found_svgs)
+        raise ValueError(
+            f"发现多个包含 SVG 的项目 ({names})，无法安全确定，请显式指定 target 参数"
+        )
+
+    raise FileNotFoundError("在当前目录或 projects/ 下未找到有效 SVG 文件")
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="PPT-Studio SVG 版面客观复核与质量门禁")
     parser.add_argument("target", nargs="?", default=".", help="SVG 目录、项目目录或单文件路径（默认当前目录）")
     parser.add_argument("render_dir", nargs="?", default=None, help="可选渲染图 PNG 目录（缺省时自动查找 render/ 或 qa_render/）")
     parser.add_argument("--spec", help="可选指定 spec_lock.md 路径")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-    target_path = Path(args.target).resolve()
     spec_path = Path(args.spec).resolve() if args.spec else None
     render_dir = Path(args.render_dir).resolve() if args.render_dir else None
 
-    # 0. 如果 target_path 是单个 .svg 文件
-    if target_path.is_file() and target_path.suffix == ".svg":
-        success = run_qa_layout(target_path, render_dir, spec_path)
-        sys.exit(0 if success else 1)
-
-    # 1. 显式传入两个目录参数: target 是 svg_dir，render_dir 存在
-    if args.render_dir and target_path.is_dir():
-        success = run_qa_layout(target_path, render_dir, spec_path)
-        sys.exit(0 if success else 1)
-
-    # 2. 如果 target_path 包含 svg_output/ 子目录（典型项目根目录）
-    if (target_path / "svg_output").is_dir():
-        svg_dir = target_path / "svg_output"
+    # 如果显式传入两个目录 (target, render_dir)
+    if args.render_dir:
+        t_path = Path(args.target).resolve()
+        if not t_path.exists():
+            print(f"[!] 指定的目标路径不存在: {args.target}", file=sys.stderr)
+            return 1
+        svg_dir = (t_path / "svg_output").resolve() if (t_path / "svg_output").is_dir() else t_path
         success = run_qa_layout(svg_dir, render_dir, spec_path)
-        sys.exit(0 if success else 1)
+        return 0 if success else 1
 
-    # 3. 如果 target_path 本身就是包含 .svg 的目录
-    if target_path.is_dir() and list(target_path.glob("*.svg")):
-        success = run_qa_layout(target_path, render_dir, spec_path)
-        sys.exit(0 if success else 1)
+    try:
+        targets = resolve_layout_dirs(args.target)
+    except (FileNotFoundError, ValueError) as err:
+        print(f"[!] {err}", file=sys.stderr)
+        return 1
 
-    # 4. 如果 target_path 是包含 projects/ 的根目录或向上级查找 projects/
-    projects_with_svgs = []
-    search_dirs = [target_path]
-    if not (target_path / "projects").is_dir():
-        for cand in [target_path.parent, target_path.parent.parent, Path.cwd()]:
-            if cand and (cand / "projects").is_dir():
-                search_dirs.append(cand)
-                break
-    for base_dir in search_dirs:
-        if (base_dir / "projects").is_dir():
-            for p in sorted((base_dir / "projects").iterdir()):
-                if p.is_dir() and (p / "svg_output").is_dir() and list((p / "svg_output").glob("*.svg")):
-                    projects_with_svgs.append(p / "svg_output")
-            if projects_with_svgs:
-                break
-    if projects_with_svgs:
-        all_ok = True
-        for sdir in projects_with_svgs:
-            ok = run_qa_layout(sdir, render_dir, spec_path)
-            if not ok:
-                all_ok = False
-        sys.exit(0 if all_ok else 1)
+    all_ok = True
+    for t in targets:
+        ok = run_qa_layout(t, render_dir, spec_path)
+        if not ok:
+            all_ok = False
 
-    print(f"[!] 在 {target_path} 未找到有效 SVG 文件或 svg_output/ 子目录")
-    sys.exit(1)
+    return 0 if all_ok else 1
+
 
 if __name__ == "__main__":
     sys.exit(main())
