@@ -118,6 +118,8 @@ def make_valid_showroom_html(
     empty_file: bool = False,
     broken_media: bool = False,
     external_script: bool = False,
+    external_style: bool = False,
+    external_import: bool = False,
     custom_accent: str = "#6E7BFF",
     custom_bg: str = "#090a10",
 ) -> Path:
@@ -162,7 +164,14 @@ def make_valid_showroom_html(
             '<div class="card"><h3>物料三</h3><p>缺少核心</p></div>',
         ]
 
-    ext_tag = '<script src="http://cdn.example.com/lib.js"></script>' if external_script else ''
+    ext_tags = []
+    if external_script:
+        ext_tags.append('<script src="http://cdn.example.com/lib.js"></script>')
+    if external_style:
+        ext_tags.append('<link rel="stylesheet" href="http://cdn.example.com/style.css">')
+    if external_import:
+        ext_tags.append('<style>@import url("http://fonts.googleapis.com/css?family=Roboto");</style>')
+    ext_tag = "\n  ".join(ext_tags)
 
     content = f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -318,6 +327,18 @@ class TestFindPreviewFiles(unittest.TestCase):
             found = find_preview_files("subdir", base_dir=base)
             self.assertEqual(found, [h.resolve()])
 
+    def test_find_in_parent_output_when_called_from_subdir(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            out_dir = base / "output"
+            out_dir.mkdir()
+            h = out_dir / "preview.html"
+            h.touch()
+            sub = base / "projects" / "my_project"
+            sub.mkdir(parents=True)
+            found = find_preview_files(sub)
+            self.assertEqual(found, [h.resolve()])
+
 
 class TestRunQaSlidePreview(unittest.TestCase):
     """测试幻灯片交互式预览质检门禁。"""
@@ -467,6 +488,25 @@ class TestRunQaShowroomPortal(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             index_path = make_valid_showroom_html(base, external_script=True)
+            self.assertFalse(run_qa_showroom_portal(index_path))
+
+    def test_external_style_fails(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            index_path = make_valid_showroom_html(base, external_style=True)
+            self.assertFalse(run_qa_showroom_portal(index_path))
+
+    def test_external_import_fails(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            index_path = make_valid_showroom_html(base, external_import=True)
+            self.assertFalse(run_qa_showroom_portal(index_path))
+
+    def test_truncated_showroom_fails(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            index_path = make_valid_showroom_html(base)
+            index_path.write_bytes(index_path.read_bytes()[:200])
             self.assertFalse(run_qa_showroom_portal(index_path))
 
     def test_non_standard_colors_fails(self):

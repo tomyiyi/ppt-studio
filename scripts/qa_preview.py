@@ -313,9 +313,23 @@ def run_qa_showroom_portal(target_file: Path) -> bool:
         print("  [✓] 响应式视口与暗色规范: 深色主题色板 · 栅格自适应 · 品牌色 #6E7BFF 对齐")
 
     # 7. 离线自包含无断链
-    external_scripts = re.findall(r'<script\b[^>]*?\bsrc=["\'](http[^"\']+)["\']', content, re.IGNORECASE)
-    if external_scripts:
-        print(f"  [✗] 离线自包含无断链    : 存在外部脚本依赖 ({len(external_scripts)} 处)")
+    external_scripts = re.findall(r'<script\b[^>]*?\bsrc\s*=\s*["\'](http[^"\']+)["\']', content, re.IGNORECASE)
+    external_styles = re.findall(r'<link\b[^>]*?\bhref\s*=\s*["\'](http[^"\']+)["\']', content, re.IGNORECASE)
+    external_imports = re.findall(r'@import\s+(?:url\()?["\']?(http[^)"\';\s]+)', content, re.IGNORECASE)
+    has_external = external_scripts or external_styles or external_imports
+
+    if has_external:
+        details = []
+        if external_scripts:
+            details.append(f"脚本 {len(external_scripts)}")
+        if external_styles:
+            details.append(f"样式 {len(external_styles)}")
+        if external_imports:
+            details.append(f"导入 {len(external_imports)}")
+        print(f"  [✗] 离线自包含无断链    : 存在外部资源依赖 ({' / '.join(details)})")
+        bad += 1
+    elif target_file.stat().st_size < 512:
+        print(f"  [✗] 离线自包含无断链    : 文件体积异常过小 ({target_file.stat().st_size} bytes < 512 字节)，疑似截断")
         bad += 1
     else:
         print(f"  [✓] 离线自包含无断链    : 无外部不可用依赖 · 引用链路 100% 闭环")
@@ -361,10 +375,24 @@ def find_preview_files(target: Path | str = ".", base_dir: Path | None = None) -
     if (target_path / "output").is_dir():
         files_to_check.extend(sorted((target_path / "output").glob("*.html")))
     # 3. 检查 projects/*/output/ 子目录
+    candidate_p_dirs: list[Path] = []
     if (target_path / "projects").is_dir():
-        for p in sorted((target_path / "projects").iterdir()):
+        candidate_p_dirs.append(target_path / "projects")
+    elif target_path.name == "projects":
+        candidate_p_dirs.append(target_path)
+    elif (target_path.parent / "projects").is_dir():
+        candidate_p_dirs.append(target_path.parent / "projects")
+
+    for p_dir in candidate_p_dirs:
+        for p in sorted(p_dir.iterdir()):
             if p.is_dir() and (p / "output").is_dir():
                 files_to_check.extend(sorted((p / "output").glob("*.html")))
+
+    # 4. 向上查找 output 目录（如从子目录或 projects/xxx 调用）
+    if not files_to_check and (target_path.parent / "output").is_dir():
+        files_to_check.extend(sorted((target_path.parent / "output").glob("*.html")))
+    if not files_to_check and (target_path.parent.parent / "output").is_dir():
+        files_to_check.extend(sorted((target_path.parent.parent / "output").glob("*.html")))
 
     # 去重保持顺序，排除 .venv 与 site-packages
     seen = set()
