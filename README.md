@@ -47,6 +47,7 @@ qa_layout.py   ← 横版 8 项质检（含跨页主句一致性）
 qa_cards.py    ← 卡片 8 项质检
 qa_long_card.py← 长图 7 项质检
 qa_video.py    ← 视频 7 项质检（流/分辨率/音画同步/响度/死黑屏/字幕/码率）
+qa_preview.py  ← HTML 翻页预览与多形态展厅 7 项质检（结构/容器/画布/Base64/翻页指示/按键全屏/展厅连通）
 qa_pptx.py     ← 导出物 PPTX 回读 7 项质检
 ```
 
@@ -105,6 +106,7 @@ ppt-studio/
 | `qa_cards.py` | **卡片质检闸门**：8 项检查（字号/安全区/溢出/压行/签名竖线/对比度/底图/留白），阶梯从 `card_spec.md` 读 |
 | `qa_long_card.py` | **长图质检闸门**：7 项检查（画幅/Header/Footer/卡片分段/分段墨量/对比度/清晰度），支持目录自发现与品牌规范同步 |
 | `qa_video.py` | **视频质检闸门**：7 项检查（流完整性/1080p/音画同步/响度/死黑屏/字幕时序/码率健康），支持目录自发现 |
+| `qa_preview.py` | **HTML 质检闸门**：7 项检查（HTML5骨架/容器/矢量画布/Base64内联/翻页指示器/按键全屏/展厅连通），支持目录自发现 |
 | `qa_pptx.py` | **PPTX 质检闸门**：7 项检查（OpenXML/16:9比例/媒体资源/幻灯片图元/字号阶梯/角色一致性/引用链） |
 
 ### 跑一遍样例
@@ -135,7 +137,10 @@ python3 ../../scripts/make_video.py .            # → output/agentflow-os-launc
 python3 ../../scripts/make_video.py . --format 9:16  # → output/agentflow-os-launch_竖版.mp4
 python3 ../../scripts/qa_video.py .              # 跑视频 7 项质检门禁
 
-# 7. PPTX 导出物客观回读质检
+# 7. HTML 预览与展厅质检
+python3 ../../scripts/qa_preview.py .            # 跑 HTML 预览与多形态展厅 7 项质检门禁
+
+# 8. PPTX 导出物客观回读质检
 python3 ../../scripts/qa_pptx.py .               # 跑 PPTX 7 项质检门禁
 ```
 
