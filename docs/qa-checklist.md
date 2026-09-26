@@ -103,18 +103,23 @@ python3 scripts/qa_long_card.py output/xxx_长图.png
 - [ ] `[文字对比]` 全图正文与背景对比度满足 WCAG ≥ 4.5:1
 - [ ] `[高频细节]` 渲染锐度/拉普拉斯梯度方差 ≥ 50.0，排查低清插值或失真
 
-## 三、导出物（回读，不能只看导出命令）
+## 三、导出物 PPTX（客观回读门禁）
 
 ```bash
-python3 scripts/svg_to_pptx.py projects/xxx -o output/xxx.pptx
-unzip -q output/xxx.pptx -d /tmp/chk
+python3 scripts/qa_pptx.py output/xxx.pptx
+# 或针对项目/目录执行批量质检：
+python3 scripts/qa_pptx.py .
 ```
 
-- [ ] 门禁 blocking = 0
-- [ ] `ppt/media/` 文件数 = 预期图片数
-- [ ] 每页 `<p:pic>` 数量 = 预期（内容页应为 1）
-- [ ] `grep sz=` 换算回 px（**1pt = 0.75px** @1280×720，42pt = 56px）
-- [ ] **同一角色的 pt 值在各页一致**
+七项客观质检全部 OK 才输出 `ALL CLEAR`：
+
+- [ ] `[PPTX 基础结构]` Zip 结构完整，Content_Types 与 presentation.xml 无损坏
+- [ ] `[画幅与标准比例]` 画面尺寸符合 16:9 标准比例（容差 ≤ 2%）
+- [ ] `[媒体资源完整性]` ppt/media/ 所有图像资源有效可读、非零字节无损坏
+- [ ] `[幻灯片图元结构]` 包含完整配图层 (<p:pic>) 与文本图层 (<p:sp>)
+- [ ] `[字号阶梯合规性]` DrawingML <a:rPr sz="..."> (sz/75) 严格落在 spec 阶梯内
+- [ ] `[跨页主句一致性]` 各正文页页面主句字号绝对统一，严防"一时大一时小"
+- [ ] `[引用关系链完整性]` 全量 slides、layouts 与 media 关联引用闭环无断链
 
 **这一节不能省。** 源文件对了不代表导出对了。字号最终是从 PPTX 里反查 `sz=` 才确认一致的。
 

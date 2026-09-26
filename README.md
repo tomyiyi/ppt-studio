@@ -134,6 +134,9 @@ python3 ../../scripts/qa_long_card.py .          # 跑长图 7 项质检门禁
 python3 ../../scripts/make_video.py .            # → output/agentflow-os-launch_1080p.mp4
 python3 ../../scripts/make_video.py . --format 9:16  # → output/agentflow-os-launch_竖版.mp4
 python3 ../../scripts/qa_video.py .              # 跑视频 7 项质检门禁
+
+# 7. PPTX 导出物客观回读质检
+python3 ../../scripts/qa_pptx.py .               # 跑 PPTX 7 项质检门禁
 ```
 
 质检全绿会打印 `ALL CLEAR`。任何一项有告警，先改 SVG 再交付。

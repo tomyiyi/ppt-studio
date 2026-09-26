@@ -327,7 +327,7 @@ def run_qa_pptx(
 
 def main():
     parser = argparse.ArgumentParser(description="PPT-Studio PPTX 导出物客观回读质检")
-    parser.add_argument("target", help="PPTX 文件路径，或包含 *.pptx 的目录")
+    parser.add_argument("target", help="PPTX 文件路径，或包含 *.pptx / output/*.pptx 的目录")
     parser.add_argument("--spec", help="可选指定 spec_lock.md 路径")
     parser.add_argument("--expected-slides", type=int, help="可选预期总页数")
     parser.add_argument("--expected-media", type=int, help="可选预期媒体文件数")
@@ -339,12 +339,14 @@ def main():
     # 如果没有指定 spec，尝试在常见位置寻找
     if not spec_path:
         for candidate in [
+            target_path / "spec_lock.md",
             target_path.parent / "spec_lock.md",
             target_path.parent.parent / "spec_lock.md",
-            Path("projects/agentflow-os-launch/spec_lock.md"),
+            Path.cwd() / "projects/agentflow-os-launch/spec_lock.md",
+            Path(__file__).resolve().parent.parent / "projects/agentflow-os-launch/spec_lock.md",
         ]:
-            if candidate.exists():
-                spec_path = candidate
+            if candidate and candidate.exists():
+                spec_path = candidate.resolve()
                 break
 
     if target_path.is_file():
@@ -352,9 +354,21 @@ def main():
         sys.exit(0 if success else 1)
 
     elif target_path.is_dir():
-        pptx_files = sorted(target_path.glob("*.pptx"))
+        def find_pptx(d: Path) -> list[Path]:
+            found = sorted(d.glob("*.pptx"))
+            if not found and (d / "output").is_dir():
+                found = sorted((d / "output").glob("*.pptx"))
+            if not found and (d.parent / "output").is_dir():
+                found = sorted((d.parent / "output").glob("*.pptx"))
+            if not found and (d.parent.parent / "output").is_dir():
+                found = sorted((d.parent.parent / "output").glob("*.pptx"))
+            if not found and Path("output").is_dir():
+                found = sorted(Path("output").glob("*.pptx"))
+            return found
+
+        pptx_files = find_pptx(target_path)
         if not pptx_files:
-            print(f"[!] 目录内未找到 .pptx 文件: {target_path}")
+            print(f"[!] 目录 {target_path} 或 output/ 下未找到 .pptx 文件")
             sys.exit(1)
 
         all_ok = True
