@@ -79,7 +79,7 @@ def load_spec_colors(project_dir: Path | None) -> tuple[tuple[int, int, int], tu
                 if m_bg:
                     bg = hex_to_rgb(m_bg.group(1))
                 break
-            except Exception:
+            except (OSError, UnicodeError):
                 pass
     return accent, bg
 
