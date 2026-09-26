@@ -305,6 +305,120 @@ def check_sharpness_and_health(img_path: Path, arr: np.ndarray) -> tuple[bool, s
     return True, f"拉普拉斯梯度方差 {var_lap:.1f} (≥ 50.0) · {file_kb} KB 无损完好"
 
 
+def resolve_project_dir(
+    project_arg: str | Path | None = None,
+    target_path: str | Path | None = None,
+    base_dir: str | Path | None = None,
+    strict: bool = False,
+) -> Path | None:
+    """自适应探测包含 cards/ 的项目根目录。
+
+    1. 若显式指定 project_arg：
+       - 保留显式路径行为；转换为绝对路径并校验存在性，不存在则抛出 FileNotFoundError。
+    2. 若未显式指定 project_arg：
+       a. 若传入 target_path，自底向上从其父级目录探测是否存在 cards/ 目录。
+       b. 探测 base_dir（默认当前工作目录）本身是否为包含 cards/ 的项目。
+       c. 探测 base_dir/projects、base_dir（若其本身名为 projects）或仓库根目录下的 projects/：
+          - 收集包含 cards/ 目录的子项目；
+          - 若唯一匹配则安全返回；
+          - 若存在多个匹配的项目且未显式指定，抛出 ValueError（避免歧义导致规则误用）；
+          - 若无匹配项：若 strict 为 True 抛出 FileNotFoundError，否则返回 None。
+    """
+    if project_arg is not None and str(project_arg).strip() != "":
+        p = Path(project_arg)
+        if not p.is_absolute() and base_dir is not None:
+            p = (Path(base_dir) / p).resolve()
+        else:
+            p = p.resolve()
+        if not p.exists():
+            raise FileNotFoundError(f"指定的项目目录不存在: {project_arg}")
+        return p
+
+    # 2.a 从 target_path 自底向上探测
+    if target_path is not None:
+        t = Path(target_path)
+        if not t.is_absolute() and base_dir is not None:
+            t = (Path(base_dir) / t).resolve()
+        else:
+            t = t.resolve()
+        candidates = [t.parent, t.parent.parent] if t.is_file() else [t, t.parent]
+        for cand in candidates:
+            if cand.is_dir() and (cand / "cards").is_dir():
+                return cand.resolve()
+
+    # 2.b 探测 base_dir / cwd
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    if (base / "cards").is_dir():
+        return base
+
+    # 2.c 从 projects/ 目录下安全发现
+    candidate_projects_dirs: list[Path] = []
+    if base.is_dir() and base.name == "projects":
+        candidate_projects_dirs.append(base)
+    elif (base / "projects").is_dir():
+        candidate_projects_dirs.append(base / "projects")
+    elif base_dir is None:
+        repo_root = Path(__file__).resolve().parent.parent
+        p_cand = repo_root / "projects"
+        if p_cand.is_dir():
+            candidate_projects_dirs.append(p_cand)
+
+    found_projects: list[Path] = []
+    seen: set[Path] = set()
+    for p_dir in candidate_projects_dirs:
+        if not p_dir.is_dir():
+            continue
+        for sub in sorted(p_dir.iterdir()):
+            if sub.is_dir() and (sub / "cards").is_dir():
+                r = sub.resolve()
+                if r not in seen:
+                    seen.add(r)
+                    found_projects.append(r)
+
+    if len(found_projects) == 1:
+        return found_projects[0]
+    elif len(found_projects) > 1:
+        names = ", ".join(p.name for p in found_projects)
+        raise ValueError(
+            f"发现多个包含 cards/ 的项目 ({names})，无法安全确定，请显式指定 --project 参数"
+        )
+
+    if strict:
+        raise FileNotFoundError(
+            "未在当前目录或 projects/ 下发现包含 cards/ 的项目，请显式指定 --project 参数"
+        )
+    return None
+
+
+def find_long_cards(target: Path) -> list[Path]:
+    """在目标路径或其子目录中查找长图文件。"""
+    if not target.is_dir():
+        return [target]
+
+    found: list[Path] = []
+    for pattern in ["*长图*.png", "*long_card*.png"]:
+        found.extend(sorted(target.glob(pattern)))
+    if not found:
+        found = [f for f in sorted(target.glob("*.png")) if "卡片" not in f.name and "render" not in f.name]
+    if not found and (target / "output").is_dir():
+        for pattern in ["*长图*.png", "*long_card*.png"]:
+            found.extend(sorted((target / "output").glob(pattern)))
+        if not found:
+            found = [f for f in sorted((target / "output").glob("*.png")) if "卡片" not in f.name and "render" not in f.name]
+    if not found:
+        candidate_p_dirs = []
+        if (target / "projects").is_dir():
+            candidate_p_dirs.append(target / "projects")
+        elif target.name == "projects":
+            candidate_p_dirs.append(target)
+        for p_dir in candidate_p_dirs:
+            for p in sorted(p_dir.iterdir()):
+                if p.is_dir() and (p / "output").is_dir():
+                    found.extend(sorted((p / "output").glob("*长图*.png")))
+                    found.extend(sorted((p / "output").glob("*long_card*.png")))
+    return found
+
+
 def run_qa_long_card(target_path: Path, project_dir: Path | None = None) -> bool:
     print("=" * 60)
     print("🔍 运行 PPT-Studio 长图导出物客观质量门禁")
@@ -323,15 +437,10 @@ def run_qa_long_card(target_path: Path, project_dir: Path | None = None) -> bool
 
     # 自动探测 project_dir
     if project_dir is None:
-        for candidate in [
-            target_path.parent.parent,
-            target_path.parent,
-            Path.cwd(),
-            Path(__file__).resolve().parent.parent / "projects/agentflow-os-launch",
-        ]:
-            if (candidate / "cards").is_dir():
-                project_dir = candidate.resolve()
-                break
+        try:
+            project_dir = resolve_project_dir(None, target_path=target_path)
+        except ValueError:
+            project_dir = None
 
     accent_rgb, bg_rgb = load_spec_colors(project_dir)
 
@@ -379,64 +488,40 @@ def run_qa_long_card(target_path: Path, project_dir: Path | None = None) -> bool
     return all_passed
 
 
-def main():
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="PPT-Studio 长图客观质量门禁")
     parser.add_argument("target", nargs="?", default=".", help="长图 PNG 文件路径或包含长图/output/*.png 的项目目录（默认当前目录）")
     parser.add_argument("--project", help="项目根目录（用于校验源卡片数量与版式规范）")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     target = Path(args.target).resolve()
-    project = Path(args.project).resolve() if args.project else None
 
-    # 如果是目录，自动查找长图（支持当前目录、output/ 与 projects/*/output/ 子目录）
-    files_to_check = []
-    if target.is_dir():
-        def find_in_dir(d: Path) -> list[Path]:
-            found = []
-            for p in ["*长图*.png", "*long_card*.png"]:
-                found.extend(sorted(d.glob(p)))
-            if not found:
-                found = [f for f in sorted(d.glob("*.png")) if "卡片" not in f.name and "render" not in f.name]
-            if not found and (d / "output").is_dir():
-                for p in ["*长图*.png", "*long_card*.png"]:
-                    found.extend(sorted((d / "output").glob(p)))
-                if not found:
-                    found = [f for f in sorted((d / "output").glob("*.png")) if "卡片" not in f.name and "render" not in f.name]
-            if not found and (d / "projects").is_dir():
-                for p in sorted((d / "projects").iterdir()):
-                    if p.is_dir() and (p / "output").is_dir():
-                        found.extend(sorted((p / "output").glob("*长图*.png")))
-                        found.extend(sorted((p / "output").glob("*long_card*.png")))
-            return found
+    explicit_project = None
+    if args.project:
+        try:
+            explicit_project = resolve_project_dir(args.project)
+        except FileNotFoundError as err:
+            print(f"[!] {err}", file=sys.stderr)
+            return 1
 
-        files_to_check = find_in_dir(target)
-        if not files_to_check:
-            print(f"[!] 在目录 {target} 或 output/、projects/*/output/ 下未发现长图 PNG 文件")
-            sys.exit(1)
-    else:
-        files_to_check = [target]
-
-    # 自动探测 project 目录
-    if project is None:
-        for candidate in [
-            target,
-            target.parent,
-            Path.cwd(),
-            Path(__file__).resolve().parent.parent / "projects/agentflow-os-launch",
-            Path("projects/agentflow-os-launch"),
-        ]:
-            if candidate and candidate.exists() and (candidate / "cards").is_dir():
-                project = candidate.resolve()
-                break
+    files_to_check = find_long_cards(target)
+    if not files_to_check:
+        print(f"[!] 在目录 {target} 或 output/、projects/*/output/ 下未发现长图 PNG 文件", file=sys.stderr)
+        return 1
 
     all_ok = True
     for f in files_to_check:
-        res = run_qa_long_card(f, project)
+        try:
+            proj = explicit_project or resolve_project_dir(None, target_path=f)
+        except ValueError as err:
+            print(f"[!] {err}", file=sys.stderr)
+            return 1
+        res = run_qa_long_card(f, proj)
         if not res:
             all_ok = False
 
-    sys.exit(0 if all_ok else 1)
+    return 0 if all_ok else 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
