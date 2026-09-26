@@ -571,12 +571,21 @@ def main():
         success = run_qa_layout(target_path, render_dir, spec_path)
         sys.exit(0 if success else 1)
 
-    # 4. 如果 target_path 是包含 projects/ 的根目录
+    # 4. 如果 target_path 是包含 projects/ 的根目录或向上级查找 projects/
     projects_with_svgs = []
-    if (target_path / "projects").is_dir():
-        for p in sorted((target_path / "projects").iterdir()):
-            if p.is_dir() and (p / "svg_output").is_dir() and list((p / "svg_output").glob("*.svg")):
-                projects_with_svgs.append(p / "svg_output")
+    search_dirs = [target_path]
+    if not (target_path / "projects").is_dir():
+        for cand in [target_path.parent, target_path.parent.parent, Path.cwd()]:
+            if cand and (cand / "projects").is_dir():
+                search_dirs.append(cand)
+                break
+    for base_dir in search_dirs:
+        if (base_dir / "projects").is_dir():
+            for p in sorted((base_dir / "projects").iterdir()):
+                if p.is_dir() and (p / "svg_output").is_dir() and list((p / "svg_output").glob("*.svg")):
+                    projects_with_svgs.append(p / "svg_output")
+            if projects_with_svgs:
+                break
     if projects_with_svgs:
         all_ok = True
         for sdir in projects_with_svgs:

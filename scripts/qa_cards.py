@@ -12,16 +12,17 @@ qa_cards.py —— 卡片客观质量门禁（交付前必跑）
   python3 scripts/qa_cards.py projects/agentflow-os-launch
   python3 scripts/qa_cards.py cards/ render_cards/
 
-八项客观检查，全部 OK 才输出 ALL CLEAR：
+九项客观检查，全部 OK 才输出 ALL CLEAR：
 
   [字号]     所有文本落在 card_spec.md 的阶梯内
   [安全区]   文本不出 64px 硬安全边（SVG 估算 + 渲染像素双重校验）
   [溢出]     文本不出画布
   [压行]     相邻文本块不重叠
-  [签名竖线] 包含 6px 品牌强调竖线签名元素且规格一致
+  [签名竖线] 包含 6px 品牌强调竖线签名元素且规格与规范色 (#6E7BFF) 一致
   [对比]     每个文本块 WCAG ≥ 4.5:1（背景取 20 分位、字色取 99.5 分位）
   [底图]     图片带面积 / 画布 ≥ 40% 且墨量 ≥ 2%（防漏图）
   [留白]     内容面板墨量 3%–35%（太空 = 没内容，太满 = 拥挤）
+  [主句]     跨正文卡片主句 (statement) 字号严格对齐 (72px)，防范"一时大一时小"
 
 依赖：Pillow + numpy
 """
@@ -33,12 +34,13 @@ import glob
 import os
 import re
 import sys
+from collections import Counter
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 DEFAULT_RAMP = {28, 36, 44, 56, 72, 96, 132}
 
-# ---------------------------------------------------------------- 字号阶梯
+# ---------------------------------------------------------------- 字号阶梯与角色
 def load_ramp(spec_path):
     if not spec_path or not os.path.exists(str(spec_path)):
         print(f"[warn] 找不到 {spec_path}，用默认阶梯")
@@ -56,6 +58,97 @@ def load_ramp(spec_path):
         if mm:
             out.add(int(mm.group(1)))
     return out or set(DEFAULT_RAMP)
+
+
+def load_spec_roles(spec_path):
+    """从 card_spec.md 的 ## typography 段读取 (role -> font_size) 映射。"""
+    if not spec_path or not os.path.exists(str(spec_path)):
+        return {}
+    txt = open(str(spec_path), encoding="utf-8").read()
+    m = re.search(r"^##\s+typography\s*$(.*?)(?=^##\s|\Z)", txt, re.S | re.M)
+    if not m:
+        return {}
+    roles = {}
+    for line in m.group(1).splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        mm = re.match(r"^(\d+)\s+(\w+)", line)
+        if mm:
+            roles[mm.group(2)] = int(mm.group(1))
+    return roles
+
+
+def load_spec_colors(spec_path):
+    """从 card_spec.md 的 ## colors 段读取色彩配置。"""
+    if not spec_path or not os.path.exists(str(spec_path)):
+        return {}
+    txt = open(str(spec_path), encoding="utf-8").read()
+    m = re.search(r"^##\s+colors\s*$(.*?)(?=^##\s|\Z)", txt, re.S | re.M)
+    if not m:
+        return {}
+    colors = {}
+    for line in m.group(1).splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        mm = re.match(r"^(\w+)\s+(#[0-9a-fA-F]{6})", line)
+        if mm:
+            colors[mm.group(1)] = mm.group(2).upper()
+    return colors
+
+
+def check_card_statement_consistency(
+    card_slides: list[tuple[str, list[dict]]],
+    expected_sz: int = 72,
+) -> tuple[bool, str]:
+    """验证正文卡片主句 (statement) 字号在各卡之间是否严格一致。
+    防范事故：主句在不同卡片被随手设成 44/56/96，导致跨卡浏览时字号'一时大一时小'。"""
+    content_cards = [
+        (stem, texts) for stem, texts in card_slides
+        if not (stem.startswith("01") or "cover" in stem.lower())
+    ]
+    if len(content_cards) < 2:
+        return True, "卡片数量较少，跳过跨卡主句一致性比对"
+
+    statement_cards = {}
+    for stem, texts in content_cards:
+        candidate_stmts = []
+        for t in texts:
+            fs = int(round(t["fs"]))
+            txt = t["txt"]
+            # 排除纯数字/百分比/短指标 (如 3%, 24h, 100%, 02 / 07)
+            clean_txt = re.sub(r"[\s\d\.\%\+\-xXhH/·:：→]+", "", txt)
+            if not clean_txt:
+                continue
+            # 主句通常在 44~96 档位之间
+            if fs in (44, 56, 72, 96):
+                candidate_stmts.append((fs, txt))
+        if not candidate_stmts:
+            continue
+        # 取最大的非数字字号作为该卡 statement
+        top_fs, top_txt = max(candidate_stmts, key=lambda x: x[0])
+        statement_cards[stem] = (top_fs, top_txt)
+
+    if not statement_cards:
+        return True, "未检测到正文卡片主句"
+
+    counts = Counter(sz for sz, _ in statement_cards.values())
+    target_sz = expected_sz if expected_sz in counts else counts.most_common(1)[0][0]
+
+    drifts = []
+    aligned = []
+    for stem, (sz, txt) in sorted(statement_cards.items()):
+        if sz != target_sz:
+            drifts.append(f"{stem} ({sz}px: «{txt[:16]}»)")
+        else:
+            aligned.append(stem)
+
+    if drifts:
+        return False, f"发现主句字号漂移 (预期 {target_sz}px，漂移卡: {', '.join(drifts)})"
+
+    aligned_labels = ", ".join(s.split("_")[0] for s in aligned)
+    return True, f"各正文卡片主句字号严格对齐 ({target_sz}px) · 卡片 [{aligned_labels}] 无漂移"
 
 # ---------------------------------------------------------------- 文本宽度
 def char_w(ch, fs):
@@ -195,8 +288,17 @@ def run_qa_cards(
     print("=" * 60)
 
     ramp = load_ramp(spec_file)
+    roles = load_spec_roles(spec_file)
+    colors = load_spec_colors(spec_file)
+    expected_stmt_sz = roles.get("statement", 72)
+    expected_accent = colors.get("accent", "#6E7BFF")
     spec_label = spec_file.name if spec_file else "默认阶梯"
-    print(f"卡片字号阶梯（来自 {spec_label}）: {sorted(ramp)}\n")
+    print(f"卡片字号阶梯（来自 {spec_label}）: {sorted(ramp)}")
+    if "statement" in roles:
+        print(f"跨卡主句预期字号: {expected_stmt_sz}px (来自 {spec_label})")
+    if "accent" in colors:
+        print(f"品牌强调色规范: {expected_accent}")
+    print()
 
     try:
         import numpy as np
@@ -212,6 +314,7 @@ def run_qa_cards(
         return False
 
     bad = 0
+    card_slides = []
     for svg in svg_files:
         stem = svg.stem
         print(f"=== {stem} ===")
@@ -219,6 +322,7 @@ def run_qa_cards(
         vb = root.get("viewBox", "0 0 1080 1350").split()
         W, H = int(float(vb[2])), int(float(vb[3]))
         texts = collect_texts(root)
+        card_slides.append((stem, texts))
         SAFE = 64
 
         # 图片带高度从 SVG 里读，不能硬编码 —— 改了 make_cards 的常量后
@@ -285,10 +389,19 @@ def run_qa_cards(
                 except (ValueError, TypeError):
                     pass
         ok_bar = len(bars) >= 1
-        print(f"  [签名竖线] {'OK' if ok_bar else 'WARN'}  "
-              + (f"6px 强调竖线 (h={bars[0][2]:.0f}, fill={bars[0][3]})" if ok_bar else "缺少 6px 主句签名强调竖线"))
+        bar_fill = bars[0][3] if ok_bar else ""
+        color_ok = True
+        if ok_bar and expected_accent and bar_fill:
+            color_ok = (bar_fill.strip().upper() == expected_accent.strip().upper())
+
         if not ok_bar:
+            print("  [签名竖线] WARN  缺少 6px 主句签名强调竖线")
             bad += 1
+        elif not color_ok:
+            print(f"  [签名竖线] WARN  6px 强调竖线颜色 ({bar_fill}) 与品牌规范色 ({expected_accent}) 不符")
+            bad += 1
+        else:
+            print(f"  [签名竖线] OK  6px 强调竖线 (h={bars[0][2]:.0f}, fill={bar_fill})")
 
         # ---- 像素级
         png = None
@@ -368,6 +481,17 @@ def run_qa_cards(
             print("  [对比]/[底图]/[留白]  跳过（无渲染图）")
         print()
 
+    # 跨卡主句一致性检查（多卡时执行）
+    if len(card_slides) > 1:
+        print("=== 跨卡一致性 ===")
+        ok_stmt, msg_stmt = check_card_statement_consistency(card_slides, expected_stmt_sz)
+        if ok_stmt:
+            print(f"  [主句] OK  {msg_stmt}")
+        else:
+            bad += 1
+            print(f"  [主句] ⚠️  {msg_stmt}")
+        print()
+
     print("=" * 60)
     print("ALL CLEAR ✅" if bad == 0 else f"❌ {bad} 项需要处理")
     return bad == 0
@@ -400,12 +524,21 @@ def main():
         success = run_qa_cards(target_path, render_dir, spec_path)
         sys.exit(0 if success else 1)
 
-    # 如果 target_path 是项目根目录且 projects/ 下有项目
+    # 如果 target_path 是项目根目录且 projects/ 下有项目，或向上级查找 projects/
     projects_with_cards = []
-    if (target_path / "projects").is_dir():
-        for p in (target_path / "projects").iterdir():
-            if p.is_dir() and (p / "cards").is_dir() and list((p / "cards").glob("*.svg")):
-                projects_with_cards.append(p / "cards")
+    search_dirs = [target_path]
+    if not (target_path / "projects").is_dir():
+        for cand in [target_path.parent, target_path.parent.parent, Path.cwd()]:
+            if cand and (cand / "projects").is_dir():
+                search_dirs.append(cand)
+                break
+    for base_dir in search_dirs:
+        if (base_dir / "projects").is_dir():
+            for p in sorted((base_dir / "projects").iterdir()):
+                if p.is_dir() and (p / "cards").is_dir() and list((p / "cards").glob("*.svg")):
+                    projects_with_cards.append(p / "cards")
+            if projects_with_cards:
+                break
     if projects_with_cards:
         all_ok = True
         for cdir in projects_with_cards:
