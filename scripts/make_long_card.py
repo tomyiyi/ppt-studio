@@ -111,7 +111,8 @@ def ensure_rendered_cards(project_dir: Path, card_svgs: list[Path], render_dir: 
         print(f"[*] 发现 {len(missing_svgs)} 张未渲染或过期的卡片，执行 render_svg.py...")
         # 尝试调用脚本内的 render_one
         script_dir = Path(__file__).resolve().parent
-        sys.path.insert(0, str(script_dir))
+        if str(script_dir) not in sys.path:
+            sys.path.insert(0, str(script_dir))
         try:
             from render_svg import render_one
             for svg in missing_svgs:
@@ -215,23 +216,108 @@ def build_footer_image(width: int, meta: dict[str, any]) -> Image.Image:
     return img
 
 
-def resolve_project_dir(target_arg: str | None = None) -> Path:
-    """自适应探测包含卡片 SVG 的项目目录。"""
-    target = Path(target_arg or ".").resolve()
-    # 1. 目标目录内直接包含 cards/
-    if (target / "cards").is_dir() and list((target / "cards").glob("*.svg")):
-        return target
-    # 2. 目标本身就是 cards/
-    if target.name == "cards" and target.is_dir() and list(target.glob("*.svg")):
-        return target.parent
-    # 3. 探索 projects/ 子目录
-    for base in [target, target.parent, Path.cwd(), Path(__file__).resolve().parent.parent]:
-        p_dir = base / "projects"
-        if p_dir.is_dir():
-            for sub in sorted(p_dir.iterdir()):
+def resolve_project_dir(
+    project_arg: str | Path | None = None,
+    base_dir: str | Path | None = None,
+) -> Path:
+    """自适应探测包含卡片 cards/*.svg 的项目目录。
+
+    1. 若显式指定 project_arg（非空且非 '.'）：
+       - 转换为绝对路径（若为相对路径则基于 base_dir 或当前工作目录解析）；
+       - 校验存在性，若不存在抛出 FileNotFoundError；
+       - 若目标目录直接包含 cards/ 且有 *.svg，返回 target；
+       - 若目标目录本身名为 cards 且有 *.svg，返回 target.parent；
+       - 若目标目录下有 projects/ 目录或自身名为 projects，从中安全发现包含 cards/*.svg 的子项目；
+       - 若目标目录本身包含 *.svg（可能就是卡片根目录），返回 target；
+       - 否则抛出 FileNotFoundError。
+    2. 若未显式指定 project_arg 或为 '.'：
+       - 探测 base_dir（默认当前工作目录）：
+         * 若 (base / "cards").is_dir() 且包含 *.svg，返回 base；
+         * 若 base.name == "cards" 且包含 *.svg，返回 base.parent；
+       - 从 base/projects 或仓库根目录 projects/ 探测：
+         * 收集所有包含 cards/ 且有 *.svg 的子项目；
+         * 若唯一匹配，返回唯一项目；
+         * 若有多个匹配，抛出 ValueError（避免歧义导致规则误用）；
+         * 若未发现匹配，抛出 FileNotFoundError。
+    """
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    is_default = (project_arg is None or str(project_arg).strip() in ("", "."))
+
+    if not is_default:
+        p = Path(project_arg)
+        if not p.is_absolute():
+            p = (base / p).resolve()
+        else:
+            p = p.resolve()
+
+        if not p.exists():
+            raise FileNotFoundError(f"指定的项目目录不存在: {project_arg}")
+
+        if (p / "cards").is_dir() and list((p / "cards").glob("*.svg")):
+            return p.resolve()
+
+        if p.is_dir() and p.name == "cards" and list(p.glob("*.svg")):
+            return p.parent.resolve()
+
+        candidate_projects_dirs: list[Path] = []
+        if (p / "projects").is_dir():
+            candidate_projects_dirs.append(p / "projects")
+        elif p.is_dir() and p.name == "projects":
+            candidate_projects_dirs.append(p)
+
+        matches: list[Path] = []
+        for s_dir in candidate_projects_dirs:
+            for sub in sorted(s_dir.iterdir()):
                 if sub.is_dir() and (sub / "cards").is_dir() and list((sub / "cards").glob("*.svg")):
-                    return sub
-    return target
+                    matches.append(sub.resolve())
+
+        if len(matches) == 1:
+            return matches[0]
+        elif len(matches) > 1:
+            names = ", ".join(m.name for m in matches)
+            raise ValueError(f"发现多个包含 cards/ 的项目 ({names})，无法安全确定，请显式指定 project 参数")
+
+        if p.is_dir() and list(p.glob("*.svg")):
+            return p.resolve()
+
+        raise FileNotFoundError(f"在目录 {project_arg} 下未找到有效卡片或 cards/ 子目录")
+
+    # 默认/自适应探测
+    if (base / "cards").is_dir() and list((base / "cards").glob("*.svg")):
+        return base.resolve()
+    if base.is_dir() and base.name == "cards" and list(base.glob("*.svg")):
+        return base.parent.resolve()
+
+    candidate_projects_dirs = []
+    if base.is_dir() and base.name == "projects":
+        candidate_projects_dirs.append(base)
+    elif (base / "projects").is_dir():
+        candidate_projects_dirs.append(base / "projects")
+    elif base_dir is None:
+        repo_root = Path(__file__).resolve().parent.parent
+        p_cand = repo_root / "projects"
+        if p_cand.is_dir():
+            candidate_projects_dirs.append(p_cand)
+
+    found_projects: list[Path] = []
+    seen: set[Path] = set()
+    for p_dir in candidate_projects_dirs:
+        for sub in sorted(p_dir.iterdir()):
+            if sub.is_dir() and (sub / "cards").is_dir() and list((sub / "cards").glob("*.svg")):
+                r = sub.resolve()
+                if r not in seen:
+                    seen.add(r)
+                    found_projects.append(r)
+        if found_projects:
+            break
+
+    if len(found_projects) == 1:
+        return found_projects[0]
+    elif len(found_projects) > 1:
+        names = ", ".join(m.name for m in found_projects)
+        raise ValueError(f"发现多个包含 cards/ 的项目 ({names})，无法安全确定，请显式指定 project 参数")
+
+    raise FileNotFoundError("在当前目录或 projects/ 下未找到包含 cards/ 的有效项目")
 
 
 def make_long_card(
@@ -298,34 +384,57 @@ def make_long_card(
             out_path = repo_root / "output" / f"{project_dir.name}_长图.png"
         else:
             out_path = project_dir / "output" / f"{project_dir.name}_长图.png"
+    out_path = Path(out_path).resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    long_canvas.save(out_path, format="PNG", optimize=True)
+    try:
+        long_canvas.save(out_path, format="PNG", optimize=True)
+    finally:
+        for c in card_images:
+            try:
+                c.close()
+            except Exception:
+                pass
+        try:
+            long_canvas.close()
+        except Exception:
+            pass
+
     print(f"✓ 长图导出成功: {out_path} ({out_path.stat().st_size // 1024} KB)")
     print(f"[i] 建议质检: python3 scripts/qa_long_card.py {out_path}")
     return out_path
 
 
-def main():
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="多卡片纵向缝合为单张长图")
     parser.add_argument("project", nargs="?", default=".", help="项目根目录，例如 projects/agentflow-os-launch（默认当前目录自发现）")
     parser.add_argument("--out", help="输出图片路径，默认输出至 <project>/output/<name>_长图.png")
     parser.add_argument("--gap", type=int, default=16, help="卡片之间的纵向缝隙像素，默认 16")
     parser.add_argument("--no-header", action="store_true", help="不包含顶部 Header")
     parser.add_argument("--no-footer", action="store_true", help="不包含底部 Footer")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-    proj_dir = resolve_project_dir(args.project)
+    try:
+        proj_dir = resolve_project_dir(args.project)
+    except (FileNotFoundError, ValueError) as err:
+        print(f"[err] {err}", file=sys.stderr)
+        return 1
+
     out_p = Path(args.out).resolve() if args.out else None
 
-    make_long_card(
-        project_dir=proj_dir,
-        out_path=out_p,
-        gap=args.gap,
-        include_header=not args.no_header,
-        include_footer=not args.no_footer,
-    )
+    try:
+        make_long_card(
+            project_dir=proj_dir,
+            out_path=out_p,
+            gap=args.gap,
+            include_header=not args.no_header,
+            include_footer=not args.no_footer,
+        )
+        return 0
+    except Exception as err:
+        print(f"[err] 制作长图失败: {err}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
