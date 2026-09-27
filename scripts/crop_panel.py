@@ -325,6 +325,7 @@ def crop_panel(
     apply: bool = False,
     check: bool = False,
     min_ink: float = 3.0,
+    verbose: bool = False,
     base_dir: str | Path | None = None,
     repo_root_override: str | Path | None = None,
 ) -> list[dict]:
@@ -337,6 +338,7 @@ def crop_panel(
     :param apply: 是否真正写盘（默认 False 仅预演）
     :param check: 是否在裁切后执行客观质量门禁校验（墨量 >= min_ink）
     :param min_ink: 质量门禁最低墨量百分比阈值（默认: 3.0%）
+    :param verbose: 是否输出日志（默认 False）
     :param base_dir: 基准目录
     :param repo_root_override: 仓库根目录覆盖（测试用）
     :return: 处理结果字典列表
@@ -371,15 +373,145 @@ def crop_panel(
                 min_ink=min_ink,
             )
             results.append(res)
+            if verbose:
+                mode_tag = "(已写盘)" if apply else "[预演]"
+                print(f"✓ {mode_tag} {p.name} → {res['out']} (墨量 {res['after_cover']:.2f}%)")
             if not res["check_passed"]:
                 gate_failures.append(f"{p.name}: {'; '.join(res['issues'])}")
         except Exception as e:
             gate_failures.append(f"{p.name}: 裁切失败: {e}")
+            if verbose:
+                print(f"[!] 裁切 {p.name} 失败: {e}", file=sys.stderr)
 
     if check and gate_failures:
         raise ValueError("裁切客观质量门禁未通过:\n  " + "\n  ".join(gate_failures))
 
     return results
+
+
+def check_crop_panel(
+    target: str | Path | Image.Image,
+    aspect: str | float = "580:385",
+    pad: float = 1.12,
+    min_ink: float = 3.0,
+    base_dir: str | Path | None = None,
+) -> tuple[bool, dict, list[str]]:
+    """客观质量门禁判定：验证单张图片是否能有效识别主体并完成面板裁切且墨量达标。
+
+    :param target: 图片文件路径 (Path/str) 或 PIL Image 对象
+    :param aspect: 目标宽高比（默认: 580:385）
+    :param pad: 主体包围盒向外扩张系数（默认: 1.12）
+    :param min_ink: 最低有效墨量百分比阈值（默认: 3.0%）
+    :param base_dir: 基准目录
+    :return: (通过布尔值, 统计指标字典, 未通过原因列表)
+    """
+    min_ink_val = float(min_ink)
+    if isinstance(target, Image.Image):
+        im = target.convert("RGB")
+        a = np.asarray(im, dtype=np.float64)
+        h, w = a.shape[:2]
+        bb = bbox_of(a)
+        name = getattr(target, "filename", None) or "image.png"
+        name = Path(name).name if name else "image.png"
+        if bb is None:
+            issue = f"{name}: 没找到主体（亮像素太少）"
+            return False, {"name": name, "width": w, "height": h, "issues": [issue]}, [issue]
+        tgt_aspect = parse_aspect(aspect)
+        left, top, bw, bh = calculate_crop(w, h, bb, tgt_aspect, pad)
+        before = cover(a, (0, 0, w, h))
+        after = cover(a, (left, top, bw, bh))
+        check_passed = after >= min_ink_val
+        issues = [] if check_passed else [f"{name}: 主体墨量不足 ({after:.2f}% < {min_ink_val:.2f}%)"]
+        res = {
+            "src": getattr(target, "filename", "") or "",
+            "name": name,
+            "width": w,
+            "height": h,
+            "bbox": bb,
+            "crop_box": (left, top, bw, bh),
+            "target_aspect": tgt_aspect,
+            "actual_aspect": bw / bh if bh > 0 else 0.0,
+            "before_cover": before,
+            "after_cover": after,
+            "out": "",
+            "applied": False,
+            "check_passed": check_passed,
+            "issues": issues,
+        }
+        return check_passed, res, issues
+    else:
+        try:
+            res = crop_image(
+                src_path=target,
+                aspect=aspect,
+                pad=pad,
+                apply=False,
+                base_dir=base_dir,
+                check=False,
+                min_ink=min_ink_val,
+            )
+            return res["check_passed"], res, res["issues"]
+        except Exception as e:
+            name = Path(target).name if isinstance(target, (str, Path)) else "image.png"
+            err_msg = str(e)
+            return False, {"name": name, "issues": [err_msg]}, [err_msg]
+
+
+def run_qa_crop_panel(
+    targets: str | Path | list[str | Path] | None = None,
+    aspect: str | float = "580:385",
+    pad: float = 1.12,
+    min_ink: float = 3.0,
+    verbose: bool = True,
+    base_dir: str | Path | None = None,
+) -> bool:
+    """运行 PPT-Studio 面板裁切客观质量门禁。
+
+    :param targets: 目标图片、目录、项目路径或图片列表（默认自发现）
+    :param aspect: 目标宽高比（默认: 580:385）
+    :param pad: 主体包围盒向外扩张系数（默认: 1.12）
+    :param min_ink: 最低墨量百分比阈值（默认: 3.0%）
+    :param verbose: 是否输出日志（默认 True）
+    :param base_dir: 基准目录
+    :return: 全部通过返回 True，否则返回 False
+    """
+    try:
+        resolved = resolve_crop_targets(targets, base_dir=base_dir)
+    except Exception as e:
+        if verbose:
+            print(f"[err] {e}", file=sys.stderr)
+        return False
+
+    if not resolved:
+        if verbose:
+            print("[err] 未找到任何可裁切的图片", file=sys.stderr)
+        return False
+
+    all_ok = True
+    failed_items = []
+    min_ink_val = float(min_ink)
+    for p in resolved:
+        ok, res, issues = check_crop_panel(p, aspect=aspect, pad=pad, min_ink=min_ink_val, base_dir=base_dir)
+        if not ok:
+            all_ok = False
+            failed_items.append((p.name, issues))
+        elif verbose:
+            print(f"  [✓] {p.name}: 墨量 {res.get('after_cover', 0.0):.2f}% (≥ {min_ink_val:.1f}%)")
+
+    if verbose:
+        if not all_ok:
+            print("\n[门禁] ⚠️ 存在未通过客观质量门禁的裁切目标:", file=sys.stderr)
+            for fname, issues in failed_items:
+                print(f"  ✗ {fname}: {', '.join(issues)}", file=sys.stderr)
+        else:
+            print("  [门禁] ✓ 面板裁切客观质量门禁通过")
+
+    return all_ok
+
+
+qa_crop_panel = run_qa_crop_panel
+qa_single_crop_panel = check_crop_panel
+run_qa_single_crop_panel = check_crop_panel
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -424,22 +556,39 @@ def main(argv: list[str] | None = None) -> int:
         default=3.0,
         help="质量门禁最低墨量百分比阈值（默认: 3.0%%，防面板偏空）",
     )
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        default=True,
+        help="详细日志输出（默认开启）",
+    )
+    parser.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        help="静默模式（仅通过退出码返回结果）",
+    )
 
     args = parser.parse_args(argv)
+    verbose = not args.quiet if args.quiet else args.verbose
 
     src_args = args.src if args.src else None
     try:
         targets = resolve_crop_targets(src_args)
     except (FileNotFoundError, ValueError) as e:
-        print(f"[!] {e}", file=sys.stderr)
+        if verbose:
+            print(f"[!] {e}", file=sys.stderr)
         return 1
 
     if not targets:
-        print("[!] 未找到任何可裁切的图片", file=sys.stderr)
+        if verbose:
+            print("[!] 未找到任何可裁切的图片", file=sys.stderr)
         return 1
 
     if args.out and len(targets) > 1:
-        print("[!] --out 参数仅支持单张图片裁切，批量处理时请省略该参数", file=sys.stderr)
+        if verbose:
+            print("[!] --out 参数仅支持单张图片裁切，批量处理时请省略该参数", file=sys.stderr)
         return 1
 
     all_passed = True
@@ -454,11 +603,13 @@ def main(argv: list[str] | None = None) -> int:
                 apply=args.apply,
             )
         except (FileNotFoundError, ValueError) as e:
-            print(f"[!] {t.name}: 裁切失败: {e}", file=sys.stderr)
+            if verbose:
+                print(f"[!] {t.name}: 裁切失败: {e}", file=sys.stderr)
             all_passed = False
             continue
         except Exception as e:
-            print(f"[!] {t.name}: 裁切发生异常: {e}", file=sys.stderr)
+            if verbose:
+                print(f"[!] {t.name}: 裁切发生异常: {e}", file=sys.stderr)
             all_passed = False
             continue
 
@@ -469,26 +620,32 @@ def main(argv: list[str] | None = None) -> int:
         before = res["before_cover"]
         after = res["after_cover"]
 
-        print(f"{res['name']}  {res['width']}x{res['height']}")
-        print(f"  主体 bbox  x {x0:.0f}-{x1:.0f} ({x1-x0:.0f}px)  y {y0:.0f}-{y1:.0f} ({y1-y0:.0f}px)")
-        print(f"  裁切框     x {left:.0f} y {top:.0f}  {bw:.0f}x{bh:.0f}  (比例 {actual:.3f} vs 目标 {tgt:.3f})")
-        ratio_multiplier = after / max(before, 1e-6)
-        print(f"  主体占画面  {before:.2f}%  →  {after:.2f}%   ({ratio_multiplier:.1f}×)")
+        if verbose:
+            print(f"{res['name']}  {res['width']}x{res['height']}")
+            print(f"  主体 bbox  x {x0:.0f}-{x1:.0f} ({x1-x0:.0f}px)  y {y0:.0f}-{y1:.0f} ({y1-y0:.0f}px)")
+            print(f"  裁切框     x {left:.0f} y {top:.0f}  {bw:.0f}x{bh:.0f}  (比例 {actual:.3f} vs 目标 {tgt:.3f})")
+            ratio_multiplier = after / max(before, 1e-6)
+            print(f"  主体占画面  {before:.2f}%  →  {after:.2f}%   ({ratio_multiplier:.1f}×)")
 
-        if res["applied"]:
-            print(f"  已保存 {res['out']}")
-        else:
-            print("  [提示] 当前为预演模式（未写盘），加 --apply 执行写盘")
+            if res["applied"]:
+                print(f"  已保存 {res['out']}")
+            else:
+                print("  [提示] 当前为预演模式（未写盘），加 --apply 执行写盘")
 
         if args.check:
             if after < args.min_ink:
-                print(f"  [门禁] ⚠️ 主体墨量不足 {args.min_ink:.1f}% (当前 {after:.2f}%)，面板可能偏空", file=sys.stderr)
+                if verbose:
+                    print(f"  [门禁] ⚠️ 主体墨量不足 {args.min_ink:.1f}% (当前 {after:.2f}%)，面板可能偏空", file=sys.stderr)
                 all_passed = False
             else:
-                print(f"  [门禁] ✓ 墨量达标 ({after:.2f}% ≥ {args.min_ink:.1f}%)")
+                if verbose:
+                    print(f"  [门禁] ✓ 墨量达标 ({after:.2f}% ≥ {args.min_ink:.1f}%)")
 
-        if i < len(targets) - 1:
+        if verbose and i < len(targets) - 1:
             print()
+
+    if args.check and all_passed and verbose:
+        print("  [门禁] ✓ 面板裁切客观质量门禁通过")
 
     return 0 if all_passed else 1
 

@@ -7,10 +7,12 @@ tests/test_crop_panel.py
 使用临时目录与标准库 unittest，不引入额外外部依赖。
 """
 
+import io
 import os
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 # 将项目根目录加入 sys.path
@@ -33,6 +35,11 @@ from scripts.crop_panel import (
     calculate_crop,
     crop_image,
     crop_panel,
+    check_crop_panel,
+    run_qa_crop_panel,
+    qa_crop_panel,
+    qa_single_crop_panel,
+    run_qa_single_crop_panel,
     resolve_crop_targets,
     main,
 )
@@ -400,6 +407,153 @@ class TestResolveCropTargets(unittest.TestCase):
         targets = resolve_crop_targets("heal_bg.png")
         self.assertEqual(len(targets), 1)
         self.assertEqual(targets[0].name, "heal_bg.png")
+
+
+class TestCheckCropPanel(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.tmp_path = Path(self.temp_dir.name)
+        self.good_img = self.tmp_path / "good.png"
+        create_test_image(self.good_img, 400, 300, (100, 100, 150, 100))
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_check_crop_panel_valid_file(self):
+        ok, res, issues = check_crop_panel(self.good_img)
+        self.assertTrue(ok)
+        self.assertEqual(issues, [])
+        self.assertEqual(res["name"], "good.png")
+        self.assertGreaterEqual(res["after_cover"], 3.0)
+        self.assertTrue(res["check_passed"])
+
+    def test_check_crop_panel_pil_image(self):
+        im = Image.open(self.good_img)
+        ok, res, issues = check_crop_panel(im)
+        self.assertTrue(ok)
+        self.assertEqual(issues, [])
+        self.assertIn("crop_box", res)
+        self.assertGreaterEqual(res["after_cover"], 3.0)
+
+    def test_check_crop_panel_dark_image(self):
+        dark_img = self.tmp_path / "dark.png"
+        create_test_image(dark_img, 200, 200)
+        ok, res, issues = check_crop_panel(dark_img)
+        self.assertFalse(ok)
+        self.assertTrue(any("没找到主体" in s for s in issues))
+
+    def test_check_crop_panel_sparse_low_ink(self):
+        sparse = self.tmp_path / "sparse.png"
+        arr = np.zeros((400, 500, 3), dtype=np.uint8)
+        arr[100:104, 100:104] = 220
+        arr[100:104, 396:400] = 220
+        arr[296:300, 100:104] = 220
+        arr[296:300, 396:400] = 220
+        Image.fromarray(arr, "RGB").save(sparse)
+
+        ok, res, issues = check_crop_panel(sparse, min_ink=3.0)
+        self.assertFalse(ok)
+        self.assertTrue(any("主体墨量不足" in s for s in issues))
+
+    def test_check_crop_panel_nonexistent_file(self):
+        missing = self.tmp_path / "non_existing.png"
+        ok, res, issues = check_crop_panel(missing)
+        self.assertFalse(ok)
+        self.assertTrue(len(issues) > 0)
+
+
+class TestRunQaCropPanel(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.tmp_path = Path(self.temp_dir.name)
+        self.img1 = self.tmp_path / "img1.png"
+        self.img2 = self.tmp_path / "img2.png"
+        create_test_image(self.img1, 400, 300, (100, 100, 120, 80))
+        create_test_image(self.img2, 400, 300, (80, 80, 140, 90))
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_run_qa_crop_panel_success(self):
+        self.assertTrue(run_qa_crop_panel(self.img1, verbose=False))
+        self.assertTrue(run_qa_crop_panel([self.img1, self.img2], verbose=False))
+        self.assertTrue(run_qa_crop_panel(self.tmp_path, verbose=False))
+
+    def test_run_qa_crop_panel_failure(self):
+        dark = self.tmp_path / "dark.png"
+        create_test_image(dark, 200, 200)
+        self.assertFalse(run_qa_crop_panel(dark, verbose=False))
+        self.assertFalse(run_qa_crop_panel([self.img1, dark], verbose=False))
+
+    def test_run_qa_crop_panel_missing_path(self):
+        self.assertFalse(run_qa_crop_panel(self.tmp_path / "not_there.png", verbose=False))
+
+    def test_run_qa_crop_panel_aliases(self):
+        self.assertIs(qa_crop_panel, run_qa_crop_panel)
+        self.assertIs(qa_single_crop_panel, check_crop_panel)
+        self.assertIs(run_qa_single_crop_panel, check_crop_panel)
+
+
+class TestCropPanelQuietVerbose(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.tmp_path = Path(self.temp_dir.name)
+        self.good_img = self.tmp_path / "good.png"
+        create_test_image(self.good_img, 400, 300, (100, 100, 150, 100))
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_cli_quiet_success_silence(self):
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with redirect_stdout(buf_out), redirect_stderr(buf_err):
+            code = main([str(self.good_img), "--check", "--quiet"])
+        self.assertEqual(code, 0)
+        self.assertEqual(buf_out.getvalue(), "")
+        self.assertEqual(buf_err.getvalue(), "")
+
+        # -q 短参数
+        buf_out2 = io.StringIO()
+        buf_err2 = io.StringIO()
+        with redirect_stdout(buf_out2), redirect_stderr(buf_err2):
+            code2 = main([str(self.good_img), "--check", "-q"])
+        self.assertEqual(code2, 0)
+        self.assertEqual(buf_out2.getvalue(), "")
+        self.assertEqual(buf_err2.getvalue(), "")
+
+    def test_cli_quiet_failure_silence(self):
+        dark = self.tmp_path / "dark.png"
+        create_test_image(dark, 200, 200)
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with redirect_stdout(buf_out), redirect_stderr(buf_err):
+            code = main([str(dark), "--quiet"])
+        self.assertEqual(code, 1)
+        self.assertEqual(buf_out.getvalue(), "")
+        self.assertEqual(buf_err.getvalue(), "")
+
+    def test_cli_verbose_gate_pass_message(self):
+        buf_out = io.StringIO()
+        with redirect_stdout(buf_out):
+            code = main([str(self.good_img), "--check", "--verbose"])
+        self.assertEqual(code, 0)
+        out_str = buf_out.getvalue()
+        self.assertIn("[门禁] ✓ 面板裁切客观质量门禁通过", out_str)
+
+        # -v 短参数
+        buf_out2 = io.StringIO()
+        with redirect_stdout(buf_out2):
+            code2 = main([str(self.good_img), "--check", "-v"])
+        self.assertEqual(code2, 0)
+        self.assertIn("[门禁] ✓ 面板裁切客观质量门禁通过", buf_out2.getvalue())
+
+    def test_crop_panel_batch_verbose_param(self):
+        buf_out = io.StringIO()
+        with redirect_stdout(buf_out):
+            res = crop_panel([self.good_img], apply=False, verbose=True)
+        self.assertEqual(len(res), 1)
+        self.assertIn("[预演] good.png", buf_out.getvalue())
 
 
 if __name__ == "__main__":
