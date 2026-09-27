@@ -33,7 +33,7 @@ def run_probe(cmd: list[str]) -> str:
     return res.stdout.strip()
 
 
-def probe_streams(video_path: Path) -> dict:
+def probe_streams(video_path: Path | str) -> dict:
     cmd = [
         "ffprobe", "-v", "error",
         "-show_streams",
@@ -42,7 +42,12 @@ def probe_streams(video_path: Path) -> dict:
         str(video_path),
     ]
     raw = run_probe(cmd)
-    return json.loads(raw) if raw else {}
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
 
 
 def check_streams(streams_data: dict) -> tuple[bool, str]:
@@ -105,7 +110,7 @@ def check_av_sync(streams_data: dict) -> tuple[bool, str]:
     return True, f"视频 {v_dur:.1f}s / 音频 {a_dur:.1f}s (偏差 {diff:.2f}s ≤ 0.35s)"
 
 
-def check_audio_loudness(video_path: Path) -> tuple[bool, str]:
+def check_audio_loudness(video_path: Path | str) -> tuple[bool, str]:
     cmd = [
         "ffmpeg", "-i", str(video_path),
         "-af", "volumedetect",
@@ -132,7 +137,7 @@ def check_audio_loudness(video_path: Path) -> tuple[bool, str]:
     return True, f"平均响度 {mean_v:.1f} dB · 峰值 {max_v:.1f} dB"
 
 
-def check_black_frames(video_path: Path) -> tuple[bool, str]:
+def check_black_frames(video_path: Path | str) -> tuple[bool, str]:
     cmd = [
         "ffmpeg", "-i", str(video_path),
         "-vf", "blackdetect=d=1.5:pix_th=0.10",
@@ -158,24 +163,27 @@ def parse_srt_time(t_str: str) -> float:
     return h * 3600 + m * 60 + s
 
 
-def find_associated_srt(video_path: Path, explicit_srt: Path | None = None) -> Path | None:
+def find_associated_srt(video_path: Path | str, explicit_srt: Path | str | None = None) -> Path | None:
     """自动探查关联的字幕文件。"""
-    if explicit_srt and explicit_srt.exists():
-        return explicit_srt
+    v_path = Path(video_path).resolve()
+    if explicit_srt:
+        p_explicit = Path(explicit_srt).resolve()
+        if p_explicit.exists():
+            return p_explicit
 
     # 1. 同名 srt
-    direct_srt = video_path.with_suffix(".srt")
+    direct_srt = v_path.with_suffix(".srt")
     if direct_srt.exists():
         return direct_srt
 
     # 2. 同目录下的 srt 文件（单文件或前缀/语义匹配）
-    parent_dir = video_path.parent
+    parent_dir = v_path.parent
     srts = sorted(parent_dir.glob("*.srt"))
     if len(srts) == 1:
         return srts[0]
     elif len(srts) > 1:
         # 优先匹配带有共同前缀的 srt
-        stem_prefix = video_path.stem[:4]
+        stem_prefix = v_path.stem[:4]
         matched = [s for s in srts if stem_prefix in s.stem]
         if matched:
             return matched[0]
@@ -184,12 +192,13 @@ def find_associated_srt(video_path: Path, explicit_srt: Path | None = None) -> P
     return None
 
 
-def check_subtitles(srt_path: Path | None, video_duration: float) -> tuple[bool, str]:
-    if srt_path is None or not srt_path.exists():
+def check_subtitles(srt_path: Path | str | None, video_duration: float) -> tuple[bool, str]:
+    srt_p = Path(srt_path).resolve() if srt_path else None
+    if srt_p is None or not srt_p.exists():
         return True, "无独立字幕文件（跳过外部 SRT 检查）"
 
     try:
-        content = srt_path.read_text(encoding="utf-8").strip()
+        content = srt_p.read_text(encoding="utf-8").strip()
     except Exception as e:
         return False, f"字幕文件读取失败: {e}"
 
@@ -251,17 +260,70 @@ def check_bitrate_and_fps(v_stream: dict | None, format_info: dict) -> tuple[boo
     return True, f"{fps:.1f} fps · {bitrate} kbps"
 
 
-def qa_video(video_path: Path, srt_path: Path | None = None) -> bool:
+def find_videos(target: Path | str) -> list[Path]:
+    """在目标路径或其子目录中查找 mp4 视频文件。"""
+    target_path = Path(target).resolve()
+    if target_path.is_file():
+        return [target_path] if target_path.suffix.lower() == ".mp4" else []
+
+    if not target_path.is_dir():
+        return []
+
+    # 1. 目标目录内直接包含的 mp4
+    found = sorted(target_path.glob("*.mp4"))
+    if found:
+        return found
+
+    # 2. 目标目录内的 output/ 子目录
+    if (target_path / "output").is_dir():
+        found = sorted((target_path / "output").glob("*.mp4"))
+        if found:
+            return found
+
+    # 3. 目标目录下的 projects/*/output/ 或目标本身为 projects 时的子项目
+    candidate_p_dirs: list[Path] = []
+    if (target_path / "projects").is_dir():
+        candidate_p_dirs.append(target_path / "projects")
+    elif target_path.name == "projects":
+        candidate_p_dirs.append(target_path)
+    elif (target_path.parent / "projects").is_dir():
+        candidate_p_dirs.append(target_path.parent / "projects")
+
+    for p_dir in candidate_p_dirs:
+        for p in sorted(p_dir.iterdir()):
+            if p.is_dir() and (p / "output").is_dir():
+                found.extend(sorted((p / "output").glob("*.mp4")))
+
+    # 4. 向上查找 output 目录（如从项目根目录或子目录调用）
+    if not found and (target_path.parent / "output").is_dir():
+        found = sorted((target_path.parent / "output").glob("*.mp4"))
+
+    # 去重保持顺序
+    seen: set[Path] = set()
+    deduped: list[Path] = []
+    for f in found:
+        rf = f.resolve()
+        if rf not in seen:
+            seen.add(rf)
+            deduped.append(rf)
+
+    return deduped
+
+
+def qa_single_video(video_path: Path | str, srt_path: Path | str | None = None) -> bool:
+    video_p = Path(video_path).resolve()
+    srt_p = Path(srt_path).resolve() if srt_path else None
+
     print(f"==================================================")
     print(f"🔍 运行 PPT-Studio 视频质量自动化门禁")
-    print(f"   目标: {video_path}")
+    print(f"   目标: {video_p}")
     print(f"==================================================")
 
-    if not video_path.exists():
-        print(f"[ERROR] 目标视频文件不存在: {video_path}")
+    if not video_p.exists():
+        print(f"[ERROR] 目标视频文件不存在: {video_p}")
         return False
 
-    meta = probe_streams(video_path)
+    meta = probe_streams(video_p)
     if not meta:
         print(f"[ERROR] 无法通过 ffprobe 解析视频元数据")
         return False
@@ -270,14 +332,14 @@ def qa_video(video_path: Path, srt_path: Path | None = None) -> bool:
     a_stream = next((s for s in meta.get("streams", []) if s.get("codec_type") == "audio"), None)
     v_dur = float(meta.get("format", {}).get("duration", 0))
 
-    resolved_srt = find_associated_srt(video_path, srt_path)
+    resolved_srt = find_associated_srt(video_p, srt_p)
 
     checks = [
         ("流完整性", lambda: check_streams(meta)),
         ("分辨率与像素格式", lambda: check_resolution(v_stream)),
         ("音画同步匹配", lambda: check_av_sync(meta)),
-        ("音频响度与削顶", lambda: check_audio_loudness(video_path)),
-        ("死黑屏与卡顿", lambda: check_black_frames(video_path)),
+        ("音频响度与削顶", lambda: check_audio_loudness(video_p)),
+        ("死黑屏与卡顿", lambda: check_black_frames(video_p)),
         ("字幕时间线", lambda: check_subtitles(resolved_srt, v_dur)),
         ("帧率与码率健康", lambda: check_bitrate_and_fps(v_stream, meta.get("format", {}))),
     ]
@@ -299,56 +361,34 @@ def qa_video(video_path: Path, srt_path: Path | None = None) -> bool:
         return False
 
 
-run_qa_video = qa_video
+def qa_video(video_path: Path | str | None = None, srt_path: Path | str | None = None) -> bool:
+    target = Path(video_path).resolve() if video_path else Path.cwd().resolve()
+    srt_p = Path(srt_path).resolve() if srt_path else None
 
+    if not target.exists():
+        print(f"[ERROR] 目标视频路径不存在: {target}")
+        return False
 
-def find_videos(target: Path) -> list[Path]:
-    """在目标路径或其子目录中查找 mp4 视频文件。"""
     if target.is_file():
-        return [target] if target.suffix.lower() == ".mp4" else []
+        return qa_single_video(target, srt_p)
 
-    if not target.is_dir():
-        return []
+    if target.is_dir():
+        mp4s = find_videos(target)
+        if not mp4s:
+            print(f"[ERROR] 在 {target} 或 output/、projects/*/output/ 下未找到 mp4 视频")
+            return False
+        all_passed = True
+        for p in mp4s:
+            ok = qa_single_video(p, srt_p)
+            print()
+            if not ok:
+                all_passed = False
+        return all_passed
 
-    # 1. 目标目录内直接包含的 mp4
-    found = sorted(target.glob("*.mp4"))
-    if found:
-        return found
+    return False
 
-    # 2. 目标目录内的 output/ 子目录
-    if (target / "output").is_dir():
-        found = sorted((target / "output").glob("*.mp4"))
-        if found:
-            return found
 
-    # 3. 目标目录下的 projects/*/output/ 或目标本身为 projects 时的子项目
-    candidate_p_dirs: list[Path] = []
-    if (target / "projects").is_dir():
-        candidate_p_dirs.append(target / "projects")
-    elif target.name == "projects":
-        candidate_p_dirs.append(target)
-    elif (target.parent / "projects").is_dir():
-        candidate_p_dirs.append(target.parent / "projects")
-
-    for p_dir in candidate_p_dirs:
-        for p in sorted(p_dir.iterdir()):
-            if p.is_dir() and (p / "output").is_dir():
-                found.extend(sorted((p / "output").glob("*.mp4")))
-
-    # 4. 向上查找 output 目录（如从项目根目录或子目录调用）
-    if not found and (target.parent / "output").is_dir():
-        found = sorted((target.parent / "output").glob("*.mp4"))
-
-    # 去重保持顺序
-    seen: set[Path] = set()
-    deduped: list[Path] = []
-    for f in found:
-        rf = f.resolve()
-        if rf not in seen:
-            seen.add(rf)
-            deduped.append(rf)
-
-    return deduped
+run_qa_video = qa_video
 
 
 def main(argv: list[str] | None = None) -> int:
