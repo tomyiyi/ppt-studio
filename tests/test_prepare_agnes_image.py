@@ -51,6 +51,11 @@ from scripts.prepare_agnes_image import (
     prepare_agnes_images,
     prepare_images,
     BatchResult,
+    SCHEMA_VERSION,
+    COMMON_SCHEMA_KEYS,
+    PREPARE_SCHEMA_KEYS,
+    CHECK_SCHEMA_KEYS,
+    FAILURE_ITEM_KEYS,
     main,
 )
 
@@ -1487,6 +1492,449 @@ class TestRealCLIFailureContract(unittest.TestCase):
         self.assertEqual(p_size_q.returncode, 1)
         self.assertEqual(p_size_q.stdout, "")
         self.assertEqual(p_size_q.stderr, "")
+
+
+class TestCLIJSONSchemaCompatibilityContract(unittest.TestCase):
+    """测试 --json CLI 输出的 schema/version 兼容性保护。
+    固定当前 JSON 结果的字段集合、基本类型和 failure item 结构，
+    增加回归测试防止字段删除、重命名、类型漂移、success/failure/partial/quiet/verbose 路径不一致。
+    """
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.dir_path = Path(self.temp_dir.name)
+
+        # 1. 干净有效图片
+        self.clean_dir = self.dir_path / "clean_dir"
+        self.clean_dir.mkdir(parents=True, exist_ok=True)
+        self.clean1 = self.clean_dir / "c1.png"
+        self.clean2 = self.clean_dir / "c2.png"
+        create_test_image(self.clean1, width=120, height=80)
+        create_test_image(self.clean2, width=120, height=80)
+
+        # 2. 纯失败图片目录（0 字节空文件与非图像损坏文件）
+        self.fail_dir = self.dir_path / "fail_dir"
+        self.fail_dir.mkdir(parents=True, exist_ok=True)
+        (self.fail_dir / "bad_empty.png").write_bytes(b"")
+        (self.fail_dir / "bad_corrupt.png").write_bytes(b"NOT_A_VALID_IMAGE_DATA\x00\x01\x02")
+
+        # 3. 混合目录（用于 partial_success 测试）
+        self.partial_dir = self.dir_path / "partial_dir"
+        self.partial_dir.mkdir(parents=True, exist_ok=True)
+        create_test_image(self.partial_dir / "p_good.png", width=120, height=80)
+        (self.partial_dir / "p_empty.png").write_bytes(b"")
+
+        # 4. 接缝门禁失败目录
+        self.seam_dir = self.dir_path / "seam_dir"
+        self.seam_dir.mkdir(parents=True, exist_ok=True)
+        create_test_image(self.seam_dir / "seam1.png", width=120, height=80, left_val=20, right_val=60, seam_x=60)
+        create_test_image(self.seam_dir / "seam2.png", width=120, height=80, left_val=20, right_val=60, seam_x=60)
+
+        # 5. 接缝混合目录（1 干净，1 带接缝）
+        self.seam_partial_dir = self.dir_path / "seam_partial_dir"
+        self.seam_partial_dir.mkdir(parents=True, exist_ok=True)
+        create_test_image(self.seam_partial_dir / "sp_clean.png", width=120, height=80)
+        create_test_image(self.seam_partial_dir / "sp_seam.png", width=120, height=80, left_val=20, right_val=60, seam_x=60)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def _assert_root_schema(self, data: dict, mode: str = "prepare"):
+        """严格校验根字典的字段集合与基本数据类型，杜绝字段漂移。"""
+        self.assertIsInstance(data, dict, "根节点必须为 JSON 对象字典")
+
+        expected_keys = PREPARE_SCHEMA_KEYS if mode == "prepare" else CHECK_SCHEMA_KEYS
+        self.assertEqual(
+            set(data.keys()),
+            set(expected_keys),
+            f"根字典字段集合与固定契约不符！缺失: {set(expected_keys) - set(data.keys())}, 多余: {set(data.keys()) - set(expected_keys)}"
+        )
+
+        # 1. 显式 schema_version 校验
+        self.assertIs(type(data["schema_version"]), int, "schema_version 必须为 int 类型，不可为 bool 或 string")
+        self.assertEqual(data["schema_version"], SCHEMA_VERSION, f"schema_version 必须等于当前系统版本 {SCHEMA_VERSION}")
+        self.assertEqual(data["schema_version"], 1, "当前设计目标固定 schema_version 为 1")
+
+        # 2. 基础标量类型严格校验（注意：bool 在 Python 中继承自 int，故必须用 type() is ... 进行强类型判别）
+        self.assertIs(type(data["ok"]), bool, "ok 字段必须为严格 bool 类型")
+        self.assertIs(type(data["total"]), int, "total 字段必须为严格 int 类型")
+        self.assertGreaterEqual(data["total"], 0, "total 计数不可为负数")
+        self.assertIs(type(data["success_count"]), int, "success_count 必须为严格 int 类型")
+        self.assertGreaterEqual(data["success_count"], 0, "success_count 计数不可为负数")
+        self.assertIs(type(data["failure_count"]), int, "failure_count 必须为严格 int 类型")
+        self.assertGreaterEqual(data["failure_count"], 0, "failure_count 计数不可为负数")
+        self.assertIs(type(data["partial_success"]), bool, "partial_success 必须为严格 bool 类型")
+        self.assertIs(type(data["is_partial_success"]), bool, "is_partial_success 必须为严格 bool 类型")
+
+        # 3. 列表容器类型严格校验
+        self.assertIs(type(data["failures"]), list, "failures 必须为 list 类型")
+        self.assertIs(type(data["failed_items"]), list, "failed_items 必须为 list 类型")
+        self.assertIs(type(data["items"]), list, "items 必须为 list 类型")
+
+        # 4. 衍生一致性与别名一致性
+        self.assertEqual(data["failures"], data["failed_items"], "failures 与 failed_items 必须内容完全一致")
+        self.assertEqual(data["total"], data["success_count"] + data["failure_count"], "total 必须严格等于成功数加失败数")
+        self.assertEqual(len(data["failures"]), data["failure_count"], "failures 列表长度必须与 failure_count 严格对齐")
+        self.assertEqual(len(data["items"]), data["success_count"], "items 列表长度必须与 success_count 严格对齐")
+        self.assertEqual(data["ok"], data["total"] > 0 and data["failure_count"] == 0, "ok 布尔值判定逻辑必须自洽")
+        self.assertEqual(
+            data["partial_success"],
+            data["success_count"] > 0 and data["failure_count"] > 0,
+            "partial_success 布尔值必须与 (success>0 and failure>0) 严格一致"
+        )
+        self.assertEqual(data["is_partial_success"], data["partial_success"], "is_partial_success 必须与 partial_success 一致")
+
+        # 5. 特定模式字段类型
+        if mode == "prepare":
+            self.assertIs(type(data["reports"]), list, "prepare 模式的 reports 必须为 list 类型")
+            self.assertEqual(data["reports"], data["items"], "reports 必须与 items 完全一致")
+        elif mode == "check":
+            self.assertIs(type(data["unreadable"]), list, "check 模式的 unreadable 必须为 list 类型")
+            self.assertIs(type(data["failed_seams"]), list, "check 模式的 failed_seams 必须为 list 类型")
+            self.assertIs(type(data["dimension_mismatches"]), list, "check 模式的 dimension_mismatches 必须为 list 类型")
+
+    def _assert_failure_items_schema(self, failures: list[dict]):
+        """严格校验 failure item 的结构、字段集合和基本类型。"""
+        for item in failures:
+            self.assertIsInstance(item, dict, "failure item 必须为字典对象")
+            self.assertEqual(
+                set(item.keys()),
+                set(FAILURE_ITEM_KEYS),
+                f"failure item 结构字段漂移！期望 {FAILURE_ITEM_KEYS}, 实际 {set(item.keys())}"
+            )
+            self.assertIs(type(item["file"]), str, "failure item.file 必须为 str")
+            self.assertIs(type(item["name"]), str, "failure item.name 必须为 str")
+            self.assertIs(type(item["code"]), str, "failure item.code 必须为 str")
+            self.assertIs(type(item["reason"]), str, "failure item.reason 必须为 str")
+            self.assertGreater(len(item["code"]), 0, "failure item.code 不可为空字符串")
+            self.assertGreater(len(item["reason"]), 0, "failure item.reason 不可为空字符串")
+
+    def _assert_prepare_success_items_schema(self, items: list[dict]):
+        """严格校验 prepare 成功项的结构与基本类型。"""
+        required_keys = {"file", "name", "src", "out", "seam", "fixed", "kb", "applied"}
+        for item in items:
+            self.assertIsInstance(item, dict, "success item 必须为字典对象")
+            self.assertTrue(
+                required_keys.issubset(set(item.keys())),
+                f"prepare success item 缺失核心字段！实际字段: {set(item.keys())}"
+            )
+            self.assertIs(type(item["file"]), str)
+            self.assertIs(type(item["name"]), str)
+            self.assertIs(type(item["src"]), str)
+            self.assertIs(type(item["out"]), str)
+            self.assertIs(type(item["fixed"]), bool)
+            self.assertIs(type(item["kb"]), int)
+            self.assertIs(type(item["applied"]), bool)
+            self.assertTrue(item["seam"] is None or isinstance(item["seam"], (int, list)))
+
+    def _assert_check_success_items_schema(self, items: list[dict]):
+        """严格校验 check 成功项的结构与基本类型。"""
+        expected_keys = {"file", "name", "size", "seam"}
+        for item in items:
+            self.assertIsInstance(item, dict, "check success item 必须为字典对象")
+            self.assertEqual(set(item.keys()), expected_keys, f"check success item 字段集合不符合固定规范: {set(item.keys())}")
+            self.assertIs(type(item["file"]), str)
+            self.assertIs(type(item["name"]), str)
+            self.assertIs(type(item["size"]), str)
+            self.assertTrue(item["seam"] is None or isinstance(item["seam"], int))
+
+    def _run_cli_in_process(self, argv: list[str]) -> tuple[int, dict, str]:
+        """内存中运行 main(argv) 并捕获 stdout/stderr。"""
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with redirect_stdout(buf_out), redirect_stderr(buf_err):
+            code = main(argv)
+        out_str = buf_out.getvalue()
+        err_str = buf_err.getvalue()
+        self.assertTrue(out_str.strip().startswith("{"), f"CLI --json stdout 必须以 '{{' 开头: {out_str[:60]}")
+        self.assertTrue(out_str.strip().endswith("}"), f"CLI --json stdout 必须以 '}}' 结尾: {out_str[-60:]}")
+        try:
+            data = json.loads(out_str)
+        except Exception as e:
+            self.fail(f"stdout 无法解析为 JSON: {e}\nstdout:\n{out_str}")
+        return code, data, err_str
+
+    def _run_cli_subprocess(self, argv: list[str]) -> tuple[int, dict, str]:
+        """独立子进程运行 CLI 并捕获 stdout/stderr。"""
+        full_env = os.environ.copy()
+        full_env["PYTHONPATH"] = str(REPO_ROOT)
+        proc = subprocess.run(
+            [str(PYTHON_BIN), str(SCRIPT_PATH), *argv],
+            capture_output=True,
+            text=True,
+            env=full_env,
+        )
+        self.assertTrue(proc.stdout.strip().startswith("{"), f"独立子进程 stdout 未以 '{{' 开头: {proc.stdout[:60]}")
+        self.assertTrue(proc.stdout.strip().endswith("}"), f"独立子进程 stdout 未以 '}}' 结尾: {proc.stdout[-60:]}")
+        try:
+            data = json.loads(proc.stdout)
+        except Exception as e:
+            self.fail(f"独立子进程 stdout 无法解析为 JSON: {e}\nstdout:\n{proc.stdout}")
+        return proc.returncode, data, proc.stderr
+
+    def test_schema_version_single_source_and_batch_result_contract(self):
+        """确认 schema_version=1 在模块常量、BatchResult 与 API 单一来源生成。"""
+        self.assertEqual(SCHEMA_VERSION, 1)
+
+        # 默认无参数创建 BatchResult
+        br_empty = BatchResult()
+        self.assertEqual(br_empty.get("schema_version"), 1)
+        self.assertIs(type(br_empty["schema_version"]), int)
+
+        # 传入非空字典未指定 schema_version
+        br_data = BatchResult({"total": 3, "ok": True})
+        self.assertEqual(br_data["schema_version"], 1)
+        self.assertEqual(br_data["total"], 3)
+
+        # Python API 产生的结果自动包含 schema_version=1
+        res_prep = prepare_images(self.clean_dir, size=(100, 60), apply=False, verbose=False)
+        self.assertIsInstance(res_prep, BatchResult)
+        self.assertEqual(res_prep.get("schema_version"), 1)
+
+        res_chk = check_images(self.clean_dir, size=(120, 80), verbose=False)
+        self.assertIsInstance(res_chk, BatchResult)
+        self.assertEqual(res_chk.get("schema_version"), 1)
+
+    def test_schema_contract_prepare_success(self):
+        """测试 prepare --json 成功路径：schema_version=1、字段完备且类型一致。"""
+        code, data, err = self._run_cli_in_process([str(self.clean_dir), "--json", "--size", "100x60"])
+        self.assertEqual(code, 0)
+        self.assertEqual(err, "")
+
+        self._assert_root_schema(data, mode="prepare")
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["total"], 2)
+        self.assertEqual(data["success_count"], 2)
+        self.assertEqual(data["failure_count"], 0)
+        self.assertFalse(data["partial_success"])
+        self.assertEqual(data["failures"], [])
+        self._assert_prepare_success_items_schema(data["items"])
+
+    def test_schema_contract_check_success(self):
+        """测试 check --check --json 成功路径：schema_version=1、字段完备且类型一致。"""
+        code, data, err = self._run_cli_in_process([str(self.clean_dir), "--check", "--json", "--size", "120x80"])
+        self.assertEqual(code, 0)
+        self.assertEqual(err, "")
+
+        self._assert_root_schema(data, mode="check")
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["total"], 2)
+        self.assertEqual(data["success_count"], 2)
+        self.assertEqual(data["failure_count"], 0)
+        self.assertFalse(data["partial_success"])
+        self.assertEqual(data["failures"], [])
+        self._assert_check_success_items_schema(data["items"])
+
+    def test_schema_contract_prepare_partial(self):
+        """测试 prepare --json 部分成功路径：失败项与成功项结构均受 schema 保护。"""
+        code, data, err = self._run_cli_in_process([str(self.partial_dir), "--json", "--size", "100x60"])
+        self.assertEqual(code, 1)
+        self.assertEqual(err, "")
+
+        self._assert_root_schema(data, mode="prepare")
+        self.assertFalse(data["ok"])
+        self.assertEqual(data["total"], 2)
+        self.assertEqual(data["success_count"], 1)
+        self.assertEqual(data["failure_count"], 1)
+        self.assertTrue(data["partial_success"])
+        self.assertTrue(data["is_partial_success"])
+
+        self._assert_failure_items_schema(data["failures"])
+        self._assert_prepare_success_items_schema(data["items"])
+
+    def test_schema_contract_check_partial(self):
+        """测试 check --check --json 部分成功路径：接缝失败项受 schema 保护。"""
+        code, data, err = self._run_cli_in_process([str(self.seam_partial_dir), "--check", "--json"])
+        self.assertEqual(code, 1)
+        self.assertEqual(err, "")
+
+        self._assert_root_schema(data, mode="check")
+        self.assertFalse(data["ok"])
+        self.assertEqual(data["total"], 2)
+        self.assertEqual(data["success_count"], 1)
+        self.assertEqual(data["failure_count"], 1)
+        self.assertTrue(data["partial_success"])
+
+        self._assert_failure_items_schema(data["failures"])
+        self._assert_check_success_items_schema(data["items"])
+
+    def test_schema_contract_prepare_all_failure(self):
+        """测试 prepare --json 全量失败路径：items 为空列表，failures 包含全量明细。"""
+        code, data, err = self._run_cli_in_process([str(self.fail_dir), "--json", "--size", "100x60"])
+        self.assertEqual(code, 1)
+        self.assertEqual(err, "")
+
+        self._assert_root_schema(data, mode="prepare")
+        self.assertFalse(data["ok"])
+        self.assertEqual(data["total"], 2)
+        self.assertEqual(data["success_count"], 0)
+        self.assertEqual(data["failure_count"], 2)
+        self.assertFalse(data["partial_success"])
+        self.assertEqual(data["items"], [])
+        self._assert_failure_items_schema(data["failures"])
+
+    def test_schema_contract_check_all_failure(self):
+        """测试 check --check --json 全量失败路径：items 为空列表，failures 包含全量明细。"""
+        code, data, err = self._run_cli_in_process([str(self.seam_dir), "--check", "--json"])
+        self.assertEqual(code, 1)
+        self.assertEqual(err, "")
+
+        self._assert_root_schema(data, mode="check")
+        self.assertFalse(data["ok"])
+        self.assertEqual(data["total"], 2)
+        self.assertEqual(data["success_count"], 0)
+        self.assertEqual(data["failure_count"], 2)
+        self.assertFalse(data["partial_success"])
+        self.assertEqual(data["items"], [])
+        self._assert_failure_items_schema(data["failures"])
+
+    def test_schema_contract_quiet_and_verbose_combinations(self):
+        """测试 quiet/verbose 组合在 prepare 与 check 模式下，schema 与数据 100% 保持一致。"""
+        flag_sets = [
+            [],
+            ["--quiet"],
+            ["-q"],
+            ["--verbose"],
+            ["-v"],
+        ]
+
+        # 1. prepare 模式在 5 种参数组合下的 schema 一致性
+        base_prep_data = None
+        for flags in flag_sets:
+            code, data, err = self._run_cli_in_process([str(self.clean_dir), "--json", "--size", "100x60", *flags])
+            self.assertEqual(code, 0)
+            self.assertEqual(err, "")
+            self._assert_root_schema(data, mode="prepare")
+            if base_prep_data is None:
+                base_prep_data = data
+            else:
+                self.assertEqual(data, base_prep_data, f"prepare 模式下参数 {flags} 改变了 JSON 输出语义")
+
+        # 2. check 模式在 5 种参数组合下的 schema 一致性
+        base_chk_data = None
+        for flags in flag_sets:
+            code, data, err = self._run_cli_in_process([str(self.clean_dir), "--check", "--json", "--size", "120x80", *flags])
+            self.assertEqual(code, 0)
+            self.assertEqual(err, "")
+            self._assert_root_schema(data, mode="check")
+            if base_chk_data is None:
+                base_chk_data = data
+            else:
+                self.assertEqual(data, base_chk_data, f"check 模式下参数 {flags} 改变了 JSON 输出语义")
+
+        # 3. 失败场景下 quiet 与 verbose 的 schema 一致性
+        base_fail_data = None
+        for flags in flag_sets:
+            code, data, err = self._run_cli_in_process([str(self.partial_dir), "--json", "--size", "100x60", *flags])
+            self.assertEqual(code, 1)
+            self.assertEqual(err, "")
+            self._assert_root_schema(data, mode="prepare")
+            if base_fail_data is None:
+                base_fail_data = data
+            else:
+                self.assertEqual(data, base_fail_data, f"失败场景下参数 {flags} 改变了 JSON 输出语义")
+
+    def test_schema_contract_success_and_failure_paths_consistency(self):
+        """确认 success 与 failure 路径的顶层字段集合完全一致，类型完全一致，防止条件分支造成字段缺失。"""
+        # Prepare 模式成功 vs 失败
+        code_s, data_s, _ = self._run_cli_in_process([str(self.clean_dir), "--json", "--size", "100x60"])
+        code_f, data_f, _ = self._run_cli_in_process([str(self.fail_dir), "--json", "--size", "100x60"])
+        self.assertEqual(set(data_s.keys()), set(data_f.keys()))
+        for key in data_s:
+            self.assertIs(type(data_s[key]), type(data_f[key]), f"字段 {key} 在成功与失败路径之间发生了类型漂移！")
+
+        # Check 模式成功 vs 失败
+        code_cs, data_cs, _ = self._run_cli_in_process([str(self.clean_dir), "--check", "--json", "--size", "120x80"])
+        code_cf, data_cf, _ = self._run_cli_in_process([str(self.seam_dir), "--check", "--json"])
+        self.assertEqual(set(data_cs.keys()), set(data_cf.keys()))
+        for key in data_cs:
+            self.assertIs(type(data_cs[key]), type(data_cf[key]), f"check 模式字段 {key} 在成功与失败路径间发生了类型漂移！")
+
+    def test_failure_item_structure_comprehensive_error_codes(self):
+        """针对多类错误码（不存在、空文件、损坏、接缝残留、尺寸不符、参数异常），
+        检验每个 failure item 的结构均严格固定为 (file, name, code, reason)。
+        """
+        all_collected_failures = []
+
+        # 1. 不存在文件与目录错误 (FILE_NOT_FOUND, TARGET_RESOLUTION_ERROR)
+        res_fnf = check_images(self.dir_path / "non_existing_9999.png", verbose=False)
+        all_collected_failures.extend(res_fnf["failures"])
+
+        # 2. 空文件 (EMPTY_FILE) 与损坏文件 (UNREADABLE_IMAGE)
+        res_corrupt = check_images(self.fail_dir, verbose=False)
+        all_collected_failures.extend(res_corrupt["failures"])
+
+        # 3. 接缝残留 (SEAM_DETECTED)
+        res_seam = check_images(self.seam_dir, verbose=False)
+        all_collected_failures.extend(res_seam["failures"])
+
+        # 4. 尺寸不匹配 (DIMENSION_MISMATCH)
+        res_dim = check_images(self.clean1, size=(500, 300), verbose=False)
+        all_collected_failures.extend(res_dim["failures"])
+
+        # 5. 接缝且尺寸不匹配 (SEAM_AND_DIMENSION_MISMATCH)
+        res_both = check_images(self.seam_dir / "seam1.png", size=(500, 300), verbose=False)
+        all_collected_failures.extend(res_both["failures"])
+
+        # 6. prepare 失败 (PREPARE_ERROR)
+        res_prep_err = prepare_images(self.fail_dir, size=(100, 60), apply=False, verbose=False)
+        all_collected_failures.extend(res_prep_err["failures"])
+
+        self.assertGreaterEqual(len(all_collected_failures), 6)
+        self._assert_failure_items_schema(all_collected_failures)
+
+        # 验证涵盖的核心错误码均已真实触发
+        codes = {f["code"] for f in all_collected_failures}
+        expected_sample_codes = {
+            "FILE_NOT_FOUND",
+            "EMPTY_FILE",
+            "UNREADABLE_IMAGE",
+            "SEAM_DETECTED",
+            "DIMENSION_MISMATCH",
+            "SEAM_AND_DIMENSION_MISMATCH",
+        }
+        self.assertTrue(expected_sample_codes.issubset(codes), f"错误码覆盖不足: {codes}")
+
+    def test_real_cli_subprocess_schema_contract(self):
+        """通过独立系统子进程执行 CLI，全量验证真实环境下的 schema/version 契约。"""
+        # 1. prepare 成功
+        c1, d1, e1 = self._run_cli_subprocess([str(self.clean_dir), "--json", "--size", "100x60"])
+        self.assertEqual(c1, 0)
+        self.assertEqual(e1, "")
+        self._assert_root_schema(d1, mode="prepare")
+        self._assert_prepare_success_items_schema(d1["items"])
+
+        # 2. prepare 部分失败
+        c2, d2, e2 = self._run_cli_subprocess([str(self.partial_dir), "--json", "--size", "100x60"])
+        self.assertEqual(c2, 1)
+        self.assertEqual(e2, "")
+        self._assert_root_schema(d2, mode="prepare")
+        self._assert_failure_items_schema(d2["failures"])
+        self._assert_prepare_success_items_schema(d2["items"])
+
+        # 3. check 成功
+        c3, d3, e3 = self._run_cli_subprocess([str(self.clean_dir), "--check", "--json", "--size", "120x80"])
+        self.assertEqual(c3, 0)
+        self.assertEqual(e3, "")
+        self._assert_root_schema(d3, mode="check")
+        self._assert_check_success_items_schema(d3["items"])
+
+        # 4. check 部分失败
+        c4, d4, e4 = self._run_cli_subprocess([str(self.seam_partial_dir), "--check", "--json"])
+        self.assertEqual(c4, 1)
+        self.assertEqual(e4, "")
+        self._assert_root_schema(d4, mode="check")
+        self._assert_failure_items_schema(d4["failures"])
+
+        # 5. quiet 与 verbose 组合子进程
+        c_q, d_q, e_q = self._run_cli_subprocess([str(self.clean_dir), "--json", "--size", "100x60", "--quiet"])
+        c_v, d_v, e_v = self._run_cli_subprocess([str(self.clean_dir), "--json", "--size", "100x60", "--verbose"])
+        self.assertEqual(c_q, 0)
+        self.assertEqual(c_v, 0)
+        self.assertEqual(e_q, "")
+        self.assertEqual(e_v, "")
+        self.assertEqual(d_q, d_v)
+        self._assert_root_schema(d_q, mode="prepare")
 
 
 if __name__ == "__main__":

@@ -401,8 +401,40 @@ def parse_postprocess_cmd(cmd_str: str) -> dict:
     }
 
 
+SCHEMA_VERSION: int = 1
+COMMON_SCHEMA_KEYS: frozenset[str] = frozenset({
+    "schema_version",
+    "ok",
+    "total",
+    "success_count",
+    "failure_count",
+    "partial_success",
+    "is_partial_success",
+    "failures",
+    "failed_items",
+    "items",
+})
+PREPARE_SCHEMA_KEYS: frozenset[str] = COMMON_SCHEMA_KEYS | frozenset({"reports"})
+CHECK_SCHEMA_KEYS: frozenset[str] = COMMON_SCHEMA_KEYS | frozenset({
+    "unreadable",
+    "failed_seams",
+    "dimension_mismatches",
+})
+FAILURE_ITEM_KEYS: frozenset[str] = frozenset({
+    "file",
+    "name",
+    "code",
+    "reason",
+})
+
+
 class BatchResult(dict):
     """批量处理或门禁质检结构化结果字典，兼容序列下标与字典字段访问。"""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if "schema_version" not in self:
+            self["schema_version"] = SCHEMA_VERSION
 
     def __getitem__(self, key):
         if isinstance(key, int):
@@ -614,6 +646,7 @@ def check_images(
     ok = (total_count > 0 and failure_count == 0)
 
     res = BatchResult({
+        "schema_version": SCHEMA_VERSION,
         "ok": ok,
         "total": total_count,
         "success_count": success_count,
@@ -814,6 +847,7 @@ def prepare_agnes_images(
     ok = (total_count > 0 and failure_count == 0)
 
     return BatchResult({
+        "schema_version": SCHEMA_VERSION,
         "ok": ok,
         "total": total_count,
         "success_count": success_count,
