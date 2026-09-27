@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -117,3 +119,49 @@ def deliver_artifact_set(
         if backup is not None and backup.exists() and not destination.exists():
             os.replace(backup, destination)
         raise
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="带 QA attestation 门禁的已生成产物交付")
+    parser.add_argument("source", nargs="?", default=None, help="单一产物交付源路径")
+    parser.add_argument("destination", nargs="?", default=None, help="单一产物交付目标路径")
+    parser.add_argument("--attestation", required=True, help="已生成的 QA attestation JSON")
+    parser.add_argument("--source", dest="source_opt", help="单一产物交付源路径（覆盖位置参数）")
+    parser.add_argument("--destination", dest="dest_opt", help="单一产物交付目标路径（覆盖位置参数）")
+    parser.add_argument("--sources", nargs="+", help="卡片集交付源 SVG 文件列表")
+    parser.add_argument("--destination-dir", help="卡片集交付目标目录")
+    args = parser.parse_args(argv)
+
+    try:
+        if args.sources:
+            if args.source_opt or args.source:
+                raise ValueError("不能同时指定单一产物与卡片集交付源")
+            dest_dir = args.destination_dir or args.dest_opt or args.destination
+            if not dest_dir:
+                raise ValueError("交付卡片集时必须指定 --destination-dir")
+            delivered = deliver_artifact_set(
+                attestation_path=args.attestation,
+                sources=args.sources,
+                destination_dir=dest_dir,
+            )
+            print(f"[✓] 已交付卡片集: {len(delivered)} 张至 {dest_dir}")
+        else:
+            src = args.source_opt or args.source
+            dst = args.dest_opt or args.destination
+            if not src or not dst:
+                raise ValueError("单一产物交付需要同时指定源路径与目标路径")
+            delivered_file = deliver_project(
+                attestation_path=args.attestation,
+                source_path=src,
+                destination_path=dst,
+            )
+            print(f"[✓] 已交付产物: {delivered_file}")
+    except (FileNotFoundError, NotADirectoryError, OSError, ValueError, RuntimeError) as err:
+        print(f"[err] {err}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
