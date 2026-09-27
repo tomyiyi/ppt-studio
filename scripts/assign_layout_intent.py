@@ -21,6 +21,8 @@ def assign_layout(slide: dict) -> str:
     has_steps = False
     has_quote = False
     has_table = False
+    has_image = False
+    image_count = 0
     paragraph_count = 0
     for block in blocks:
         if not isinstance(block, dict):
@@ -37,9 +39,17 @@ def assign_layout(slide: dict) -> str:
         if block.get("type") == "comparison-table":
             has_table = True
             continue
+        if block.get("type") == "image":
+            has_image = True
+            image_count += 1
+            continue
         if block.get("type") != "paragraph":
             raise ValueError("unsupported block type")
         paragraph_count += 1
+    if has_image:
+        if image_count != 1 or paragraph_count > 1 or has_bullets or has_steps or has_quote or has_table:
+            raise ValueError("mixed image blocks are not supported in v1")
+        return "image-callout"
     if has_bullets:
         if has_steps: raise ValueError("mixed bullets and ordered steps are not supported in v1")
         if has_quote: raise ValueError("mixed quote and bullets are not supported in v1")

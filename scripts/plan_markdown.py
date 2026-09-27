@@ -5,7 +5,7 @@ import argparse
 import hashlib
 import json
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 
 _HEADING = re.compile(r"^(#{1,3})[ \t]+(.+?)[ \t]*$")
@@ -13,6 +13,24 @@ _BULLET = re.compile(r"^[ \t]*([-*])[ \t]+(.+?)[ \t]*$")
 _ORDERED = re.compile(r"^[ \t]*(\d+)[.]\s+(.+?)[ \t]*$")
 _QUOTE = re.compile(r"^>[ \t]+(.+?)[ \t]*$")
 _TABLE = re.compile(r"^\|(.+)\|[ \t]*$")
+_IMAGE = re.compile(r"^!\[([^\]]+)\]\(([^)]+)\)[ \t]*$")
+
+
+def _parse_image(line: str) -> dict | None:
+    match = _IMAGE.match(line)
+    if not match:
+        return None
+    alt, path = match.group(1).strip(), match.group(2).strip()
+    if not alt or not path:
+        raise ValueError("image alt and path must be non-empty")
+    if path.startswith(("http://", "https://", "data:")):
+        raise ValueError("image path must be a local relative path")
+    posix = PurePosixPath(path)
+    if posix.is_absolute() or ".." in posix.parts:
+        raise ValueError("image path must be a local relative path")
+    if posix.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
+        raise ValueError("image path extension must be .png, .jpg, or .jpeg")
+    return {"type": "image", "alt": alt, "path": path}
 
 
 def _normalise_lines(text: str) -> list[str]:
@@ -56,6 +74,11 @@ def parse_markdown(text: str) -> list[dict]:
             continue
         if current is None:
             raise ValueError("content appeared before H1")
+        image = _parse_image(line)
+        if image:
+            current["blocks"].append(image)
+            i += 1
+            continue
         table = _TABLE.match(line)
         if table:
             rows=[]
@@ -117,7 +140,7 @@ def parse_markdown(text: str) -> list[dict]:
             continue
         paragraph = [line.strip()]
         i += 1
-        while i < len(lines) and lines[i].strip() and not _HEADING.match(lines[i]) and not _BULLET.match(lines[i]) and not _ORDERED.match(lines[i]) and not _QUOTE.match(lines[i]):
+        while i < len(lines) and lines[i].strip() and not _HEADING.match(lines[i]) and not _BULLET.match(lines[i]) and not _ORDERED.match(lines[i]) and not _QUOTE.match(lines[i]) and not _IMAGE.match(lines[i]):
             if lines[i].lstrip().startswith("|"):
                 raise ValueError("unsupported markdown structure: table")
             paragraph.append(lines[i].strip())
