@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -40,3 +43,49 @@ def run_project_qa(
             return {"ok": False, "failed_stage": name, "stages": stages}
 
     return {"ok": True, "failed_stage": None, "stages": stages}
+
+
+def build_qa_attestation(result: dict[str, Any]) -> dict[str, Any]:
+    """把已有项目 QA 结果转换成稳定、可消费的最小验收凭据。"""
+    stages = result.get("stages", {})
+    attestation: dict[str, Any] = {
+        "schema_version": 1,
+        "overall": bool(result.get("ok")) and all(
+            bool(stages.get(name, {}).get("ok"))
+            for name in ("image", "layout", "cards", "long_card")
+        ),
+        "stages": {
+            name: {"ok": bool(stages.get(name, {}).get("ok"))}
+            for name in ("image", "layout", "cards", "long_card")
+        },
+    }
+    if result.get("failed_stage") is not None:
+        attestation["failed_stage"] = result["failed_stage"]
+    for name, stage in stages.items():
+        if isinstance(stage, dict):
+            for key in ("code", "reason"):
+                if key in stage:
+                    attestation["stages"].setdefault(name, {})[key] = stage[key]
+    return attestation
+
+
+def write_qa_attestation(result: dict[str, Any], output_path: str | Path) -> dict[str, Any]:
+    """原子写入项目 QA 凭据，并返回实际写入的标准 JSON 对象。"""
+    attestation = build_qa_attestation(result)
+    destination = Path(output_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=f".{destination.name}.", dir=destination.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(attestation, handle, ensure_ascii=False, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, destination)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+    return attestation

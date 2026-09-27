@@ -1,9 +1,10 @@
 import unittest
+import json
 from pathlib import Path
 from contextlib import ExitStack
 from unittest.mock import patch
 
-from scripts.qa_project import run_project_qa
+from scripts.qa_project import build_qa_attestation, run_project_qa, write_qa_attestation
 
 
 class TestProjectQA(unittest.TestCase):
@@ -63,6 +64,55 @@ class TestProjectQA(unittest.TestCase):
         mocks[1].assert_called_once_with("l", verbose=False)
         mocks[2].assert_called_once_with("c", verbose=False)
         mocks[3].assert_called_once_with("d", verbose=False)
+
+    def test_attestation_success_is_derived_from_all_stages(self):
+        result = {"ok": True, "failed_stage": None, "stages": {
+            "image": {"ok": True}, "layout": {"ok": True},
+            "cards": {"ok": True}, "long_card": {"ok": True},
+        }}
+        attestation = build_qa_attestation(result)
+        self.assertEqual(attestation["schema_version"], 1)
+        self.assertTrue(attestation["overall"])
+
+    def test_attestation_preserves_failed_stage_and_reason(self):
+        result = {"ok": False, "failed_stage": "image", "stages": {
+            "image": {"ok": False, "code": "FILE_NOT_FOUND", "reason": "missing"},
+        }}
+        attestation = build_qa_attestation(result)
+        self.assertFalse(attestation["overall"])
+        self.assertEqual(attestation["failed_stage"], "image")
+        self.assertEqual(attestation["stages"]["image"]["code"], "FILE_NOT_FOUND")
+
+    def test_attestation_round_trips_through_json(self):
+        result = {"ok": True, "failed_stage": None, "stages": {
+            name: {"ok": True} for name in ("image", "layout", "cards", "long_card")
+        }}
+        self.assertEqual(json.loads(json.dumps(build_qa_attestation(result))), build_qa_attestation(result))
+
+    def test_write_attestation_is_readable_and_matches_memory(self):
+        result = {"ok": True, "failed_stage": None, "stages": {
+            name: {"ok": True} for name in ("image", "layout", "cards", "long_card")
+        }}
+        output = Path(self.id().replace(".", "_") + ".json")
+        try:
+            expected = write_qa_attestation(result, output)
+            self.assertEqual(json.loads(output.read_text(encoding="utf-8")), expected)
+        finally:
+            output.unlink(missing_ok=True)
+
+    def test_failed_result_never_becomes_success_attestation(self):
+        result = {"ok": True, "failed_stage": "cards", "stages": {
+            "image": {"ok": True}, "layout": {"ok": True},
+            "cards": {"ok": False}, "long_card": {"ok": True},
+        }}
+        self.assertFalse(build_qa_attestation(result)["overall"])
+
+    def test_write_failure_does_not_leave_partial_destination(self):
+        result = {"ok": True, "failed_stage": None, "stages": {
+            name: {"ok": True} for name in ("image", "layout", "cards", "long_card")
+        }}
+        with self.assertRaises((NotADirectoryError, FileNotFoundError, FileExistsError)):
+            write_qa_attestation(result, "/dev/null/qa-attestation.json")
 
 
 if __name__ == "__main__":
