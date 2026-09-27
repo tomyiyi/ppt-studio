@@ -173,6 +173,17 @@ class TestDeliverPreviewCLI(unittest.TestCase):
         self.assertEqual(code, 0)
         builder.assert_called_once_with(src=None, out=str(self.output), title=None, cards=True, check=False)
 
+    def test_deliver_preview_forwards_check_flag(self):
+        with patch("scripts.deliver_preview.build_preview", return_value=self.output) as builder:
+            result = deliver_preview(self.attestation, "svg_output", self.output, check=True)
+        self.assertEqual(result, self.output)
+        builder.assert_called_once_with(src="svg_output", out=self.output, title=None, cards=False, check=True)
+
+    def test_deliver_preview_check_failure_raises(self):
+        with patch("scripts.deliver_preview.build_preview", side_effect=RuntimeError("QA_CHECK_FAILED")):
+            with self.assertRaises(RuntimeError):
+                deliver_preview(self.attestation, "svg_output", self.output, check=True)
+
     def test_cli_title_flag(self):
         with patch("scripts.deliver_preview.build_preview", return_value=self.output) as builder:
             with redirect_stdout(io.StringIO()):
@@ -183,6 +194,87 @@ class TestDeliverPreviewCLI(unittest.TestCase):
                 ])
         self.assertEqual(code, 0)
         builder.assert_called_once_with(src=None, out=str(self.output), title="Custom Preview", cards=False, check=False)
+
+    def test_cli_check_flag(self):
+        with patch("scripts.deliver_preview.build_preview", return_value=self.output) as builder:
+            with redirect_stdout(io.StringIO()):
+                code = main([
+                    "--attestation", str(self.attestation),
+                    "--output", str(self.output),
+                    "--check",
+                ])
+        self.assertEqual(code, 0)
+        builder.assert_called_once_with(src=None, out=str(self.output), title=None, cards=False, check=True)
+
+    def test_cli_check_failure(self):
+        err_buf = io.StringIO()
+        with patch("scripts.deliver_preview.build_preview", side_effect=RuntimeError("翻页预览客观质量门禁未通过")):
+            with redirect_stderr(err_buf):
+                code = main([
+                    "--attestation", str(self.attestation),
+                    "--output", str(self.output),
+                    "--check",
+                ])
+        self.assertEqual(code, 1)
+        self.assertIn("[err] 翻页预览客观质量门禁未通过", err_buf.getvalue())
+
+
+class TestDeliverPreviewEndToEnd(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.attestation = self.root / "qa.json"
+        self.attestation.write_text(json.dumps(valid_attestation()), encoding="utf-8")
+        self.svg_dir = self.root / "svgs"
+        self.svg_dir.mkdir()
+        self.output = self.root / "preview.html"
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_end_to_end_check_success(self):
+        (self.svg_dir / "01.svg").write_text(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720"><text x="100" y="200" font-size="72" fill="#FFF">第1页</text></svg>',
+            encoding="utf-8",
+        )
+        (self.svg_dir / "02.svg").write_text(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720"><text x="100" y="200" font-size="72" fill="#FFF">第2页</text></svg>',
+            encoding="utf-8",
+        )
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = main([
+                "--attestation", str(self.attestation),
+                "--src", str(self.svg_dir),
+                "--output", str(self.output),
+                "--check",
+            ])
+        self.assertEqual(code, 0)
+        self.assertTrue(self.output.is_file())
+        self.assertIn("[✓] 已交付翻页预览", buf.getvalue())
+
+    def test_end_to_end_check_failure_preserves_target(self):
+        # 两个比例严重不一致的 SVG 触发门禁失败
+        (self.svg_dir / "01.svg").write_text(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720"><text>1</text></svg>',
+            encoding="utf-8",
+        )
+        (self.svg_dir / "02.svg").write_text(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1350"><text>2</text></svg>',
+            encoding="utf-8",
+        )
+        self.output.write_text("pre-existing-content", encoding="utf-8")
+        err_buf = io.StringIO()
+        with redirect_stderr(err_buf):
+            code = main([
+                "--attestation", str(self.attestation),
+                "--src", str(self.svg_dir),
+                "--output", str(self.output),
+                "--check",
+            ])
+        self.assertEqual(code, 1)
+        self.assertEqual(self.output.read_text(encoding="utf-8"), "pre-existing-content")
+        self.assertIn("翻页预览客观质量门禁未通过", err_buf.getvalue())
 
 
 if __name__ == "__main__":

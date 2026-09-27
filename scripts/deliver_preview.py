@@ -42,6 +42,7 @@ def deliver_preview(
     *,
     title: str | None = None,
     cards: bool = False,
+    check: bool = False,
 ) -> Path:
     """凭据通过后调用现有 preview builder；失败时不触碰输出文件。"""
     validate_attestation_for_preview(attestation_path)
@@ -50,7 +51,7 @@ def deliver_preview(
     out = Path(output_path)
     if out.is_dir():
         raise IsADirectoryError(f"交付目标不能是已存在目录: {out}")
-    return build_preview(src=src, out=output_path, title=title, cards=cards, check=False)
+    return build_preview(src=src, out=output_path, title=title, cards=cards, check=check)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -62,6 +63,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", dest="output_opt", help="最终 HTML 输出路径（覆盖位置参数）")
     parser.add_argument("--title", default=None, help="HTML 标题")
     parser.add_argument("--cards", action="store_true", help="沿用 build_preview 的 cards 模式")
+    parser.add_argument("--check", action="store_true", help="交付前执行翻页预览客观质量门禁校验")
     args = parser.parse_args(argv)
 
     src = args.src_opt or args.src
@@ -84,6 +86,7 @@ def main(argv: list[str] | None = None) -> int:
             output_path=out,
             title=args.title,
             cards=args.cards,
+            check=args.check,
         )
         print(f"[✓] 已交付翻页预览: {delivered}")
     except (FileNotFoundError, NotADirectoryError, OSError, ValueError, RuntimeError) as err:
