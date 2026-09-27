@@ -147,7 +147,20 @@ def parse_markdown(text: str) -> list[dict]:
                     raise ValueError("metric list requires 2-4 items in v1")
                 current["blocks"].append({"type": "metric-list", "items": metric_items})
             else:
-                current["blocks"].append({"type": "bullets", "items": items})
+                layer_items=[]; matches=0
+                for item in items:
+                    m=_LAYER.match(item)
+                    if not m:
+                        if "=>" in item: raise ValueError("mixed structured and plain bullet items are not supported in v1")
+                        layer_items=[]; continue
+                    label,description=m.group(1).strip(),m.group(2).strip()
+                    if not label or not description: raise ValueError("layer label and description must be non-empty")
+                    layer_items.append({"label":label,"description":description}); matches+=1
+                if matches and matches != len(items): raise ValueError("mixed structured and plain bullet items are not supported in v1")
+                if layer_items:
+                    if not 3 <= len(layer_items) <= 5: raise ValueError("layer list requires 3-5 items in v1")
+                    current["blocks"].append({"type":"layer-list","items":layer_items})
+                else: current["blocks"].append({"type":"bullets","items":items})
             continue
         ordered = _ORDERED.match(line)
         if ordered:
@@ -178,20 +191,7 @@ def parse_markdown(text: str) -> list[dict]:
                     raise ValueError("milestone list requires 3-5 items in v1")
                 current["blocks"].append({"type": "milestone-list", "items": milestones})
             else:
-                layer_items=[]; matches=0
-                for item in items:
-                    m=_LAYER.match(item)
-                    if not m:
-                        if "=>" in item: raise ValueError("mixed structured and plain bullet items are not supported in v1")
-                        layer_items=[]; continue
-                    label,description=m.group(1).strip(),m.group(2).strip()
-                    if not label or not description: raise ValueError("layer label and description must be non-empty")
-                    layer_items.append({"label":label,"description":description}); matches+=1
-                if matches and matches != len(items): raise ValueError("mixed structured and plain bullet items are not supported in v1")
-                if layer_items:
-                    if not 3 <= len(layer_items) <= 5: raise ValueError("layer list requires 3-5 items in v1")
-                    current["blocks"].append({"type":"layer-list","items":layer_items})
-                else: current["blocks"].append({"type":"steps","items":items})
+                current["blocks"].append({"type":"steps","items":items})
             continue
         quote = _QUOTE.match(line)
         if quote:
