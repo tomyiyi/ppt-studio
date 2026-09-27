@@ -312,7 +312,7 @@ def hex2rgb(h):
 
 # ---------------------------------------------------------------- 主流程
 def qa_single_cards(
-    card_dir_or_file: Path | str,
+    card_dir_or_file: Path | str | None,
     render_dir: Path | str | None = None,
     spec_path: Path | str | None = None,
     verbose: bool = True,
@@ -321,6 +321,10 @@ def qa_single_cards(
     def _log(msg: str = "", file=sys.stdout) -> None:
         if verbose:
             print(msg, file=file)
+
+    if card_dir_or_file is None:
+        _log("[!] 未提供有效的目标路径", file=sys.stderr)
+        return False
 
     target = Path(card_dir_or_file).resolve()
     if not target.exists():
@@ -650,6 +654,7 @@ def run_qa_cards(
 
 qa_cards = run_qa_cards
 qa_single_card = qa_single_cards
+run_qa_single_cards = qa_single_cards
 
 
 def resolve_card_dirs(
@@ -772,8 +777,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("target", nargs="?", default=".", help="卡片目录、项目目录或目标路径（默认当前目录）")
     parser.add_argument("render_dir", nargs="?", default=None, help="可选渲染图 PNG 目录（缺省时自动查找 render_cards/ 或 render/）")
     parser.add_argument("--spec", help="可选指定 card_spec.md 路径")
+    parser.add_argument("--verbose", "-v", action="store_true", default=True, help="详细日志输出（默认开启）")
+    parser.add_argument("--quiet", "-q", action="store_true", help="静默模式（仅通过退出码返回）")
     args = parser.parse_args(argv)
 
+    verbose = not args.quiet if args.quiet else args.verbose
     spec_path = Path(args.spec).resolve() if args.spec else None
     render_dir = Path(args.render_dir).resolve() if args.render_dir else None
 
@@ -781,13 +789,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.render_dir:
         t_path = Path(args.target).resolve()
         if not t_path.exists():
-            print(f"[!] 指定的目标路径不存在: {args.target}", file=sys.stderr)
+            if verbose:
+                print(f"[!] 指定的目标路径不存在: {args.target}", file=sys.stderr)
             return 1
         card_dir = (t_path / "cards").resolve() if (t_path / "cards").is_dir() else t_path
-        success = qa_single_cards(card_dir, render_dir, spec_path, verbose=True)
+        success = qa_single_cards(card_dir, render_dir, spec_path, verbose=verbose)
         return 0 if success else 1
 
-    ok = run_qa_cards(args.target, render_dir=render_dir, spec_path=spec_path, verbose=True)
+    ok = run_qa_cards(args.target, render_dir=render_dir, spec_path=spec_path, verbose=verbose)
     return 0 if ok else 1
 
 if __name__ == "__main__":

@@ -28,6 +28,7 @@ from scripts.qa_cards import (
     check_card_statement_consistency,
     resolve_card_dirs,
     qa_single_cards,
+    run_qa_single_cards,
     run_qa_cards,
     qa_cards,
     qa_single_card,
@@ -351,6 +352,66 @@ class TestMainCLI(unittest.TestCase):
             exit_code = main([str(base / "projects")])
             self.assertEqual(exit_code, 1)
 
+    def test_cli_quiet_flag(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            cards_dir = Path(tmp_dir) / "cards"
+            create_minimal_card_svg(cards_dir / "01_cover.svg", font_size=72)
+            buf_out = io.StringIO()
+            buf_err = io.StringIO()
+            with patch("sys.stdout", buf_out), patch("sys.stderr", buf_err):
+                code = main([str(cards_dir), "--quiet"])
+            self.assertEqual(code, 0)
+            self.assertEqual(buf_out.getvalue(), "")
+            self.assertEqual(buf_err.getvalue(), "")
+
+            # -q 短参数测试
+            buf_out2 = io.StringIO()
+            buf_err2 = io.StringIO()
+            with patch("sys.stdout", buf_out2), patch("sys.stderr", buf_err2):
+                code2 = main([str(cards_dir), "-q"])
+            self.assertEqual(code2, 0)
+            self.assertEqual(buf_out2.getvalue(), "")
+            self.assertEqual(buf_err2.getvalue(), "")
+
+    def test_cli_verbose_flag(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            cards_dir = Path(tmp_dir) / "cards"
+            create_minimal_card_svg(cards_dir / "01_cover.svg", font_size=72)
+            buf_out = io.StringIO()
+            with patch("sys.stdout", buf_out):
+                code = main([str(cards_dir), "-v"])
+            self.assertEqual(code, 0)
+            self.assertIn("ALL CLEAR", buf_out.getvalue())
+
+            buf_out2 = io.StringIO()
+            with patch("sys.stdout", buf_out2):
+                code2 = main([str(cards_dir), "--verbose"])
+            self.assertEqual(code2, 0)
+            self.assertIn("ALL CLEAR", buf_out2.getvalue())
+
+    def test_cli_quiet_error_silenced(self):
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with patch("sys.stdout", buf_out), patch("sys.stderr", buf_err):
+            code = main(["/path/not_exist_xyz123", "--quiet"])
+        self.assertEqual(code, 1)
+        self.assertEqual(buf_out.getvalue(), "")
+        self.assertEqual(buf_err.getvalue(), "")
+
+    def test_cli_with_render_dir_nonexistent_target(self):
+        buf_err = io.StringIO()
+        with patch("sys.stderr", buf_err):
+            code = main(["/non_existent_target_123", "some_render_dir"])
+        self.assertEqual(code, 1)
+        self.assertIn("指定的目标路径不存在", buf_err.getvalue())
+
+        # quiet 模式静默
+        buf_err_q = io.StringIO()
+        with patch("sys.stderr", buf_err_q):
+            code_q = main(["/non_existent_target_123", "some_render_dir", "-q"])
+        self.assertEqual(code_q, 1)
+        self.assertEqual(buf_err_q.getvalue(), "")
+
 
 class TestQaCardsProgrammaticAPI(unittest.TestCase):
     """测试 qa_cards / run_qa_cards / qa_single_cards 可编程接口。"""
@@ -358,6 +419,12 @@ class TestQaCardsProgrammaticAPI(unittest.TestCase):
     def test_alias_equivalence(self):
         self.assertIs(qa_cards, run_qa_cards)
         self.assertIs(qa_single_card, qa_single_cards)
+
+    def test_alias_run_qa_single_cards(self):
+        self.assertIs(run_qa_single_cards, qa_single_cards)
+
+    def test_qa_single_cards_none_returns_false(self):
+        self.assertFalse(qa_single_cards(None, verbose=False))
 
     def test_qa_single_cards_path_and_str(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
