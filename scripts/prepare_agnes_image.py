@@ -232,36 +232,65 @@ def prepare(
 
 
 def resolve_image_targets(
-    target_path: str | Path | None = None,
+    target_path: list[str | Path] | str | Path | None = None,
     base_dir: str | Path | None = None,
 ) -> list[Path]:
-    """解析目标图片文件列表。支持单个文件、图片目录、项目根目录（自动探寻 images/）或自发现唯一项目。"""
+    """解析目标图片文件列表。支持单个文件、图片目录、项目根目录（自动探寻 images/）、路径列表或自发现唯一项目。"""
     base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
-    if target_path is not None and str(target_path).strip():
-        p = Path(target_path)
-        if not p.is_absolute():
-            p = (base / p).resolve()
+    if target_path is not None:
+        if isinstance(target_path, (list, tuple, set)):
+            raw_list = list(target_path)
+        elif str(target_path).strip():
+            raw_list = [target_path]
         else:
-            p = p.resolve()
-        if not p.exists():
-            raise FileNotFoundError(f"源图片文件不存在: {target_path}")
-        if p.is_file():
-            return [p]
-        if p.is_dir():
-            if (p / "images").is_dir():
+            raw_list = []
+    else:
+        raw_list = []
+
+    if raw_list:
+        resolved: list[Path] = []
+        seen = set()
+
+        def add_path(p: Path):
+            rp = p.resolve()
+            if rp not in seen:
+                seen.add(rp)
+                resolved.append(p)
+
+        for item in raw_list:
+            item_str = str(item).strip()
+            if not item_str:
+                continue
+            p = Path(item)
+            if not p.is_absolute():
+                p = (base / p).resolve()
+            else:
+                p = p.resolve()
+            if not p.exists():
+                raise FileNotFoundError(f"源图片文件不存在: {item}")
+            if p.is_file():
+                add_path(p)
+            elif p.is_dir():
+                if (p / "images").is_dir():
+                    candidates = [
+                        f for f in sorted((p / "images").glob("*.png"))
+                        if not f.name.startswith(("_pre_", "_raw_"))
+                    ]
+                    if candidates:
+                        for c in candidates:
+                            add_path(c)
+                        continue
                 candidates = [
-                    f for f in sorted((p / "images").glob("*.png"))
+                    f for f in sorted(p.glob("*.png"))
                     if not f.name.startswith(("_pre_", "_raw_"))
                 ]
                 if candidates:
-                    return candidates
-            candidates = [
-                f for f in sorted(p.glob("*.png"))
-                if not f.name.startswith(("_pre_", "_raw_"))
-            ]
-            if candidates:
-                return candidates
-            raise ValueError(f"在目录 {target_path} 中未找到可处理的 PNG 图片")
+                    for c in candidates:
+                        add_path(c)
+                else:
+                    raise ValueError(f"在目录 {item} 中未找到可处理的 PNG 图片")
+        if resolved:
+            return resolved
 
     # 未显式指定 target_path 时，尝试自发现
     cwd_images = base / "images"
@@ -373,17 +402,54 @@ def parse_postprocess_cmd(cmd_str: str) -> dict:
 
 
 def check_images(
-    targets: list[Path],
+    targets: list[Path | str] | Path | str | None = None,
     size: tuple[int, int] | None = None,
     verbose: bool = True,
 ) -> dict:
     """客观质量门禁判定：验证目标图片是否存在未抹平接缝、尺寸或格式损坏。"""
+    if targets is None:
+        try:
+            target_list = resolve_image_targets(None)
+        except Exception as e:
+            if verbose:
+                print(f"[!] 无法解析目标图片路径: {e}", file=sys.stderr)
+            return {
+                "ok": False,
+                "total": 0,
+                "unreadable": [str(e)],
+                "failed_seams": [],
+                "dimension_mismatches": [],
+                "items": [],
+            }
+    elif isinstance(targets, (str, Path)):
+        p_target = Path(targets)
+        if p_target.is_dir():
+            try:
+                target_list = resolve_image_targets(p_target)
+            except Exception as e:
+                if verbose:
+                    print(f"[!] 无法解析目标图片路径: {e}", file=sys.stderr)
+                return {
+                    "ok": False,
+                    "total": 0,
+                    "unreadable": [str(e)],
+                    "failed_seams": [],
+                    "dimension_mismatches": [],
+                    "items": [],
+                }
+        else:
+            target_list = [p_target]
+    elif isinstance(targets, (list, tuple, set)):
+        target_list = [Path(p) for p in targets]
+    else:
+        target_list = [Path(targets)]
+
     results: list[dict] = []
     failed_seams: list[str] = []
     unreadable: list[str] = []
     dimension_mismatches: list[str] = []
 
-    for p in targets:
+    for p in target_list:
         if not p.is_file() or p.stat().st_size == 0:
             unreadable.append(f"{p.name} (空文件或不存在)")
             continue
@@ -407,10 +473,10 @@ def check_images(
         except Exception as e:
             unreadable.append(f"{p.name} ({e})")
 
-    ok = (len(targets) > 0 and not unreadable and not failed_seams and not dimension_mismatches)
+    ok = (len(target_list) > 0 and not unreadable and not failed_seams and not dimension_mismatches)
     res = {
         "ok": ok,
-        "total": len(targets),
+        "total": len(target_list),
         "unreadable": unreadable,
         "failed_seams": failed_seams,
         "dimension_mismatches": dimension_mismatches,
@@ -420,10 +486,10 @@ def check_images(
     if verbose:
         print("=" * 60)
         print("🔍 运行 PPT-Studio 配图客观后处理门禁")
-        print(f"   目标数量: {len(targets)} 张图片")
+        print(f"   目标数量: {len(target_list)} 张图片")
         print("=" * 60)
         if not unreadable:
-            print(f"  [✓] 文件实体与完整性   : {len(targets)} 张图片均有效且可读取")
+            print(f"  [✓] 文件实体与完整性   : {len(target_list)} 张图片均有效且可读取")
         else:
             print(f"  [✗] 文件实体与完整性   : 发现 {len(unreadable)} 处文件损坏或不可读 ({', '.join(unreadable[:3])})")
 
@@ -441,11 +507,131 @@ def check_images(
         print("=" * 60)
         if ok:
             print("ALL CLEAR ✅")
+            print("  [门禁] ✓ 配图客观后处理门禁通过")
         else:
             print("❌ 门禁未通过")
         print("=" * 60)
 
     return res
+
+
+def run_qa_prepared_images(
+    targets: list[Path | str] | Path | str | None = None,
+    size: tuple[int, int] | None = None,
+    verbose: bool = True,
+) -> bool:
+    """运行 PPT-Studio 配图客观后处理门禁校验。
+
+    :param targets: 目标图片、目录、项目路径或图片列表（默认自发现）
+    :param size: 期望尺寸 (宽, 高) 元组，例如 (2560, 1440)
+    :param verbose: 是否输出人类可读的门禁检验报告（默认 True）
+    :return: 门禁是否通过 (True / False)
+    """
+    res = check_images(targets, size=size, verbose=verbose)
+    return bool(res.get("ok"))
+
+
+qa_prepared_images = run_qa_prepared_images
+qa_single_prepared_image = check_images
+run_qa_single_prepared_image = check_images
+
+
+def prepare_agnes_images(
+    targets: str | Path | list[str | Path] | None = None,
+    out: str | Path | None = None,
+    size: tuple[int, int] | str = (2560, 1440),
+    brightness: float = 1.0,
+    seam: str = "auto",
+    apply: bool = False,
+    no_backup: bool = False,
+    check: bool = False,
+    verbose: bool = False,
+) -> list[dict]:
+    """批量或单张执行 Agnes 配图后处理（裁切、去接缝、亮度调整），支持质量门禁校验与可选写盘。
+
+    :param targets: 目标图片文件、图片目录、项目路径或图片列表（默认自发现）
+    :param out: 单张处理时的显式输出路径或批量输出目录（可选）
+    :param size: 目标分辨率元组 (宽, 高) 或字符串 "2560x1440"
+    :param brightness: 亮度缩放系数 (默认: 1.0)
+    :param seam: 接缝处理模式: auto | off | 列号[,列号] (默认: auto)
+    :param apply: 是否原地写盘（默认 False 仅预演）
+    :param no_backup: 写盘时是否跳过备份原图
+    :param check: 处理后是否执行客观质量门禁校验 (check_images)
+    :param verbose: 是否打印处理日志
+    :return: 处理结果字典列表
+    """
+    tw, th = parse_size(size) if isinstance(size, str) else size
+    target_files = resolve_image_targets(targets)
+    if not target_files:
+        raise FileNotFoundError("未找到可处理的待处理图片")
+
+    out_path = Path(out) if out else None
+    single_out = None
+    batch_out_dir = None
+    if out_path:
+        if len(target_files) == 1 and not out_path.is_dir() and (out_path.suffix or not out_path.exists()):
+            single_out = out_path
+        else:
+            batch_out_dir = out_path
+            if apply:
+                batch_out_dir.mkdir(parents=True, exist_ok=True)
+
+    reports: list[dict] = []
+    processed_targets: list[Path] = []
+
+    for src_p in target_files:
+        if single_out:
+            dest_p = single_out if apply else None
+            record_out = single_out
+        elif batch_out_dir:
+            dest_p = batch_out_dir / src_p.name if apply else None
+            record_out = batch_out_dir / src_p.name
+        elif apply:
+            dest_p = src_p
+            record_out = src_p
+        else:
+            dest_p = None
+            record_out = src_p
+
+        if apply and not no_backup and dest_p == src_p:
+            bak = src_p.parent / f"_pre_{src_p.name}"
+            if not bak.exists():
+                shutil.copy2(src_p, bak)
+
+        rep = prepare(src_p, dest_p, size=(tw, th), brightness=brightness, seam=seam)
+        rep["name"] = src_p.name
+        rep["file"] = str(src_p)
+        rep["applied"] = apply
+        rep["out"] = str(record_out)
+        reports.append(rep)
+        processed_targets.append(record_out if apply else src_p)
+
+        if verbose:
+            seam_msg = (
+                f"接缝@{rep['seam']} ✓已抹平"
+                if (rep.get("seam") and apply)
+                else (f"接缝@{rep['seam']} 需抹平" if rep.get("seam") else "无接缝")
+            )
+            mode_tag = "(已写盘)" if apply else "[预演]"
+            print(f"{mode_tag} {src_p.name}  {rep['src']} → {rep['out']}  {rep['kb']}KB  [{seam_msg}]")
+
+    if check:
+        chk_targets = processed_targets if apply else target_files
+        gate_res = check_images(chk_targets, size=(tw, th), verbose=verbose)
+        if not gate_res["ok"]:
+            issues_summary = []
+            if gate_res["unreadable"]:
+                issues_summary.extend(gate_res["unreadable"])
+            if gate_res["failed_seams"]:
+                issues_summary.extend([f"残留接缝: {s}" for s in gate_res["failed_seams"]])
+            if gate_res["dimension_mismatches"]:
+                issues_summary.extend([f"尺寸偏差: {s}" for s in gate_res["dimension_mismatches"]])
+            raise RuntimeError(f"配图客观后处理门禁未通过: {'; '.join(issues_summary)}")
+
+    return reports
+
+
+prepare_images = prepare_agnes_images
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -461,19 +647,24 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--manifest", nargs="?", const="", default=None, help="基于 image_prompts.json 清单批量执行对应 postprocess 参数")
     ap.add_argument("--check", action="store_true", help="客观门禁检验：扫描目标图片是否存在未抹平接缝或画幅异常")
     ap.add_argument("--json", action="store_true", help="以 JSON 格式输出处理或质检结果")
+    ap.add_argument("--verbose", "-v", action="store_true", default=True, help="详细日志输出（默认开启）")
+    ap.add_argument("--quiet", "-q", action="store_true", help="静默模式（仅通过退出码返回结果）")
     a = ap.parse_args(argv)
+    verbose = not a.quiet if a.quiet else a.verbose
 
     # 1. 门禁模式
     if a.check:
         try:
             targets = resolve_image_targets(a.raw)
             tw, th = parse_size(a.size) if a.size else (2560, 1440)
-            res = check_images(targets, size=(tw, th) if "--size" in (argv or []) else None, verbose=not a.json)
+            target_size = (tw, th) if "--size" in (argv or []) else None
+            res = check_images(targets, size=target_size, verbose=verbose and not a.json)
             if a.json:
                 print(json.dumps(res, ensure_ascii=False, indent=2))
             return 0 if res["ok"] else 1
         except Exception as e:
-            print(f"[!] 门禁检查失败: {e}", file=sys.stderr)
+            if verbose:
+                print(f"[!] 门禁检查失败: {e}", file=sys.stderr)
             return 1
 
     # 2. 清单模式 (--manifest)
@@ -482,17 +673,19 @@ def main(argv: list[str] | None = None) -> int:
         try:
             mf_path = resolve_manifest_target(raw_manifest_arg)
         except (FileNotFoundError, ValueError) as e:
-            print(f"[!] {e}", file=sys.stderr)
+            if verbose:
+                print(f"[!] {e}", file=sys.stderr)
             return 1
         try:
             mf_data = json.loads(mf_path.read_text(encoding="utf-8"))
         except Exception as e:
-            print(f"[!] 读取或解析清单失败: {e}", file=sys.stderr)
+            if verbose:
+                print(f"[!] 读取或解析清单失败: {e}", file=sys.stderr)
             return 1
 
         img_dir = mf_path.parent if mf_path.parent.name == "images" else mf_path.parent / "images"
         items = mf_data.get("items") or []
-        if not a.json:
+        if not a.json and verbose:
             print(f"· 基于清单 {mf_path.name} 处理 {len(items)} 项配图...")
         ok_count = 0
         reports = []
@@ -502,7 +695,7 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             src_file = img_dir / fn
             if not src_file.is_file():
-                if not a.json:
+                if not a.json and verbose:
                     print(f"  [skip] 找不到文件 {fn}")
                 continue
             post_cmd = it.get("postprocess") or ""
@@ -519,18 +712,18 @@ def main(argv: list[str] | None = None) -> int:
                 rep = prepare(src_file, src_file, size=cfg["size"], brightness=cfg["brightness"], seam=cfg["seam"])
                 rep["name"] = fn
                 reports.append(rep)
-                if not a.json:
+                if not a.json and verbose:
                     seam_msg = f"接缝@{rep['seam']} ✓已抹平" if rep["seam"] else "无接缝"
                     print(f"✓ {fn}  {rep['src']} → {rep['out']}  {rep['kb']}KB  [{seam_msg}] (已写盘)")
             else:
                 rep = prepare(src_file, None, size=cfg["size"], brightness=cfg["brightness"], seam=cfg["seam"])
                 rep["name"] = fn
                 reports.append(rep)
-                if not a.json:
+                if not a.json and verbose:
                     seam_msg = f"接缝@{rep['seam']} 需抹平" if rep["seam"] else "无接缝"
                     print(f"[预演] {fn}  {rep['src']} → {rep['out']}  [{seam_msg}]")
             ok_count += 1
-        if not a.apply and not a.json:
+        if not a.apply and not a.json and verbose:
             print("[提示] 当前为预演模式（未写盘），加 --apply 执行写盘")
         if a.json:
             print(json.dumps(reports, ensure_ascii=False, indent=2))
@@ -541,13 +734,15 @@ def main(argv: list[str] | None = None) -> int:
     try:
         tw, th = parse_size(a.size)
     except ValueError as e:
-        print(f"[!] {e}", file=sys.stderr)
+        if verbose:
+            print(f"[!] {e}", file=sys.stderr)
         return 1
 
     try:
         targets = resolve_image_targets(a.raw)
     except (FileNotFoundError, ValueError) as e:
-        print(f"[!] {e}", file=sys.stderr)
+        if verbose:
+            print(f"[!] {e}", file=sys.stderr)
         return 1
 
     # 单张且明确给了目标输出文件（传统两参数调用）
@@ -557,13 +752,15 @@ def main(argv: list[str] | None = None) -> int:
         try:
             rep = prepare(src_p, out_p, (tw, th), a.brightness, a.seam)
         except (FileNotFoundError, ValueError) as e:
-            print(f"[!] {e}", file=sys.stderr)
+            if verbose:
+                print(f"[!] {e}", file=sys.stderr)
             return 1
         except Exception as e:
-            print(f"[!] 处理失败: {e}", file=sys.stderr)
+            if verbose:
+                print(f"[!] 处理失败: {e}", file=sys.stderr)
             return 1
 
-        if not a.json:
+        if not a.json and verbose:
             seam_txt = (
                 f"接缝@{','.join(str(c) for c in rep['seam'])} ✓已抹平"
                 if isinstance(rep["seam"], list)
@@ -585,18 +782,18 @@ def main(argv: list[str] | None = None) -> int:
             rep = prepare(src_p, src_p, (tw, th), a.brightness, a.seam)
             rep["name"] = src_p.name
             reports.append(rep)
-            if not a.json:
+            if not a.json and verbose:
                 seam_txt = f"接缝@{rep['seam']} ✓已抹平" if rep["seam"] else "无接缝"
                 print(f"✓ {src_p.name}  {rep['src']} → {rep['out']}  {rep['kb']}KB  [{seam_txt}] (已写盘)")
         else:
             rep = prepare(src_p, None, (tw, th), a.brightness, a.seam)
             rep["name"] = src_p.name
             reports.append(rep)
-            if not a.json:
+            if not a.json and verbose:
                 seam_txt = f"接缝@{rep['seam']} 需抹平" if rep["seam"] else "无接缝"
                 print(f"[预演] {src_p.name}  {rep['src']} → {rep['out']}  [{seam_txt}]")
 
-    if not a.apply and not a.json:
+    if not a.apply and not a.json and verbose:
         print("[提示] 当前为预演模式（未写盘），加 --apply 执行写盘")
     if a.json:
         print(json.dumps(reports, ensure_ascii=False, indent=2))

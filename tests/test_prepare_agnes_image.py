@@ -37,6 +37,12 @@ from scripts.prepare_agnes_image import (
     resolve_manifest_target,
     parse_postprocess_cmd,
     check_images,
+    run_qa_prepared_images,
+    qa_prepared_images,
+    qa_single_prepared_image,
+    run_qa_single_prepared_image,
+    prepare_agnes_images,
+    prepare_images,
     main,
 )
 
@@ -455,6 +461,97 @@ class TestCheckImagesGate(unittest.TestCase):
         res = check_images([self.clean_img], size=(200, 100), verbose=False)
         self.assertFalse(res["ok"])
         self.assertEqual(len(res["dimension_mismatches"]), 1)
+
+    def test_check_images_flexible_inputs(self):
+        # 单个 Path
+        res_path = check_images(self.clean_img, size=(120, 80), verbose=False)
+        self.assertTrue(res_path["ok"])
+
+        # 字符串形式路径
+        res_str = check_images(str(self.clean_img), size=(120, 80), verbose=False)
+        self.assertTrue(res_str["ok"])
+
+        # 目录路径
+        res_dir = check_images(self.dir_path, size=(120, 80), verbose=False)
+        self.assertTrue(res_dir["ok"])
+
+        # 缺失或非法目标（优雅失败）
+        res_missing = check_images(self.dir_path / "not_existing.png", verbose=False)
+        self.assertFalse(res_missing["ok"])
+        self.assertTrue(len(res_missing["unreadable"]) > 0)
+
+    def test_run_qa_prepared_images_and_aliases(self):
+        self.assertTrue(run_qa_prepared_images(self.clean_img, size=(120, 80), verbose=False))
+        self.assertFalse(run_qa_prepared_images(self.clean_img, size=(999, 999), verbose=False))
+
+        # 别名验证
+        self.assertIs(qa_prepared_images, run_qa_prepared_images)
+        self.assertIs(qa_single_prepared_image, check_images)
+        self.assertIs(run_qa_single_prepared_image, check_images)
+
+    def test_cli_quiet_and_verbose_flags(self):
+        # --quiet
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with redirect_stdout(buf_out), redirect_stderr(buf_err):
+            code_q = main([str(self.clean_img), "--check", "--quiet"])
+        self.assertEqual(code_q, 0)
+        self.assertEqual(buf_out.getvalue(), "")
+        self.assertEqual(buf_err.getvalue(), "")
+
+        # --verbose
+        buf_v = io.StringIO()
+        with redirect_stdout(buf_v):
+            code_v = main([str(self.clean_img), "--check", "--verbose"])
+        self.assertEqual(code_v, 0)
+        self.assertIn("[门禁] ✓ 配图客观后处理门禁通过", buf_v.getvalue())
+
+
+class TestPrepareAgnesImagesAPI(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.dir_path = Path(self.temp_dir.name)
+        self.img1 = self.dir_path / "img1.png"
+        self.img2 = self.dir_path / "img2.png"
+        create_test_image(self.img1, width=100, height=80)
+        create_test_image(self.img2, width=100, height=80)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_prepare_agnes_images_dry_run(self):
+        reports = prepare_agnes_images(self.dir_path, size=(60, 40), apply=False)
+        self.assertEqual(len(reports), 2)
+        self.assertFalse(reports[0]["applied"])
+        # 原图尺寸不变
+        with Image.open(self.img1) as im:
+            self.assertEqual(im.size, (100, 80))
+
+    def test_prepare_agnes_images_apply_mode(self):
+        reports = prepare_agnes_images(
+            self.dir_path,
+            size="60x40",
+            apply=True,
+            no_backup=False,
+            check=True,
+        )
+        self.assertEqual(len(reports), 2)
+        self.assertTrue(reports[0]["applied"])
+        # 验证已裁切
+        with Image.open(self.img1) as im:
+            self.assertEqual(im.size, (60, 40))
+        # 验证备份存在
+        bak = self.dir_path / f"_pre_{self.img1.name}"
+        self.assertTrue(bak.exists())
+
+    def test_prepare_agnes_images_check_failure(self):
+        seam_img = self.dir_path / "seam_bad.png"
+        create_test_image(seam_img, width=120, height=80, left_val=10, right_val=80, seam_x=60)
+        with self.assertRaises(RuntimeError):
+            prepare_agnes_images(seam_img, seam="off", check=True)
+
+    def test_prepare_images_alias(self):
+        self.assertIs(prepare_images, prepare_agnes_images)
 
 
 if __name__ == "__main__":
