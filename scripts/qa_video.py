@@ -299,6 +299,9 @@ def qa_video(video_path: Path, srt_path: Path | None = None) -> bool:
         return False
 
 
+run_qa_video = qa_video
+
+
 def find_videos(target: Path) -> list[Path]:
     """在目标路径或其子目录中查找 mp4 视频文件。"""
     if target.is_file():

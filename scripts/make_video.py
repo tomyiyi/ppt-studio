@@ -16,7 +16,7 @@ make_video.py —— SVG 画布 + 解说稿 → 自动配音短视频
   - 极速合成与规范化导出（H.264 + AAC，跨端兼容性最佳）
 
 用法：
-  python3 scripts/make_video.py [project_dir] [--voice zh-female] [--subtitles burned] [--out video.mp4]
+  python3 scripts/make_video.py [project_dir] [--voice zh-female] [--subtitles burned] [--out video.mp4] [--check]
   （未传 project 时自动从当前目录或 projects/ 下发现唯一有效项目）
 """
 
@@ -31,6 +31,14 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+try:
+    from scripts.qa_video import run_qa_video
+except ImportError:
+    try:
+        from qa_video import run_qa_video
+    except ImportError:
+        run_qa_video = None
 
 VOICE_MAP = {
     "zh-female": "zh-CN-XiaoxiaoNeural",
@@ -219,6 +227,7 @@ def make_video(
     subtitles_mode: str = "burned",
     motion: str = "subtle",
     out_video_path: Path | None = None,
+    check: bool = False,
 ) -> Path:
     project_dir = project_dir.resolve()
     vo_items = load_voiceover(project_dir)
@@ -237,6 +246,8 @@ def make_video(
             out_dir = project_dir / "output"
         out_dir.mkdir(parents=True, exist_ok=True)
         out_video_path = out_dir / f"{project_dir.name}{suffix}"
+    else:
+        out_video_path.parent.mkdir(parents=True, exist_ok=True)
 
     print(f"==================================================")
     print(f"🎬 启动 PPT-Studio 视频合成管线")
@@ -407,6 +418,17 @@ def make_video(
         print(f"   大小: {file_size_mb:.2f} MB")
         print(f"   分镜: 共 {len(timeline)} 页")
         print(f"==================================================")
+
+        if check:
+            if run_qa_video is not None:
+                srt_arg = out_srt if subtitles_mode != "none" else None
+                ok = run_qa_video(out_video_path, srt_path=srt_arg)
+                if not ok:
+                    raise RuntimeError(f"视频客观质量门禁未通过: {out_video_path}")
+                print("  [门禁] ✓ 视频客观质量门禁通过")
+            else:
+                print("  [warn] 未导入 run_qa_video，跳过视频门禁检查")
+
         return out_video_path
 
     finally:
@@ -512,6 +534,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--subtitles", default="burned", choices=["burned", "soft", "none"], help="字幕模式")
     parser.add_argument("--motion", default="subtle", choices=["subtle", "none"], help="动效模式")
     parser.add_argument("--out", help="自定义输出 MP4 路径")
+    parser.add_argument("--check", action="store_true", help="合成完成后执行视频质量客观门禁校验 (qa_video.py)")
     args = parser.parse_args(argv)
 
     try:
@@ -530,6 +553,7 @@ def main(argv: list[str] | None = None) -> int:
             subtitles_mode=args.subtitles,
             motion=args.motion,
             out_video_path=out_p,
+            check=args.check,
         )
     except Exception as err:
         print(f"[err] 视频合成失败: {err}", file=sys.stderr)

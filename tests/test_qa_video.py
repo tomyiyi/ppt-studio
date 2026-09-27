@@ -29,6 +29,8 @@ from scripts.qa_video import (
     check_av_sync,
     check_bitrate_and_fps,
     find_videos,
+    qa_video,
+    run_qa_video,
     main,
 )
 
@@ -392,6 +394,9 @@ class TestQAVideoCLI(unittest.TestCase):
             exit_code = main([str(f)])
             self.assertEqual(exit_code, 2)
             mock_qa.assert_called_once()
+
+    def test_alias_run_qa_video(self):
+        self.assertIs(run_qa_video, qa_video)
 
 
 if __name__ == "__main__":

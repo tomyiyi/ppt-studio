@@ -224,6 +224,109 @@ class TestMakeVideoCLI(unittest.TestCase):
                 self.assertEqual(call_kwargs["project_dir"], proj.resolve())
                 self.assertEqual(call_kwargs["voice_key"], "zh-female")
                 self.assertEqual(call_kwargs["format_ratio"], "16:9")
+                self.assertFalse(call_kwargs["check"])
+
+    def test_cli_check_flag_forwarded(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "valid_proj"
+            create_valid_project(proj)
+
+            with patch("scripts.make_video.make_video") as mock_make:
+                code = main([str(proj), "--check"])
+                self.assertEqual(code, 0)
+                mock_make.assert_called_once()
+                call_kwargs = mock_make.call_args.kwargs
+                self.assertTrue(call_kwargs.get("check"))
+
+    def test_cli_check_failure_returns_1(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "valid_proj"
+            create_valid_project(proj)
+
+            with patch("scripts.make_video.make_video", side_effect=RuntimeError("视频客观质量门禁未通过")):
+                code = main([str(proj), "--check"])
+                self.assertEqual(code, 1)
+
+
+class TestMakeVideoQualityGate(unittest.TestCase):
+    """测试 make_video 的客观质量门禁联动行为。"""
+
+    def setUp(self):
+        self.tmp_dir = tempfile.TemporaryDirectory()
+        self.proj_dir = Path(self.tmp_dir.name) / "test_proj"
+        create_valid_project(self.proj_dir)
+        self.out_video = self.proj_dir / "output" / "test.mp4"
+
+    def tearDown(self):
+        self.tmp_dir.cleanup()
+
+    def _setup_pipeline_mocks(self, mock_ensure_img, mock_tts, mock_probe, mock_cmd):
+        def fake_ensure(project_dir, pages, format_ratio, tmp_dir):
+            m = {}
+            for p in pages:
+                img = tmp_dir / f"{p}.png"
+                img.touch()
+                m[p] = img
+            return m
+        mock_ensure_img.side_effect = fake_ensure
+
+        def fake_tts(text, voice, out_audio, out_vtt):
+            out_audio.touch()
+            out_vtt.write_text("WEBVTT\n\n00:00:00.000 --> 00:00:01.000\n测试字幕\n", encoding="utf-8")
+        mock_tts.side_effect = fake_tts
+
+        mock_probe.return_value = 1.0
+
+        def fake_run_cmd(cmd, check=True):
+            target = Path(cmd[-1])
+            if not target.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.touch()
+            import subprocess
+            return subprocess.CompletedProcess(cmd, 0, stdout="1.0\n", stderr="")
+        mock_cmd.side_effect = fake_run_cmd
+
+    @patch("scripts.make_video.run_cmd")
+    @patch("scripts.make_video.probe_duration")
+    @patch("scripts.make_video.generate_tts")
+    @patch("scripts.make_video.ensure_page_images")
+    @patch("scripts.make_video.run_qa_video")
+    def test_make_video_check_pass(self, mock_qa, mock_ensure_img, mock_tts, mock_probe, mock_cmd):
+        self._setup_pipeline_mocks(mock_ensure_img, mock_tts, mock_probe, mock_cmd)
+        mock_qa.return_value = True
+
+        out = make_video(self.proj_dir, out_video_path=self.out_video, check=True)
+        self.assertEqual(out, self.out_video)
+        mock_qa.assert_called_once()
+        call_args, call_kwargs = mock_qa.call_args
+        self.assertEqual(call_args[0], self.out_video)
+        self.assertEqual(call_kwargs.get("srt_path"), self.out_video.with_suffix(".srt"))
+
+    @patch("scripts.make_video.run_cmd")
+    @patch("scripts.make_video.probe_duration")
+    @patch("scripts.make_video.generate_tts")
+    @patch("scripts.make_video.ensure_page_images")
+    @patch("scripts.make_video.run_qa_video")
+    def test_make_video_check_fail_raises(self, mock_qa, mock_ensure_img, mock_tts, mock_probe, mock_cmd):
+        self._setup_pipeline_mocks(mock_ensure_img, mock_tts, mock_probe, mock_cmd)
+        mock_qa.return_value = False
+
+        with self.assertRaises(RuntimeError) as ctx:
+            make_video(self.proj_dir, out_video_path=self.out_video, check=True)
+        self.assertIn("视频客观质量门禁未通过", str(ctx.exception))
+        mock_qa.assert_called_once()
+
+    @patch("scripts.make_video.run_cmd")
+    @patch("scripts.make_video.probe_duration")
+    @patch("scripts.make_video.generate_tts")
+    @patch("scripts.make_video.ensure_page_images")
+    @patch("scripts.make_video.run_qa_video")
+    def test_make_video_check_none_subtitles(self, mock_qa, mock_ensure_img, mock_tts, mock_probe, mock_cmd):
+        self._setup_pipeline_mocks(mock_ensure_img, mock_tts, mock_probe, mock_cmd)
+        mock_qa.return_value = True
+
+        make_video(self.proj_dir, out_video_path=self.out_video, subtitles_mode="none", check=True)
+        mock_qa.assert_called_once_with(self.out_video, srt_path=None)
 
 
 if __name__ == "__main__":
