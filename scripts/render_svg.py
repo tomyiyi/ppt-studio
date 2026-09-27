@@ -25,6 +25,7 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 # 确保在未显式激活 .venv 时也能从项目内 .venv 加载依赖
@@ -282,17 +283,25 @@ def render_one(svg_path: Path, out_path: Path, scale: float = 1.0) -> bool:
         f"{text}</body></html>"
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, staged_name = tempfile.mkstemp(prefix=f".{out_path.name}.", dir=out_path.parent, suffix=".png")
+    os.close(fd)
+    staged_path = Path(staged_name)
     chrome = resolve_chrome()
-    with sync_playwright() as p:
-        kw = {"headless": True}
-        if chrome:
-            kw["executable_path"] = chrome
-        b = p.chromium.launch(**kw)
-        pg = b.new_page(viewport={"width": ow, "height": oh}, device_scale_factor=1)
-        pg.set_content(html)
-        pg.wait_for_timeout(300)
-        pg.screenshot(path=str(out_path), type="png")
-        b.close()
+    try:
+        with sync_playwright() as p:
+            kw = {"headless": True}
+            if chrome:
+                kw["executable_path"] = chrome
+            b = p.chromium.launch(**kw)
+            pg = b.new_page(viewport={"width": ow, "height": oh}, device_scale_factor=1)
+            pg.set_content(html)
+            pg.wait_for_timeout(300)
+            pg.screenshot(path=str(staged_path), type="png")
+            b.close()
+        os.replace(staged_path, out_path)
+    except Exception:
+        staged_path.unlink(missing_ok=True)
+        raise
     return True
 
 

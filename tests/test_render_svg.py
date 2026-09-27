@@ -24,6 +24,7 @@ from scripts.render_svg import (
     inline_images,
     resolve_targets,
     resolve_chrome,
+    render_one,
     render_svg,
     main,
 )
@@ -366,6 +367,63 @@ class TestRenderSvgProgrammatic(unittest.TestCase):
             with self.assertRaises(RuntimeError) as ctx:
                 render_svg(src=td)
             self.assertIn("Playwright error", str(ctx.exception))
+
+    def test_render_one_replaces_existing_png_atomically(self):
+        class FakePage:
+            def set_content(self, html): pass
+            def wait_for_timeout(self, value): pass
+            def screenshot(self, path, type): Path(path).write_bytes(b"new-png")
+        class FakeBrowser:
+            def new_page(self, **kwargs): return FakePage()
+            def close(self): pass
+        class FakeChromium:
+            def launch(self, **kwargs): return FakeBrowser()
+        class FakePlaywright:
+            chromium = FakeChromium()
+        class FakeContext:
+            def __enter__(self): return FakePlaywright()
+            def __exit__(self, *args): pass
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            svg = td / "01.svg"
+            out = td / "render" / "01.png"
+            create_minimal_svg(svg)
+            out.parent.mkdir()
+            out.write_bytes(b"old-png")
+            with patch("scripts.render_svg.sync_playwright", return_value=FakeContext()):
+                self.assertTrue(render_one(svg, out))
+            self.assertEqual(out.read_bytes(), b"new-png")
+            self.assertFalse(any(out.parent.glob(".01.png.*")))
+
+    def test_render_one_failure_preserves_existing_png(self):
+        class FakePage:
+            def set_content(self, html): pass
+            def wait_for_timeout(self, value): pass
+            def screenshot(self, path, type):
+                Path(path).write_bytes(b"partial")
+                raise RuntimeError("screenshot failed")
+        class FakeBrowser:
+            def new_page(self, **kwargs): return FakePage()
+            def close(self): pass
+        class FakeChromium:
+            def launch(self, **kwargs): return FakeBrowser()
+        class FakePlaywright:
+            chromium = FakeChromium()
+        class FakeContext:
+            def __enter__(self): return FakePlaywright()
+            def __exit__(self, *args): pass
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            svg = td / "01.svg"
+            out = td / "render" / "01.png"
+            create_minimal_svg(svg)
+            out.parent.mkdir()
+            out.write_bytes(b"old-png")
+            with patch("scripts.render_svg.sync_playwright", return_value=FakeContext()):
+                with self.assertRaises(RuntimeError):
+                    render_one(svg, out)
+            self.assertEqual(out.read_bytes(), b"old-png")
+            self.assertFalse(any(out.parent.glob(".01.png.*")))
 
 
 class TestRenderSvgQualityGates(unittest.TestCase):
