@@ -28,6 +28,7 @@ def assign_layout(slide: dict) -> str:
     has_milestones = False
     has_layers = False
     has_bars = False
+    has_tasks = False
     image_count = 0
     paragraph_count = 0
     for block in blocks:
@@ -65,6 +66,9 @@ def assign_layout(slide: dict) -> str:
         if block.get("type") == "bar-data":
             has_bars = True
             continue
+        if block.get("type") == "task-list":
+            has_tasks = True
+            continue
         if block.get("type") != "paragraph":
             raise ValueError("unsupported block type")
         paragraph_count += 1
@@ -88,6 +92,10 @@ def assign_layout(slide: dict) -> str:
         if paragraph_count > 1 or has_bullets or has_steps or has_quote or has_table or has_image or has_metrics:
             raise ValueError("mixed bar-data blocks are not supported in v1")
         return "bar-chart"
+    if has_tasks:
+        if paragraph_count > 1 or has_bullets or has_steps or has_quote or has_table or has_image or has_metrics or has_layers:
+            raise ValueError("mixed task-list blocks are not supported in v1")
+        return "checklist-status"
     if has_image:
         if image_count not in {1, 2} or paragraph_count > 1 or has_bullets or has_steps or has_quote or has_table:
             raise ValueError("mixed image blocks are not supported in v1")

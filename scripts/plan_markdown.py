@@ -17,6 +17,7 @@ _METRIC = re.compile(r"^([^:：\-][^:：]*?)[ \t]*:[ \t]*(.+)$")
 _MILESTONE = re.compile(r"^(\d{4}(?:-\d{2})?(?:-\d{2})?)[ \t]*:[ \t]*(.+)$")
 _LAYER = re.compile(r"^([^=:\-][^=:\-]*?)[ \t]*=>[ \t]*(.+)$")
 _BAR = re.compile(r"^([^=:\-][^=:\-]*?)[ \t]*=[ \t]*(\d+(?:\.\d{1,2})?)$")
+_TASK = re.compile(r"^\[([ xX])\][ \t]+(.+)$")
 _IMAGE = re.compile(r"^!\[([^\]]+)\]\(([^)]+)\)[ \t]*$")
 _CODE_OPEN = re.compile(r"^```([A-Za-z0-9_+\-]{0,16})[ \t]*$")
 _CODE_LANGUAGES = {"python", "bash", "json", "typescript", "sql"}
@@ -127,6 +128,19 @@ def parse_markdown(text: str) -> list[dict]:
                     break
                 items.append(item.group(2).strip())
                 i += 1
+            task_items=[]; task_matches=0
+            for item in items:
+                tm=_TASK.match(item)
+                if item.startswith("[") and not tm:
+                    raise ValueError("invalid task checkbox marker")
+                if tm:
+                    task_items.append({"text":tm.group(2).strip(),"checked":tm.group(1).lower()=="x"}); task_matches+=1
+            if task_matches:
+                if task_matches != len(items): raise ValueError("mixed task and non-task bullet items are not supported in v1")
+                if not 3 <= len(task_items) <= 6: raise ValueError("task list requires 3-6 items in v1")
+                if any(not x["text"] for x in task_items): raise ValueError("task text must be non-empty")
+                current["blocks"].append({"type":"task-list","items":task_items})
+                continue
             metric_items = []
             metric_matches = 0
             for item in items:
