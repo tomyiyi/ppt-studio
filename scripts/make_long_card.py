@@ -36,6 +36,17 @@ except ImportError:
             sys.path.insert(0, str(site_pkg))
     from PIL import Image, ImageDraw, ImageFont
 
+try:
+    from scripts.qa_long_card import run_qa_long_card
+except ImportError:
+    repo_root = Path(__file__).resolve().parent.parent
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    try:
+        from scripts.qa_long_card import run_qa_long_card
+    except ImportError:
+        run_qa_long_card = None
+
 BG_COLOR = (11, 12, 18)        # #0B0C12
 SURFACE_COLOR = (18, 19, 27)   # #12131B
 RULE_COLOR = (35, 36, 46)      # #23242E
@@ -452,6 +463,7 @@ def make_long_card(
     gap: int = 16,
     include_header: bool = True,
     include_footer: bool = True,
+    check: bool = False,
 ) -> Path:
     card_dir = project_dir / "cards"
     render_dir = project_dir / "render_cards"
@@ -528,6 +540,21 @@ def make_long_card(
 
     print(f"✓ 长图导出成功: {out_path} ({out_path.stat().st_size // 1024} KB)")
     print(f"[i] 建议质检: python3 scripts/qa_long_card.py {out_path}")
+
+    if check:
+        if run_qa_long_card is not None:
+            ok = run_qa_long_card(
+                out_path,
+                project_dir=project_dir,
+                require_header=include_header,
+                require_footer=include_footer,
+            )
+            if not ok:
+                raise RuntimeError(f"长图客观质量门禁未通过: {out_path}")
+            print("  [门禁] ✓ 长图客观质量门禁通过")
+        else:
+            print("  [warn] 未导入 run_qa_long_card，跳过门禁检查")
+
     return out_path
 
 
@@ -538,6 +565,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--gap", type=int, default=16, help="卡片之间的纵向缝隙像素，默认 16")
     parser.add_argument("--no-header", action="store_true", help="不包含顶部 Header")
     parser.add_argument("--no-footer", action="store_true", help="不包含底部 Footer")
+    parser.add_argument("--check", action="store_true", help="构建完成后执行长图客观质量门禁校验 (qa_long_card.py)")
     args = parser.parse_args(argv)
 
     try:
@@ -555,8 +583,12 @@ def main(argv: list[str] | None = None) -> int:
             gap=args.gap,
             include_header=not args.no_header,
             include_footer=not args.no_footer,
+            check=args.check,
         )
         return 0
+    except (FileNotFoundError, ValueError, RuntimeError) as err:
+        print(f"[err] 制作长图失败: {err}", file=sys.stderr)
+        return 1
     except Exception as err:
         print(f"[err] 制作长图失败: {err}", file=sys.stderr)
         return 1

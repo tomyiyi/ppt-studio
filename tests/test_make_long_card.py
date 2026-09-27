@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 # 将项目根目录加入 sys.path
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -348,6 +349,43 @@ class TestMakeLongCard(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 make_long_card(proj)
 
+    @patch("scripts.make_long_card.run_qa_long_card")
+    def test_make_long_card_check_success(self, mock_qa):
+        mock_qa.return_value = True
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "deck"
+            create_minimal_card_project(proj, count=2, card_size=(200, 300))
+            out_img = proj / "output" / "long_check.png"
+
+            res = make_long_card(
+                project_dir=proj,
+                out_path=out_img,
+                check=True,
+            )
+            self.assertEqual(res, out_img.resolve())
+            mock_qa.assert_called_once_with(
+                out_img.resolve(),
+                project_dir=proj,
+                require_header=True,
+                require_footer=True,
+            )
+
+    @patch("scripts.make_long_card.run_qa_long_card")
+    def test_make_long_card_check_failure_raises(self, mock_qa):
+        mock_qa.return_value = False
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "deck"
+            create_minimal_card_project(proj, count=2, card_size=(200, 300))
+            out_img = proj / "output" / "long_check_fail.png"
+
+            with self.assertRaises(RuntimeError) as ctx:
+                make_long_card(
+                    project_dir=proj,
+                    out_path=out_img,
+                    check=True,
+                )
+            self.assertIn("长图客观质量门禁未通过", str(ctx.exception))
+
 
 class TestMainCLI(unittest.TestCase):
     def test_main_help_exits_zero(self):
@@ -367,6 +405,27 @@ class TestMainCLI(unittest.TestCase):
             code = main([str(proj), "--out", str(out_img), "--no-header", "--no-footer"])
             self.assertEqual(code, 0)
             self.assertTrue(out_img.exists())
+
+    @patch("scripts.make_long_card.run_qa_long_card")
+    def test_main_cli_check_success(self, mock_qa):
+        mock_qa.return_value = True
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "deck"
+            create_minimal_card_project(proj, count=2, card_size=(200, 300))
+            out_img = proj / "long_checked.png"
+            code = main([str(proj), "--out", str(out_img), "--check"])
+            self.assertEqual(code, 0)
+            mock_qa.assert_called_once()
+
+    @patch("scripts.make_long_card.run_qa_long_card")
+    def test_main_cli_check_failure(self, mock_qa):
+        mock_qa.return_value = False
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "deck"
+            create_minimal_card_project(proj, count=2, card_size=(200, 300))
+            out_img = proj / "long_check_fail.png"
+            code = main([str(proj), "--out", str(out_img), "--check"])
+            self.assertEqual(code, 1)
 
 
 if __name__ == "__main__":
