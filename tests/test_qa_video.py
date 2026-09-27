@@ -29,6 +29,8 @@ from scripts.qa_video import (
     check_av_sync,
     check_bitrate_and_fps,
     find_videos,
+    probe_streams,
+    qa_single_video,
     qa_video,
     run_qa_video,
     main,
@@ -363,6 +365,96 @@ class TestFindVideos(unittest.TestCase):
     def test_empty_dir_returns_empty(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             self.assertEqual(find_videos(Path(tmp_dir)), [])
+
+
+class TestQAVideoGateAPI(unittest.TestCase):
+    """测试 qa_video / run_qa_video 的可编程 API、类型兼容与目录发现机制。"""
+
+    def test_nonexistent_target_returns_false(self):
+        self.assertFalse(qa_video("/non_existent_video_path_98765.mp4"))
+
+    def test_empty_dir_returns_false(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            self.assertFalse(qa_video(tmp_dir))
+
+    @patch("scripts.qa_video.probe_streams")
+    @patch("scripts.qa_video.check_streams", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_resolution", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_av_sync", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_audio_loudness", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_black_frames", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_subtitles", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_bitrate_and_fps", return_value=(True, "ok"))
+    def test_qa_video_string_path_success(self, *mocks):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            v = Path(tmp_dir) / "sample.mp4"
+            v.touch()
+            mocks[-1].return_value = {
+                "streams": [
+                    {"codec_type": "video", "codec_name": "h264"},
+                    {"codec_type": "audio", "codec_name": "aac"},
+                ],
+                "format": {"duration": "10.0"},
+            }
+            res = qa_video(str(v))
+            self.assertTrue(res)
+
+    @patch("scripts.qa_video.probe_streams")
+    @patch("scripts.qa_video.check_streams", return_value=(False, "codec fail"))
+    @patch("scripts.qa_video.check_resolution", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_av_sync", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_audio_loudness", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_black_frames", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_subtitles", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_bitrate_and_fps", return_value=(True, "ok"))
+    def test_qa_video_failure(self, *mocks):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            v = Path(tmp_dir) / "sample.mp4"
+            v.touch()
+            mocks[-1].return_value = {"streams": [{"codec_type": "video"}], "format": {}}
+            res = qa_video(v)
+            self.assertFalse(res)
+
+    @patch("scripts.qa_video.probe_streams")
+    @patch("scripts.qa_video.check_streams", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_resolution", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_av_sync", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_audio_loudness", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_black_frames", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_subtitles", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_bitrate_and_fps", return_value=(True, "ok"))
+    def test_qa_video_dir_auto_discovery(self, *mocks):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            out_dir = Path(tmp_dir) / "output"
+            out_dir.mkdir()
+            v = out_dir / "sample.mp4"
+            v.touch()
+            mocks[-1].return_value = {
+                "streams": [
+                    {"codec_type": "video", "codec_name": "h264"},
+                    {"codec_type": "audio", "codec_name": "aac"},
+                ],
+                "format": {"duration": "10.0"},
+            }
+            res = qa_video(tmp_dir)
+            self.assertTrue(res)
+
+    def test_find_associated_srt_string_paths(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            v = Path(tmp_dir) / "sample.mp4"
+            v.touch()
+            s = Path(tmp_dir) / "custom.srt"
+            s.touch()
+            found = find_associated_srt(str(v), str(s))
+            self.assertEqual(found, s)
+
+    @patch("scripts.qa_video.run_probe", return_value="not valid json")
+    def test_probe_streams_invalid_json(self, mock_probe):
+        self.assertEqual(probe_streams(Path("test.mp4")), {})
+
+    @patch("scripts.qa_video.run_probe", return_value="")
+    def test_probe_streams_empty(self, mock_probe):
+        self.assertEqual(probe_streams(Path("test.mp4")), {})
 
 
 class TestQAVideoCLI(unittest.TestCase):
