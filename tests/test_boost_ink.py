@@ -30,6 +30,8 @@ from scripts.boost_ink import (
     metrics,
     boost_image,
     boost_file,
+    boost_ink,
+    check_boosted_quality,
     resolve_image_targets,
     main,
     TARGET,
@@ -275,6 +277,87 @@ class TestBoostFileAndCLI(unittest.TestCase):
         code = main([str(self.dir_path), "--target", "210.0", "--black-pct", "4.0", "--apply"])
         self.assertEqual(code, 0)
         self.assertTrue((self.dir_path / "_pre_test.png").exists())
+
+    def test_cli_multiple_paths(self):
+        img2 = self.dir_path / "test2.png"
+        create_test_image(img2, bg_val=10, stroke_val=120)
+        code = main([str(self.test_img), str(img2)])
+        self.assertEqual(code, 0)
+
+    def test_cli_check_success(self):
+        code = main([str(self.test_img), "--check", "--min-ink", "1.0"])
+        self.assertEqual(code, 0)
+
+    def test_cli_check_failure(self):
+        # min-ink 设置为 90%，触发墨量不足门禁
+        code = main([str(self.test_img), "--check", "--min-ink", "90.0"])
+        self.assertEqual(code, 1)
+
+
+class TestCheckBoostedQuality(unittest.TestCase):
+    def test_check_valid_image(self):
+        arr = np.full((100, 100, 3), 10, dtype=np.uint8)
+        arr[20:80, 20:80] = 200
+        im = Image.fromarray(arr, "RGB")
+        passed, issues = check_boosted_quality(im, min_ink=2.0)
+        self.assertTrue(passed)
+        self.assertEqual(len(issues), 0)
+
+    def test_check_dark_image(self):
+        # 全暗图 P99 < 30
+        arr = np.full((100, 100, 3), 5, dtype=np.uint8)
+        im = Image.fromarray(arr, "RGB")
+        passed, issues = check_boosted_quality(im, min_ink=2.0)
+        self.assertFalse(passed)
+        self.assertTrue(any("整体过暗" in s for s in issues))
+
+    def test_check_low_ink(self):
+        # 极少亮像素
+        arr = np.full((100, 100, 3), 10, dtype=np.uint8)
+        arr[50:52, 50:52] = 200
+        im = Image.fromarray(arr, "RGB")
+        passed, issues = check_boosted_quality(im, min_ink=5.0)
+        self.assertFalse(passed)
+        self.assertTrue(any("墨量不足" in s for s in issues))
+
+
+class TestBoostInkProgrammatic(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.dir_path = Path(self.temp_dir.name)
+        self.img1 = self.dir_path / "img1.png"
+        self.img2 = self.dir_path / "img2.png"
+        create_test_image(self.img1, stroke_box=(20, 20, 60, 60), stroke_val=150)
+        create_test_image(self.img2, stroke_box=(20, 20, 60, 60), stroke_val=160)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_boost_ink_basic(self):
+        res = boost_ink(self.dir_path, target=220.0)
+        self.assertEqual(len(res), 2)
+        self.assertTrue(all("after" in r for r in res))
+
+    def test_boost_ink_list_input(self):
+        res = boost_ink([str(self.img1), self.img2], target=210.0)
+        self.assertEqual(len(res), 2)
+        names = [r["name"] for r in res]
+        self.assertIn("img1.png", names)
+        self.assertIn("img2.png", names)
+
+    def test_boost_ink_check_pass(self):
+        res = boost_ink(self.img1, check=True, min_ink=1.0)
+        self.assertEqual(len(res), 1)
+        self.assertTrue(res[0]["quality_gate_passed"])
+
+    def test_boost_ink_check_fail_raises(self):
+        with self.assertRaises(RuntimeError) as ctx:
+            boost_ink(self.img1, check=True, min_ink=95.0)
+        self.assertIn("配图客观质量门禁未通过", str(ctx.exception))
+
+    def test_boost_ink_nonexistent_raises(self):
+        with self.assertRaises(FileNotFoundError):
+            boost_ink(self.dir_path / "not_existing.png")
 
 
 if __name__ == "__main__":

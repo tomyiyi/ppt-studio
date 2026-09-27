@@ -10,7 +10,7 @@ boost_ink.py — 暗底线性图专用提亮：黑点保持 + 高光增益
   这样 in == black 的像素（背景）完全不动，笔画被单独拉亮。
 
 用法：
-  python3 boost_ink.py [path] [--target 230] [--black-pct 5.0] [--top-pct 99.9] [--apply]
+  python3 boost_ink.py [path ...] [--target 230] [--black-pct 5.0] [--top-pct 99.9] [--apply] [--check] [--min-ink 2.0]
 
 默认只预演（dry-run），加 --apply 才写盘（写盘前自动备份 _pre_<name>.png）。
 """
@@ -33,6 +33,32 @@ except ImportError:
             sys.path.insert(0, str(site_pkg))
     import numpy as np
     from PIL import Image
+
+try:
+    from scripts.analyze_image import (
+        detect_seam,
+        laplacian_variance,
+        measure_ink,
+        subject_sharp,
+    )
+except ImportError:
+    repo_root = Path(__file__).resolve().parent.parent
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    if str(repo_root / "scripts") not in sys.path:
+        sys.path.insert(0, str(repo_root / "scripts"))
+    try:
+        from scripts.analyze_image import (
+            detect_seam,
+            laplacian_variance,
+            measure_ink,
+            subject_sharp,
+        )
+    except ImportError:
+        detect_seam = None
+        laplacian_variance = None
+        measure_ink = None
+        subject_sharp = None
 
 TARGET = 230.0        # 目标：p99.9 提亮到这个亮度
 BLACK_PCT = 5.0       # 黑点 = 全图第 N 百分位（暗底图里这就是背景色）
@@ -139,49 +165,88 @@ def boost_file(
         "after": after,
         "applied": apply and not skip_reason,
         "backup_path": bak_path,
+        "boosted_image": boosted,
     }
 
 
-def resolve_image_targets(target_path: str | Path | None = None) -> list[Path]:
+def resolve_image_targets(
+    target_paths: list[str | Path] | str | Path | None = None,
+) -> list[Path]:
     """解析目标图片文件列表。支持单个文件、图片目录、项目根目录（自动探寻 images/）或自发现唯一项目。"""
-    if target_path is not None and str(target_path).strip():
-        p = Path(target_path).resolve()
-        if not p.exists():
-            raise FileNotFoundError(f"指定的路径不存在: {target_path}")
-        if p.is_file():
-            return [p]
-        if p.is_dir():
-            # 若目录内有 images/ 且包含 png，优先采用
-            if (p / "images").is_dir():
-                candidates = [f for f in sorted((p / "images").glob("*.png"))
-                              if not f.name.startswith(("_pre_", "_raw_"))]
-                if candidates:
-                    return candidates
-            candidates = [f for f in sorted(p.glob("*.png"))
-                          if not f.name.startswith(("_pre_", "_raw_"))]
-            if candidates:
-                return candidates
-            raise ValueError(f"在目录 {target_path} 中未找到可处理的 PNG 图片")
+    if target_paths is not None:
+        if isinstance(target_paths, (str, Path)):
+            raw_list = [target_paths]
+        else:
+            raw_list = list(target_paths)
+    else:
+        raw_list = []
 
-    # 未显式指定 target_path 时，尝试自发现
+    resolved: list[Path] = []
+    seen = set()
+
+    def add_path(p: Path):
+        rp = p.resolve()
+        if rp not in seen:
+            seen.add(rp)
+            resolved.append(p)
+
+    if raw_list:
+        for item in raw_list:
+            item_str = str(item).strip()
+            if not item_str:
+                continue
+            p = Path(item).resolve()
+            if not p.exists():
+                raise FileNotFoundError(f"指定的路径不存在: {item}")
+            if p.is_file():
+                add_path(p)
+            elif p.is_dir():
+                img_dir = p / "images"
+                if img_dir.is_dir():
+                    candidates = [
+                        f for f in sorted(img_dir.glob("*.png"))
+                        if not f.name.startswith(("_pre_", "_raw_"))
+                    ]
+                    if candidates:
+                        for c in candidates:
+                            add_path(c)
+                        continue
+                candidates = [
+                    f for f in sorted(p.glob("*.png"))
+                    if not f.name.startswith(("_pre_", "_raw_"))
+                ]
+                if candidates:
+                    for c in candidates:
+                        add_path(c)
+                else:
+                    raise ValueError(f"在目录 {item} 中未找到可处理的 PNG 图片")
+        return resolved
+
+    # 未显式指定 target_paths 时，尝试自发现
     cwd_images = Path("images").resolve()
     if cwd_images.is_dir():
-        candidates = [f for f in sorted(cwd_images.glob("*.png"))
-                      if not f.name.startswith(("_pre_", "_raw_"))]
+        candidates = [
+            f for f in sorted(cwd_images.glob("*.png"))
+            if not f.name.startswith(("_pre_", "_raw_"))
+        ]
         if candidates:
             return candidates
 
     repo_root = Path(__file__).resolve().parent.parent
     projects_dir = repo_root / "projects"
     if projects_dir.is_dir():
-        project_subdirs = [d for d in projects_dir.iterdir() if d.is_dir() and not d.name.startswith(".")]
+        project_subdirs = [
+            d for d in projects_dir.iterdir() if d.is_dir() and not d.name.startswith(".")
+        ]
         projects_with_images = [
             d for d in project_subdirs
             if (d / "images").is_dir() and any((d / "images").glob("*.png"))
         ]
         if len(projects_with_images) == 1:
-            candidates = [f for f in sorted((projects_with_images[0] / "images").glob("*.png"))
-                          if not f.name.startswith(("_pre_", "_raw_"))]
+            candidates = [
+                f for f in sorted((projects_with_images[0] / "images").glob("*.png"))
+                if not f.name.startswith(("_pre_", "_raw_"))
+            ]
             if candidates:
                 return candidates
         elif len(projects_with_images) > 1:
@@ -191,13 +256,95 @@ def resolve_image_targets(target_path: str | Path | None = None) -> list[Path]:
     raise ValueError("未指定路径且无法安全自动发现图片目录，请提供图片文件或目录路径")
 
 
+def check_boosted_quality(
+    im: Image.Image,
+    min_ink: float = 2.0,
+) -> tuple[bool, list[str]]:
+    """验证提亮后图像是否满足客观质量门禁（接缝、主体清晰度、整体暗度与有效墨量）。"""
+    issues: list[str] = []
+    rgb = im.convert("RGB")
+    if detect_seam is not None:
+        seam_x = detect_seam(rgb)
+        if seam_x is not None:
+            issues.append(f"存在接缝 (x={seam_x})")
+    if subject_sharp is not None:
+        ssharp = subject_sharp(rgb)
+        if ssharp < 40.0:
+            issues.append(f"主体模糊 (主体锐 {ssharp:.1f} < 40.0)")
+    g = np.asarray(im.convert("L"), dtype=np.float64)
+    p99 = float(np.percentile(g, 99.0))
+    if p99 < 30.0:
+        issues.append(f"整体过暗 (P99 {p99:.1f} < 30.0)")
+    if measure_ink is not None:
+        ink_ratio = measure_ink(rgb, thr=35)
+        ink_pct = round(ink_ratio * 100.0, 2)
+        if ink_pct < min_ink:
+            issues.append(f"墨量不足 ({ink_pct:.2f}% < {min_ink:.1f}%)")
+    return len(issues) == 0, issues
+
+
+def boost_ink(
+    path: str | Path | list[str | Path] | None = None,
+    target: float = TARGET,
+    black_pct: float = BLACK_PCT,
+    top_pct: float = TOP_PCT,
+    apply: bool = False,
+    backup: bool = True,
+    check: bool = False,
+    min_ink: float = 2.0,
+) -> list[dict]:
+    """批量或单张执行黑点保持高光增益提亮，支持客观质量门禁校验。
+
+    :param path: 目标图片、目录、项目路径或图片列表（默认自发现）
+    :param target: 目标亮度值（默认: 230.0）
+    :param black_pct: 黑点百分位数（默认: 5.0）
+    :param top_pct: 高光参考百分位数（默认: 99.9）
+    :param apply: 是否真正写盘（默认 False 仅预演）
+    :param backup: 写盘时是否先自动备份原图（默认 True）
+    :param check: 是否在提亮后执行客观质量门禁检验（墨量 >= min_ink，P99 >= 30，主体锐 >= 40，无接缝）
+    :param min_ink: 质量门禁最低墨量百分比阈值（默认: 2.0%）
+    :return: 处理结果字典列表
+    """
+    files = resolve_image_targets(path)
+    if not files:
+        raise FileNotFoundError("未找到可处理的 PNG 图片")
+
+    results: list[dict] = []
+    gate_failures: list[str] = []
+
+    for p in files:
+        res = boost_file(
+            p,
+            target=target,
+            black_pct=black_pct,
+            top_pct=top_pct,
+            apply=apply,
+            backup=backup,
+        )
+        if check:
+            boosted_im = res.get("boosted_image")
+            if boosted_im is None:
+                boosted_im = Image.open(p)
+            passed, issues = check_boosted_quality(boosted_im, min_ink=min_ink)
+            res["quality_gate_passed"] = passed
+            res["quality_gate_issues"] = issues
+            if not passed:
+                gate_failures.append(f"{res['name']}: {', '.join(issues)}")
+        results.append(res)
+
+    if check and gate_failures:
+        raise RuntimeError(f"配图客观质量门禁未通过: {'; '.join(gate_failures)}")
+
+    return results
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="boost_ink.py — 暗底线性图专用提亮：黑点保持 + 高光增益"
     )
     parser.add_argument(
         "path",
-        nargs="?",
+        nargs="*",
         default=None,
         help="目标图片文件、图片目录或项目路径（默认自发现当前或 projects/* 项目中的 images/）",
     )
@@ -226,47 +373,76 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="写盘模式（写盘前自动备份 _pre_<name>.png），不加则仅预演",
     )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="运行质量门禁判定：若发现严重模糊 (主体锐 < 40)、存在接缝、整体过暗 (P99 < 30) 或墨量不足 (默认 < 2.0%%) 则返回退出码 1",
+    )
+    parser.add_argument(
+        "--min-ink",
+        type=float,
+        default=2.0,
+        help="质量门禁最低墨量百分比阈值（默认: 2.0%%，防漏图/空白画布）",
+    )
 
     args = parser.parse_args(argv)
 
+    path_arg = args.path if args.path else None
     try:
-        files = resolve_image_targets(args.path)
+        results = boost_ink(
+            path=path_arg,
+            target=args.target,
+            black_pct=args.black_pct,
+            top_pct=args.top_pct,
+            apply=args.apply,
+            check=False,
+            min_ink=args.min_ink,
+        )
     except Exception as e:
-        print(f"[err] {e}")
+        print(f"[err] {e}", file=sys.stderr)
         return 1
 
-    if not files:
-        print("没有可处理的 PNG")
+    if not results:
+        print("没有可处理的 PNG", file=sys.stderr)
         return 1
 
     print(f"{'file':16} {'gain':>5} | {'max':>4}→{'max':>4} {'p99.9':>5}→{'p99.9':>5} "
           f"{'>150%':>6}→{'>150%':>6} {'>200%':>6}→{'>200%':>6}")
     print("-" * 88)
 
-    for p in files:
-        try:
-            res = boost_file(
-                p,
-                target=args.target,
-                black_pct=args.black_pct,
-                top_pct=args.top_pct,
-                apply=args.apply,
-            )
-            if res["skipped_reason"]:
-                print(f"{res['name']:16} 跳过（{res['skipped_reason']}）")
-                continue
-            before = res["before"]
-            after = res["after"]
-            print(f"{res['name']:16} {res['gain']:5.2f} | "
-                  f"{before['max']:4.0f}→{after['max']:4.0f} "
-                  f"{before['p999']:5.0f}→{after['p999']:5.0f} "
-                  f"{before['gt150']:6.2f}→{after['gt150']:6.2f} "
-                  f"{before['gt200']:6.2f}→{after['gt200']:6.2f}")
-        except Exception as e:
-            print(f"{p.name:16} 处理失败: {e}")
+    for res in results:
+        if res["skipped_reason"]:
+            print(f"{res['name']:16} 跳过（{res['skipped_reason']}）")
+            continue
+        before = res["before"]
+        after = res["after"]
+        print(f"{res['name']:16} {res['gain']:5.2f} | "
+              f"{before['max']:4.0f}→{after['max']:4.0f} "
+              f"{before['p999']:5.0f}→{after['p999']:5.0f} "
+              f"{before['gt150']:6.2f}→{after['gt150']:6.2f} "
+              f"{before['gt200']:6.2f}→{after['gt200']:6.2f}")
 
     print("-" * 88)
     print("已写盘 ✅" if args.apply else "预演模式（未写盘），加 --apply 执行")
+
+    if args.check:
+        gate_failures = []
+        for res in results:
+            boosted_im = res.get("boosted_image")
+            if boosted_im is None:
+                boosted_im = Image.open(res["path"])
+            passed, issues = check_boosted_quality(boosted_im, min_ink=args.min_ink)
+            if not passed:
+                gate_failures.append(f"{res['name']}: {', '.join(issues)}")
+
+        if gate_failures:
+            print("\n[门禁] ⚠️ 存在未通过客观质量门禁的配图（模糊/接缝/过暗/墨量不足）:", file=sys.stderr)
+            for f in gate_failures:
+                print(f"  ✗ {f}", file=sys.stderr)
+            return 1
+        else:
+            print("  [门禁] ✓ 配图客观质量门禁通过")
+
     return 0
 
 
