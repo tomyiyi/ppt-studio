@@ -16,6 +16,27 @@ def validate_tools(root: Path, py: Path) -> None:
         path = root / "skills/ppt-master/scripts" / name
         if not path.is_file(): raise ValueError(f"missing ppt-master tool: {path}")
 
+def resolve_toolchain(args: argparse.Namespace) -> tuple[Path, Path]:
+    if bool(args.toolchain_config) == bool(args.ppt_master_root or args.ppt_master_python):
+        raise ValueError("use either --toolchain-config or both explicit ppt-master paths")
+    if args.toolchain_config:
+        try: data = json.loads(args.toolchain_config.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc: raise ValueError(f"invalid toolchain config: {exc}")
+        if not isinstance(data, dict) or data.get("schema") != "ppt-studio-toolchain/v1": raise ValueError("unsupported toolchain config schema")
+        for key in ("ppt_master_root", "ppt_master_python", "ppt_master_expected_head"):
+            if not isinstance(data.get(key), str) or not data[key]: raise ValueError(f"missing toolchain field: {key}")
+        root, py, expected = Path(data["ppt_master_root"]).expanduser(), Path(data["ppt_master_python"]).expanduser(), data["ppt_master_expected_head"]
+    else:
+        if args.ppt_master_root is None or args.ppt_master_python is None: raise ValueError("both --ppt-master-root and --ppt-master-python are required")
+        root, py, expected = args.ppt_master_root, args.ppt_master_python, None
+    if not root.is_absolute(): root = (Path.cwd() / root).absolute()
+    if not py.is_absolute(): py = (Path.cwd() / py).absolute()
+    if expected:
+        try: actual = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+        except (OSError, subprocess.CalledProcessError) as exc: raise ValueError(f"cannot read ppt-master HEAD: {exc}")
+        if actual != expected: raise ValueError(f"ppt-master HEAD mismatch: expected {expected}, actual {actual}")
+    return root.resolve(), py
+
 def build(args: argparse.Namespace) -> None:
     output = args.output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -26,9 +47,7 @@ def build(args: argparse.Namespace) -> None:
     source = args.source.resolve(); spec = args.spec.resolve()
     if not source.is_file(): raise ValueError(f"missing source: {source}")
     if not spec.is_file(): raise ValueError(f"missing spec: {spec}")
-    master_root = args.ppt_master_root.resolve()
-    master_py = args.ppt_master_python.expanduser()
-    if not master_py.is_absolute(): master_py = (Path.cwd() / master_py).absolute()
+    master_root, master_py = resolve_toolchain(args)
     validate_tools(master_root, master_py)
     with tempfile.TemporaryDirectory(prefix=f".{output.name}.staging-", dir=output.parent) as name:
         stage = Path(name)
@@ -58,7 +77,7 @@ def build(args: argparse.Namespace) -> None:
     print(f"CONTENT_DECK_BUILT slides={slides} html=1 pptx=1")
 
 def main(argv=None):
-    p=argparse.ArgumentParser(); p.add_argument("source",type=Path); p.add_argument("--spec",required=True,type=Path); p.add_argument("--ppt-master-root",required=True,type=Path); p.add_argument("--ppt-master-python",required=True,type=Path); p.add_argument("-o","--output",required=True,type=Path); p.add_argument("--title"); a=p.parse_args(argv)
+    p=argparse.ArgumentParser(); p.add_argument("source",type=Path); p.add_argument("--spec",required=True,type=Path); p.add_argument("--toolchain-config",type=Path); p.add_argument("--ppt-master-root",type=Path); p.add_argument("--ppt-master-python",type=Path); p.add_argument("-o","--output",required=True,type=Path); p.add_argument("--title"); a=p.parse_args(argv)
     try: build(a)
     except (OSError, ValueError, json.JSONDecodeError, subprocess.CalledProcessError) as exc: print(f"ERROR: {exc}",file=sys.stderr); return 2
     return 0

@@ -8,7 +8,7 @@ class BuildContractTests(unittest.TestCase):
   def setUp(self):
     self.tmp=tempfile.TemporaryDirectory(); self.root=Path(self.tmp.name); self.src=self.root/'in.md'; self.src.write_text('# Deck\n\n## One\n\nText\n',encoding='utf-8'); self.spec=self.root/'spec.md'; self.spec.write_text('spec\n'); self.master=self.root/'master'; (self.master/'skills/ppt-master/scripts').mkdir(parents=True); (self.master/'skills/ppt-master/scripts/svg_quality_checker.py').write_text(''); (self.master/'skills/ppt-master/scripts/svg_to_pptx.py').write_text(''); self.py=self.root/'python'; self.py.write_text(''); self.py.chmod(0o755)
   def tearDown(self): self.tmp.cleanup()
-  def args(self,out): return type('A',(),dict(source=self.src,spec=self.spec,ppt_master_root=self.master,ppt_master_python=self.py,output=out,title='Deck'))()
+  def args(self,out): return type('A',(),dict(source=self.src,spec=self.spec,toolchain_config=None,ppt_master_root=self.master,ppt_master_python=self.py,output=out,title='Deck'))()
   def test_missing_converter_fails_before_stages(self):
     self.master.joinpath('skills/ppt-master/scripts/svg_to_pptx.py').unlink()
     with self.assertRaises(ValueError): mod.build(self.args(self.root/'out'))
@@ -28,4 +28,20 @@ class BuildContractTests(unittest.TestCase):
     with patch.object(mod,'run', side_effect=RuntimeError('synthetic stage failure')):
       with self.assertRaises(RuntimeError): mod.build(self.args(out))
     self.assertFalse(out.exists())
+  def test_toolchain_config_parses_and_enters_pipeline(self):
+    cfg=self.root/'toolchain.json'; cfg.write_text(json.dumps({'schema':'ppt-studio-toolchain/v1','ppt_master_root':str(self.master),'ppt_master_python':str(self.py),'ppt_master_expected_head':'abc'}),encoding='utf-8')
+    args=self.args(self.root/'out'); args.toolchain_config=cfg; args.ppt_master_root=None; args.ppt_master_python=None
+    with patch('subprocess.run', return_value=type('R',(),{'stdout':'abc\n'})()), patch.object(mod,'run', side_effect=RuntimeError('entered')):
+      with self.assertRaises(RuntimeError): mod.build(args)
+  def test_toolchain_head_mismatch_fails_before_stages(self):
+    cfg=self.root/'toolchain.json'; cfg.write_text(json.dumps({'schema':'ppt-studio-toolchain/v1','ppt_master_root':str(self.master),'ppt_master_python':str(self.py),'ppt_master_expected_head':'aaa'}),encoding='utf-8')
+    args=self.args(self.root/'out'); args.toolchain_config=cfg; args.ppt_master_root=None; args.ppt_master_python=None
+    with patch('subprocess.run', return_value=type('R',(),{'stdout':'bbb\n'})()), patch.object(mod,'run') as stage:
+      with self.assertRaises(ValueError): mod.build(args)
+    stage.assert_not_called()
+  def test_toolchain_required_fields_fail_fast(self):
+    args=self.args(self.root/'out'); args.toolchain_config=self.root/'toolchain.json'; args.ppt_master_root=None; args.ppt_master_python=None
+    for payload in ({'schema':'wrong'},{'schema':'ppt-studio-toolchain/v1'},{'schema':'ppt-studio-toolchain/v1','ppt_master_root':'x','ppt_master_python':'y'}):
+      args.toolchain_config.write_text(json.dumps(payload),encoding='utf-8')
+      with self.subTest(payload=payload), self.assertRaises(ValueError): mod.build(args)
 if __name__=='__main__': unittest.main()
