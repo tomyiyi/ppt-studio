@@ -14,6 +14,7 @@ _ORDERED = re.compile(r"^[ \t]*(\d+)[.]\s+(.+?)[ \t]*$")
 _QUOTE = re.compile(r"^>[ \t]+(.+?)[ \t]*$")
 _TABLE = re.compile(r"^\|(.+)\|[ \t]*$")
 _METRIC = re.compile(r"^([^:：\-][^:：]*?)[ \t]*:[ \t]*(.+)$")
+_MILESTONE = re.compile(r"^(\d{4}(?:-\d{2})?(?:-\d{2})?)[ \t]*:[ \t]*(.+)$")
 _IMAGE = re.compile(r"^!\[([^\]]+)\]\(([^)]+)\)[ \t]*$")
 _CODE_OPEN = re.compile(r"^```([A-Za-z0-9_+\-]{0,16})[ \t]*$")
 _CODE_LANGUAGES = {"python", "bash", "json", "typescript", "sql"}
@@ -160,7 +161,23 @@ def parse_markdown(text: str) -> list[dict]:
                 items.append(item.group(2).strip())
                 expected += 1
                 i += 1
-            current["blocks"].append({"type": "steps", "items": items})
+            milestones = []
+            for item in items:
+                match_m = _MILESTONE.match(item)
+                if not match_m:
+                    if ":" in item:
+                        raise ValueError("mixed milestone and plain ordered items are not supported in v1")
+                    milestones = []
+                    continue
+                milestones.append({"date": match_m.group(1), "text": match_m.group(2).strip()})
+            if milestones and len(milestones) != len(items):
+                raise ValueError("mixed milestone and plain ordered items are not supported in v1")
+            if milestones:
+                if not 3 <= len(milestones) <= 5:
+                    raise ValueError("milestone list requires 3-5 items in v1")
+                current["blocks"].append({"type": "milestone-list", "items": milestones})
+            else:
+                current["blocks"].append({"type": "steps", "items": items})
             continue
         quote = _QUOTE.match(line)
         if quote:
