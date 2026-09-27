@@ -24,6 +24,7 @@ def assign_layout(slide: dict) -> str:
     has_image = False
     has_code = False
     code_count = 0
+    has_metrics = False
     image_count = 0
     paragraph_count = 0
     for block in blocks:
@@ -49,6 +50,9 @@ def assign_layout(slide: dict) -> str:
             has_code = True
             code_count += 1
             continue
+        if block.get("type") == "metric-list":
+            has_metrics = True
+            continue
         if block.get("type") != "paragraph":
             raise ValueError("unsupported block type")
         paragraph_count += 1
@@ -56,6 +60,10 @@ def assign_layout(slide: dict) -> str:
         if code_count != 1 or paragraph_count > 1 or has_bullets or has_steps or has_quote or has_table or has_image:
             raise ValueError("mixed code blocks are not supported in v1")
         return "code-callout"
+    if has_metrics:
+        if paragraph_count > 1 or has_bullets or has_steps or has_quote or has_table or has_image:
+            raise ValueError("mixed metric-list blocks are not supported in v1")
+        return "metric-highlights"
     if has_image:
         if image_count not in {1, 2} or paragraph_count > 1 or has_bullets or has_steps or has_quote or has_table:
             raise ValueError("mixed image blocks are not supported in v1")

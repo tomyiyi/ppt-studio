@@ -13,6 +13,7 @@ _BULLET = re.compile(r"^[ \t]*([-*])[ \t]+(.+?)[ \t]*$")
 _ORDERED = re.compile(r"^[ \t]*(\d+)[.]\s+(.+?)[ \t]*$")
 _QUOTE = re.compile(r"^>[ \t]+(.+?)[ \t]*$")
 _TABLE = re.compile(r"^\|(.+)\|[ \t]*$")
+_METRIC = re.compile(r"^([^:：\-][^:：]*?)[ \t]*:[ \t]*(.+)$")
 _IMAGE = re.compile(r"^!\[([^\]]+)\]\(([^)]+)\)[ \t]*$")
 _CODE_OPEN = re.compile(r"^```([A-Za-z0-9_+\-]{0,16})[ \t]*$")
 _CODE_LANGUAGES = {"python", "bash", "json", "typescript", "sql"}
@@ -123,7 +124,22 @@ def parse_markdown(text: str) -> list[dict]:
                     break
                 items.append(item.group(2).strip())
                 i += 1
-            current["blocks"].append({"type": "bullets", "items": items})
+            metric_items = []
+            for item in items:
+                metric = _METRIC.match(item)
+                if not metric:
+                    metric_items = []
+                    break
+                label, value = metric.group(1).strip(), metric.group(2).strip()
+                if not label or not value:
+                    raise ValueError("metric label and value must be non-empty")
+                metric_items.append({"label": label, "value": value})
+            if metric_items:
+                if not 2 <= len(metric_items) <= 4:
+                    raise ValueError("metric list requires 2-4 items in v1")
+                current["blocks"].append({"type": "metric-list", "items": metric_items})
+            else:
+                current["blocks"].append({"type": "bullets", "items": items})
             continue
         ordered = _ORDERED.match(line)
         if ordered:
