@@ -9,9 +9,11 @@ tests/test_boost_ink.py
 import io
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 # 将项目根目录加入 sys.path
@@ -33,6 +35,11 @@ from scripts.boost_ink import (
     boost_file,
     boost_ink,
     check_boosted_quality,
+    check_boost_ink,
+    run_qa_boost_ink,
+    qa_boost_ink,
+    qa_single_boost_ink,
+    run_qa_single_boost_ink,
     resolve_image_targets,
     main,
     TARGET,
@@ -80,6 +87,32 @@ def create_test_image(
         raise ValueError(f"不支持的测试模式: {mode}")
 
     im.save(path)
+
+
+PYTHON_BIN = REPO_ROOT / ".venv" / "bin" / "python3"
+if not PYTHON_BIN.exists():
+    PYTHON_BIN = REPO_ROOT / ".venv" / "bin" / "python"
+if not PYTHON_BIN.exists():
+    PYTHON_BIN = Path(sys.executable)
+
+SCRIPT_PATH = REPO_ROOT / "scripts" / "boost_ink.py"
+
+
+def run_cli_subprocess(
+    args: list[str], cwd: Path | None = None, env: dict | None = None
+) -> subprocess.CompletedProcess:
+    """以独立外部子进程方式执行 boost_ink.py，验证真实 OS 进程契约。"""
+    full_env = os.environ.copy()
+    full_env["PYTHONPATH"] = str(REPO_ROOT)
+    if env:
+        full_env.update(env)
+    return subprocess.run(
+        [str(PYTHON_BIN), str(SCRIPT_PATH), *args],
+        capture_output=True,
+        text=True,
+        cwd=str(cwd) if cwd else str(REPO_ROOT),
+        env=full_env,
+    )
 
 
 class TestMetrics(unittest.TestCase):
@@ -491,6 +524,258 @@ class TestBoostInkCLI(unittest.TestCase):
         self.assertEqual(ret, 0)
         backup_img = self.dir_path / f"_pre_{self.img1.name}"
         self.assertTrue(backup_img.exists())
+
+
+class TestCheckBoostInk(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.tmp_path = Path(self.temp_dir.name)
+        self.good_img = self.tmp_path / "good.png"
+        create_test_image(self.good_img, stroke_box=(20, 20, 60, 60), stroke_val=150)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_check_boost_ink_valid_file(self):
+        ok, res, issues = check_boost_ink(self.good_img, min_ink=1.0)
+        self.assertTrue(ok)
+        self.assertEqual(issues, [])
+        self.assertEqual(res["name"], "good.png")
+        self.assertGreater(res["gain"], 1.0)
+        self.assertTrue(res["quality_gate_passed"])
+
+    def test_check_boost_ink_pil_image(self):
+        with Image.open(self.good_img) as im:
+            ok, res, issues = check_boost_ink(im, min_ink=1.0)
+            self.assertTrue(ok)
+            self.assertEqual(issues, [])
+            self.assertIn("gain", res)
+            self.assertTrue(res["quality_gate_passed"])
+
+    def test_check_boost_ink_low_ink(self):
+        sparse = self.tmp_path / "sparse.png"
+        create_test_image(sparse, stroke_box=(20, 20, 5, 5), stroke_val=40)
+        ok, res, issues = check_boost_ink(sparse, min_ink=50.0)
+        self.assertFalse(ok)
+        self.assertTrue(any("墨量不足" in s for s in issues))
+
+    def test_check_boost_ink_nonexistent_file(self):
+        missing = self.tmp_path / "missing.png"
+        ok, res, issues = check_boost_ink(missing)
+        self.assertFalse(ok)
+        self.assertTrue(len(issues) > 0)
+        self.assertIn("文件不存在", issues[0])
+
+
+class TestRunQaBoostInk(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.tmp_path = Path(self.temp_dir.name)
+        self.img1 = self.tmp_path / "img1.png"
+        self.img2 = self.tmp_path / "img2.png"
+        create_test_image(self.img1, stroke_box=(20, 20, 60, 60), stroke_val=150)
+        create_test_image(self.img2, stroke_box=(20, 20, 60, 60), stroke_val=160)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_run_qa_boost_ink_success(self):
+        self.assertTrue(run_qa_boost_ink(self.img1, min_ink=1.0, verbose=False))
+        self.assertTrue(run_qa_boost_ink([self.img1, self.img2], min_ink=1.0, verbose=False))
+        self.assertTrue(run_qa_boost_ink(self.tmp_path, min_ink=1.0, verbose=False))
+
+    def test_run_qa_boost_ink_failure(self):
+        self.assertFalse(run_qa_boost_ink(self.img1, min_ink=99.0, verbose=False))
+
+    def test_run_qa_boost_ink_missing_path(self):
+        self.assertFalse(run_qa_boost_ink(self.tmp_path / "not_there.png", verbose=False))
+
+    def test_run_qa_boost_ink_aliases(self):
+        self.assertIs(qa_boost_ink, run_qa_boost_ink)
+        self.assertIs(qa_single_boost_ink, check_boost_ink)
+        self.assertIs(run_qa_single_boost_ink, check_boost_ink)
+
+
+class TestBoostInkContract(unittest.TestCase):
+    """收敛后的进程契约测试：聚焦 4 类关键风险与 OS 级子进程契约。
+
+    覆盖范围：
+    - 风险 1：缺失输入（CLI 退出码与 quiet/verbose 行为）
+    - 风险 2：损坏或不可读图片（坏数据字节，不产生坏产物，返回失败）
+    - 风险 3：明确门禁失败（--check 墨量门禁未通过）
+    - 风险 4：成功路径回归（dry-run 预演、--apply 写盘与备份契约、参数优先级）
+    - 真实子进程：验证 OS 级退出码、标准流与文件生成契约（1 个失败，1 个成功）
+    """
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.tmp_path = Path(self.temp_dir.name)
+        self.good_img = self.tmp_path / "good.png"
+        create_test_image(self.good_img, stroke_box=(20, 20, 60, 60), stroke_val=150)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    # ---------------- 风险 1：缺失输入 ----------------
+
+    def test_missing_input_contract(self):
+        """缺失输入：quiet 保持 rc=1 且静默，verbose 增加诊断信息。"""
+        missing = self.tmp_path / "non_existing.png"
+
+        # quiet / -q: 保持失败退出码 1 且不输出任何信息
+        for flags in [["--quiet"], ["-q"]]:
+            buf_out = io.StringIO()
+            buf_err = io.StringIO()
+            with redirect_stdout(buf_out), redirect_stderr(buf_err):
+                code = main([str(missing), *flags])
+            self.assertEqual(code, 1)
+            self.assertEqual(buf_out.getvalue(), "")
+            self.assertEqual(buf_err.getvalue(), "")
+
+        # verbose: 退出码 1 且 stderr 明确指出错误
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with redirect_stdout(buf_out), redirect_stderr(buf_err):
+            code = main([str(missing), "--verbose"])
+        self.assertEqual(code, 1)
+        self.assertEqual(buf_out.getvalue(), "")
+        self.assertIn("[err]", buf_err.getvalue())
+
+    # ---------------- 风险 2：损坏或不可读图片 ----------------
+
+    def test_corrupted_image_contract(self):
+        """损坏图片：quiet 保持 rc=1 且静默，verbose 诊断异常，均不写盘或产生坏产物。"""
+        broken = self.tmp_path / "broken.png"
+        broken.write_bytes(b"INVALID_HEADER_GARBAGE_BYTES")
+        bak = self.tmp_path / "_pre_broken.png"
+
+        # quiet
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with redirect_stdout(buf_out), redirect_stderr(buf_err):
+            code = main([str(broken), "--apply", "--quiet"])
+        self.assertEqual(code, 1)
+        self.assertEqual(buf_out.getvalue(), "")
+        self.assertEqual(buf_err.getvalue(), "")
+        self.assertFalse(bak.exists())
+
+        # verbose
+        buf_out_v = io.StringIO()
+        buf_err_v = io.StringIO()
+        with redirect_stdout(buf_out_v), redirect_stderr(buf_err_v):
+            code_v = main([str(broken), "--apply", "--verbose"])
+        self.assertEqual(code_v, 1)
+        self.assertEqual(buf_out_v.getvalue(), "")
+        self.assertIn("[err]", buf_err_v.getvalue())
+        self.assertFalse(bak.exists())
+
+    # ---------------- 风险 3：明确门禁失败 ----------------
+
+    def test_explicit_gate_failure_contract(self):
+        """明确门禁失败（墨量不足）：quiet 保持 rc=1 且静默，verbose 诊断不足。"""
+        # quiet
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with redirect_stdout(buf_out), redirect_stderr(buf_err):
+            code = main([str(self.good_img), "--check", "--min-ink", "99.0", "--quiet"])
+        self.assertEqual(code, 1)
+        self.assertEqual(buf_out.getvalue(), "")
+        self.assertEqual(buf_err.getvalue(), "")
+
+        # verbose
+        buf_out_v = io.StringIO()
+        buf_err_v = io.StringIO()
+        with redirect_stdout(buf_out_v), redirect_stderr(buf_err_v):
+            code_v = main([str(self.good_img), "--check", "--min-ink", "99.0", "--verbose"])
+        self.assertEqual(code_v, 1)
+        self.assertIn("存在未通过客观质量门禁的配图", buf_err_v.getvalue())
+
+    # ---------------- 风险 4：成功路径回归 ----------------
+
+    def test_success_dry_run_contract(self):
+        """成功预演场景：quiet 保持 rc=0 完全静默，verbose 输出统计摘要，均不写盘。"""
+        bak = self.tmp_path / f"_pre_{self.good_img.name}"
+
+        # quiet
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with redirect_stdout(buf_out), redirect_stderr(buf_err):
+            code = main([str(self.good_img), "--quiet"])
+        self.assertEqual(code, 0)
+        self.assertEqual(buf_out.getvalue(), "")
+        self.assertEqual(buf_err.getvalue(), "")
+        self.assertFalse(bak.exists())
+
+        # verbose
+        buf_out_v = io.StringIO()
+        buf_err_v = io.StringIO()
+        with redirect_stdout(buf_out_v), redirect_stderr(buf_err_v):
+            code_v = main([str(self.good_img), "--verbose"])
+        self.assertEqual(code_v, 0)
+        self.assertIn("good.png", buf_out_v.getvalue())
+        self.assertIn("gain", buf_out_v.getvalue())
+        self.assertEqual(buf_err_v.getvalue(), "")
+        self.assertFalse(bak.exists())
+
+    def test_flag_precedence_quiet_over_verbose(self):
+        """参数冲突时 quiet 优先级最高：--quiet 与 --verbose 混用时强制保持静默。"""
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with redirect_stdout(buf_out), redirect_stderr(buf_err):
+            code = main([str(self.good_img), "--verbose", "--quiet"])
+        self.assertEqual(code, 0)
+        self.assertEqual(buf_out.getvalue(), "")
+        self.assertEqual(buf_err.getvalue(), "")
+
+    def test_boost_ink_batch_verbose_param(self):
+        """验证 boost_ink 编程式调用 verbose 参数。"""
+        buf_out = io.StringIO()
+        with redirect_stdout(buf_out):
+            res = boost_ink([self.good_img], apply=False, verbose=True)
+        self.assertEqual(len(res), 1)
+        self.assertIn("[预演]", buf_out.getvalue())
+
+    # ---------------- 真实 OS 子进程契约 ----------------
+
+    def test_subprocess_failure_contract(self):
+        """真实外部子进程失败契约：缺失输入在 OS 级退出 1，quiet 完全静默，verbose 输出 stderr。"""
+        missing = self.tmp_path / "sub_missing.png"
+
+        # quiet
+        p_q = run_cli_subprocess([str(missing), "--quiet"])
+        self.assertEqual(p_q.returncode, 1)
+        self.assertEqual(p_q.stdout, "")
+        self.assertEqual(p_q.stderr, "")
+
+        # verbose
+        p_v = run_cli_subprocess([str(missing), "--verbose"])
+        self.assertEqual(p_v.returncode, 1)
+        self.assertEqual(p_v.stdout, "")
+        self.assertIn("[err]", p_v.stderr)
+
+    def test_subprocess_success_apply_contract(self):
+        """真实外部子进程成功契约：写盘在 OS 级退出 0，quiet 静默并写盘，verbose 输出确认信息。"""
+        sub_img_q = self.tmp_path / "sub_q.png"
+        create_test_image(sub_img_q, stroke_box=(20, 20, 60, 60), stroke_val=150)
+        bak_q = self.tmp_path / f"_pre_{sub_img_q.name}"
+
+        # quiet
+        p_q = run_cli_subprocess([str(sub_img_q), "--apply", "--quiet"])
+        self.assertEqual(p_q.returncode, 0)
+        self.assertEqual(p_q.stdout, "")
+        self.assertEqual(p_q.stderr, "")
+        self.assertTrue(bak_q.exists())
+
+        sub_img_v = self.tmp_path / "sub_v.png"
+        create_test_image(sub_img_v, stroke_box=(20, 20, 60, 60), stroke_val=150)
+        bak_v = self.tmp_path / f"_pre_{sub_img_v.name}"
+
+        # verbose
+        p_v = run_cli_subprocess([str(sub_img_v), "--apply", "--verbose"])
+        self.assertEqual(p_v.returncode, 0)
+        self.assertIn("已写盘", p_v.stdout)
+        self.assertEqual(p_v.stderr, "")
+        self.assertTrue(bak_v.exists())
 
 
 if __name__ == "__main__":

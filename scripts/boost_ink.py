@@ -257,10 +257,18 @@ def resolve_image_targets(
 
 
 def check_boosted_quality(
-    im: Image.Image,
+    im: Image.Image | str | Path,
     min_ink: float = 2.0,
 ) -> tuple[bool, list[str]]:
     """验证提亮后图像是否满足客观质量门禁（接缝、主体清晰度、整体暗度与有效墨量）。"""
+    if isinstance(im, (str, Path)):
+        p = Path(im)
+        if not p.is_file():
+            return False, [f"文件不存在: {im}"]
+        try:
+            im = Image.open(p)
+        except Exception as e:
+            return False, [f"无法读取图片: {e}"]
     issues: list[str] = []
     rgb = im.convert("RGB")
     if detect_seam is not None:
@@ -292,6 +300,7 @@ def boost_ink(
     backup: bool = True,
     check: bool = False,
     min_ink: float = 2.0,
+    verbose: bool = False,
 ) -> list[dict]:
     """批量或单张执行黑点保持高光增益提亮，支持客观质量门禁校验。
 
@@ -303,6 +312,7 @@ def boost_ink(
     :param backup: 写盘时是否先自动备份原图（默认 True）
     :param check: 是否在提亮后执行客观质量门禁检验（墨量 >= min_ink，P99 >= 30，主体锐 >= 40，无接缝）
     :param min_ink: 质量门禁最低墨量百分比阈值（默认: 2.0%）
+    :param verbose: 是否输出日志（默认 False）
     :return: 处理结果字典列表
     """
     files = resolve_image_targets(path)
@@ -321,11 +331,24 @@ def boost_ink(
             apply=apply,
             backup=backup,
         )
+        if verbose:
+            mode_tag = "(已写盘)" if (apply and not res.get("skipped_reason")) else "[预演]"
+            if res.get("skipped_reason"):
+                print(f"[跳过] {res['name']}: {res['skipped_reason']}", file=sys.stderr)
+            else:
+                print(f"✓ {mode_tag} {res['name']} (增益 {res['gain']:.2f}×)")
         if check:
             boosted_im = res.get("boosted_image")
             if boosted_im is None:
-                boosted_im = Image.open(p)
-            passed, issues = check_boosted_quality(boosted_im, min_ink=min_ink)
+                try:
+                    boosted_im = Image.open(p)
+                except Exception:
+                    boosted_im = None
+            if boosted_im is not None:
+                passed, issues = check_boosted_quality(boosted_im, min_ink=min_ink)
+            else:
+                passed = False
+                issues = [res.get("skipped_reason") or "无法读取图片"]
             res["quality_gate_passed"] = passed
             res["quality_gate_issues"] = issues
             if not passed:
@@ -336,6 +359,144 @@ def boost_ink(
         raise RuntimeError(f"配图客观质量门禁未通过: {'; '.join(gate_failures)}")
 
     return results
+
+
+def check_boost_ink(
+    target: str | Path | Image.Image,
+    target_lum: float = TARGET,
+    black_pct: float = BLACK_PCT,
+    top_pct: float = TOP_PCT,
+    min_ink: float = 2.0,
+) -> tuple[bool, dict, list[str]]:
+    """客观质量门禁判定：验证单张图片提亮后是否满足客观质量门禁（接缝、清晰度、亮度、墨量）。
+
+    :param target: 图片文件路径 (Path/str) 或 PIL Image 对象
+    :param target_lum: 目标亮度值（默认: 230.0）
+    :param black_pct: 黑点百分位数（默认: 5.0）
+    :param top_pct: 高光参考百分位数（默认: 99.9）
+    :param min_ink: 最低有效墨量百分比阈值（默认: 2.0%）
+    :return: (通过布尔值, 统计指标字典, 未通过原因列表)
+    """
+    min_ink_val = float(min_ink)
+    if isinstance(target, Image.Image):
+        try:
+            im = target.convert("RGB")
+            name = getattr(target, "filename", None) or "image.png"
+            name = Path(name).name if name else "image.png"
+            boosted, gain, before, after, skip = boost_image(
+                im, target=target_lum, black_pct=black_pct, top_pct=top_pct
+            )
+            passed, issues = check_boosted_quality(boosted, min_ink=min_ink_val)
+            res = {
+                "path": getattr(target, "filename", "") or "",
+                "name": name,
+                "gain": gain,
+                "skipped_reason": skip,
+                "before": before,
+                "after": after,
+                "applied": False,
+                "boosted_image": boosted,
+                "quality_gate_passed": passed,
+                "quality_gate_issues": issues,
+            }
+            return passed, res, issues
+        except Exception as e:
+            name = getattr(target, "filename", None) or "image.png"
+            name = Path(name).name if name else "image.png"
+            err = f"提亮分析异常: {e}"
+            return False, {"name": name, "issues": [err]}, [err]
+    else:
+        try:
+            p = Path(target)
+            if not p.is_file():
+                err = f"文件不存在: {target}"
+                return False, {"name": p.name, "issues": [err]}, [err]
+            res = boost_file(
+                p,
+                target=target_lum,
+                black_pct=black_pct,
+                top_pct=top_pct,
+                apply=False,
+                backup=False,
+            )
+            boosted_im = res.get("boosted_image")
+            if boosted_im is not None:
+                passed, issues = check_boosted_quality(boosted_im, min_ink=min_ink_val)
+            else:
+                passed = False
+                issues = [res.get("skipped_reason") or "无法读取图片"]
+            res["quality_gate_passed"] = passed
+            res["quality_gate_issues"] = issues
+            return passed, res, issues
+        except Exception as e:
+            name = Path(target).name if isinstance(target, (str, Path)) else "image.png"
+            err = f"提亮处理异常: {e}"
+            return False, {"name": name, "issues": [err]}, [err]
+
+
+def run_qa_boost_ink(
+    targets: str | Path | list[str | Path] | None = None,
+    target_lum: float = TARGET,
+    black_pct: float = BLACK_PCT,
+    top_pct: float = TOP_PCT,
+    min_ink: float = 2.0,
+    verbose: bool = True,
+) -> bool:
+    """运行 PPT-Studio 配图提亮客观质量门禁。
+
+    :param targets: 目标图片、目录、项目路径或图片列表（默认自发现）
+    :param target_lum: 目标亮度值（默认: 230.0）
+    :param black_pct: 黑点百分位数（默认: 5.0）
+    :param top_pct: 高光参考百分位数（默认: 99.9）
+    :param min_ink: 最低墨量百分比阈值（默认: 2.0%）
+    :param verbose: 是否输出日志（默认 True）
+    :return: 全部通过返回 True，否则返回 False
+    """
+    try:
+        resolved = resolve_image_targets(targets)
+    except Exception as e:
+        if verbose:
+            print(f"[err] {e}", file=sys.stderr)
+        return False
+
+    if not resolved:
+        if verbose:
+            print("[err] 未找到任何可处理的 PNG 图片", file=sys.stderr)
+        return False
+
+    all_ok = True
+    failed_items = []
+    min_ink_val = float(min_ink)
+    for p in resolved:
+        ok, res, issues = check_boost_ink(
+            p,
+            target_lum=target_lum,
+            black_pct=black_pct,
+            top_pct=top_pct,
+            min_ink=min_ink_val,
+        )
+        if not ok:
+            all_ok = False
+            failed_items.append((p.name, issues))
+        elif verbose:
+            after_metrics = res.get("after", {})
+            p99 = after_metrics.get("p999", 0.0)
+            print(f"  [✓] {p.name}: 增益 {res.get('gain', 1.0):.2f}× (P99.9 {p99:.1f})")
+
+    if verbose:
+        if not all_ok:
+            print("\n[门禁] ⚠️ 存在未通过客观质量门禁的提亮配图:", file=sys.stderr)
+            for fname, issues in failed_items:
+                print(f"  ✗ {fname}: {', '.join(issues)}", file=sys.stderr)
+        else:
+            print("  [门禁] ✓ 配图提亮客观质量门禁通过")
+
+    return all_ok
+
+
+qa_boost_ink = run_qa_boost_ink
+qa_single_boost_ink = check_boost_ink
+run_qa_single_boost_ink = check_boost_ink
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -447,8 +608,15 @@ def main(argv: list[str] | None = None) -> int:
         for res in results:
             boosted_im = res.get("boosted_image")
             if boosted_im is None:
-                boosted_im = Image.open(res["path"])
-            passed, issues = check_boosted_quality(boosted_im, min_ink=args.min_ink)
+                try:
+                    boosted_im = Image.open(res["path"])
+                except Exception:
+                    boosted_im = None
+            if boosted_im is not None:
+                passed, issues = check_boosted_quality(boosted_im, min_ink=args.min_ink)
+            else:
+                passed = False
+                issues = [res.get("skipped_reason") or "无法读取图片"]
             if not passed:
                 gate_failures.append(f"{res['name']}: {', '.join(issues)}")
 
