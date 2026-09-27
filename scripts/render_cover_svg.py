@@ -89,7 +89,7 @@ def render_cover(plan: dict, spec: dict) -> str:
         f'  <g id="cover-title"><text x="80" y="290" fill="{c["primary_text"]}" font-family="{font}" font-size="{s["cover"]}">{escape(title)}</text></g>',
     ]
     if paragraphs:
-        lines.append(f'  <g id="cover-claim"><text x="80" y="405" fill="{c["secondary_text"]}" font-family="{font}" font-size="{s["subtitle"]}">{escape(paragraphs[0])}</text></g>')
+        lines.append(f'  <g id="cover-claim"><text x="80" y="475" fill="{c["secondary_text"]}" font-family="{font}" font-size="{s["subtitle"]}">{escape(paragraphs[0])}</text></g>')
     if len(paragraphs) == 2:
         lines.append(f'  <text x="80" y="450" fill="{c["secondary_text"]}" font-family="{font}" font-size="{s["body"]}">{escape(paragraphs[1])}</text>')
     lines.extend([
