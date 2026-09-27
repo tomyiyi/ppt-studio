@@ -30,6 +30,8 @@ def deep_qa(bundle: Path, verbose: bool = True) -> bool:
     sys.path.insert(0, str(SCRIPTS))
     import qa_preview
     import qa_pptx
+    plan = json.loads((bundle / "slide_plan.json").read_text(encoding="utf-8"))
+    expected_media = sum(1 for slide in plan.get("slides", []) for block in slide.get("blocks", []) if block.get("type") == "image")
 
     html_ok = qa_preview.run_qa_single_preview(bundle / "preview" / "content-deck.html", verbose=verbose)
     if not html_ok:
@@ -38,7 +40,7 @@ def deep_qa(bundle: Path, verbose: bool = True) -> bool:
         bundle / "output" / "content-deck.pptx",
         spec_path=bundle / "spec_lock.md",
         expected_slides=slides,
-        expected_media=0,
+        expected_media=expected_media,
         verbose=verbose,
     )
     if not html_ok or not pptx_ok:

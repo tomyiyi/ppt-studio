@@ -34,9 +34,13 @@ def rederive(bundle:Path, config:Path):
         shutil.copyfile(bundle/"validation/svg_quality_report.json",root/"validation/svg_quality_report.json")
         names=receipt.get("artifacts",{}).get("svg",{})
         for name in names: shutil.copyfile(bundle/"svg_output"/name,svg/name)
+        bundled_assets = bundle / "svg_output" / "assets"
+        if bundled_assets.is_dir(): shutil.copytree(bundled_assets, svg / "assets")
         pptx=out/"content-deck.pptx"; converter=master/"skills/ppt-master/scripts/svg_to_pptx.py"
         run([py,str(converter),str(root),"-o",str(pptx)])
-        run([sys.executable,str(QA),str(pptx),"--spec",str(bundle/"spec_lock.md"),"--expected-slides",str(receipt["slides"]),"--expected-media","0"])
+        plan=json.loads((bundle/"slide_plan.json").read_text())
+        expected_media=sum(1 for slide in plan.get("slides",[]) for block in slide.get("blocks",[]) if block.get("type")=="image")
+        run([sys.executable,str(QA),str(pptx),"--spec",str(bundle/"spec_lock.md"),"--expected-slides",str(receipt["slides"]),"--expected-media",str(expected_media)])
         a,b=slides(bundle/"output/content-deck.pptx"),slides(pptx)
         if list(a)!=list(b): raise ValueError("rederived PPTX slide XML roster mismatch")
         for name in a:

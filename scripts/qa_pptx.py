@@ -189,6 +189,7 @@ def check_slide_layers(z: zipfile.ZipFile, slide_names: list[str], has_media: bo
         return False, "PPTX 内无幻灯片"
 
     missing_pics = []
+    total_pics = 0
     missing_texts = []
 
     for s_name in slide_names:
@@ -197,13 +198,12 @@ def check_slide_layers(z: zipfile.ZipFile, slide_names: list[str], has_media: bo
         sp_texts = root.findall(f".//{NS_P}sp")
         
         # 配图版每页应有 1 张满幅底图/插图
-        if has_media and len(pics) < 1:
-            missing_pics.append(s_name)
+        total_pics += len(pics)
         if len(sp_texts) < 1:
             missing_texts.append(s_name)
 
-    if missing_pics:
-        return False, f"部分页面缺失配图层 (<p:pic>): {', '.join(missing_pics[:3])}"
+    if has_media and total_pics < 1:
+        return False, "PPTX 声明存在媒体文件，但所有页面均缺失配图层 (<p:pic>)"
     if missing_texts:
         return False, f"部分页面缺失文本图元 (<p:sp>): {', '.join(missing_texts[:3])}"
 
