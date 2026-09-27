@@ -10,6 +10,7 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -25,6 +26,11 @@ if str(REPO_ROOT) not in sys.path:
 for site_pkg in REPO_ROOT.glob(".venv/lib/python*/site-packages"):
     if site_pkg.is_dir() and str(site_pkg) not in sys.path:
         sys.path.insert(0, str(site_pkg))
+
+PYTHON_BIN = REPO_ROOT / ".venv" / "bin" / "python"
+if not PYTHON_BIN.exists():
+    PYTHON_BIN = Path(sys.executable)
+SCRIPT_PATH = REPO_ROOT / "scripts" / "prepare_agnes_image.py"
 
 import numpy as np
 from PIL import Image
@@ -1074,6 +1080,413 @@ class TestCLIJsonAndExitCodes(unittest.TestCase):
             with redirect_stderr(io.StringIO()):
                 main([str(self.clean_dir), "--non-existent-option"])
         self.assertEqual(cm.exception.code, 2)
+
+
+class TestRealCLIFailureContract(unittest.TestCase):
+    """真实独立子进程 CLI 针对 --json 模式失败路径与契约一致性的定向测试。
+    验证 stdout 纯 JSON、failure_count/partial_success、failures 明细与 Python API 完全一致、
+    有失败时退出码非零、成功项不会因部分失败消失、stderr 诊断不污染 stdout、
+    quiet/verbose 不改变 JSON 语义，且不泄漏任何敏感值。
+    """
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.dir_path = Path(self.temp_dir.name)
+
+        # 1. 正常有效测试图
+        self.clean1 = self.dir_path / "clean1.png"
+        self.clean2 = self.dir_path / "clean2.png"
+        create_test_image(self.clean1, width=120, height=80)
+        create_test_image(self.clean2, width=120, height=80)
+
+        # 2. 0 字节空文件 (无法读取/损坏图片)
+        self.bad_empty = self.dir_path / "bad_empty.png"
+        self.bad_empty.write_bytes(b"")
+
+        # 3. 损坏的图片文件 (非图像二进制文本)
+        self.bad_corrupt = self.dir_path / "bad_corrupt.png"
+        self.bad_corrupt.write_bytes(b"CORRUPTED_NOT_AN_IMAGE_PAYLOAD\x00\xff\xfe")
+
+        # 4. 截断的伪 PNG 文件
+        self.bad_truncated = self.dir_path / "bad_truncated.png"
+        self.bad_truncated.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR_TRUNCATED")
+
+        # 5. 接缝质检失败图 (用于图片质量门禁失败)
+        self.bad_seam = self.dir_path / "bad_seam.png"
+        create_test_image(self.bad_seam, width=120, height=80, left_val=20, right_val=60, seam_x=60)
+
+        # 6. 不存在的文件路径
+        self.missing_file = self.dir_path / "non_existing_file_98765.png"
+
+        # 7. 批量目录构建 (包含成功项与多种失败项)
+        self.batch_dir = self.dir_path / "batch_mixed"
+        self.batch_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(self.clean1, self.batch_dir / "clean1.png")
+        shutil.copy2(self.clean2, self.batch_dir / "clean2.png")
+        (self.batch_dir / "bad_empty.png").write_bytes(b"")
+        (self.batch_dir / "bad_corrupt.png").write_bytes(b"CORRUPTED_NOT_AN_IMAGE_PAYLOAD\x00\xff\xfe")
+        create_test_image(self.batch_dir / "bad_seam.png", width=120, height=80, left_val=20, right_val=60, seam_x=60)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def _run_cli(self, args: list[str], env: dict | None = None) -> subprocess.CompletedProcess:
+        full_env = os.environ.copy()
+        full_env["PYTHONPATH"] = str(REPO_ROOT)
+        if env:
+            full_env.update(env)
+        return subprocess.run(
+            [str(PYTHON_BIN), str(SCRIPT_PATH), *args],
+            capture_output=True,
+            text=True,
+            env=full_env,
+        )
+
+    def _assert_pure_json(self, stdout: str) -> dict:
+        stripped = stdout.strip()
+        self.assertTrue(stripped.startswith("{"), f"stdout 未以 '{{' 开头: {stripped[:80]}")
+        self.assertTrue(stripped.endswith("}"), f"stdout 未以 '}}' 结尾: {stripped[-80:]}")
+        # 人类日志标记不得混入机器可读 stdout
+        for marker in ["[预演]", "✓", "ALL CLEAR", "❌", "🔍", "[!]", "[提示]"]:
+            self.assertNotIn(marker, stdout)
+        try:
+            return json.loads(stdout)
+        except Exception as e:
+            self.fail(f"stdout 不是合规的 JSON: {e}\n完整 stdout:\n{stdout}")
+
+    def _assert_no_sensitive_values(self, stdout: str, stderr: str, tokens: list[str]):
+        combined = f"{stdout}\n{stderr}"
+        for token in tokens:
+            self.assertNotIn(token, combined)
+
+    def test_real_cli_file_not_found(self):
+        """覆盖 FILE_NOT_FOUND 失败路径：单文件、不存在目录与空目录。"""
+        # 1. 单个不存在的文件 --check --json
+        p_chk = self._run_cli([str(self.missing_file), "--check", "--json"])
+        self.assertEqual(p_chk.returncode, 1)
+        self.assertEqual(p_chk.stderr, "")
+        cli_chk = self._assert_pure_json(p_chk.stdout)
+        api_chk = json.loads(json.dumps(check_images(self.missing_file, verbose=False)))
+
+        self.assertFalse(cli_chk["ok"])
+        self.assertEqual(cli_chk["total"], 1)
+        self.assertEqual(cli_chk["success_count"], 0)
+        self.assertEqual(cli_chk["failure_count"], 1)
+        self.assertFalse(cli_chk["partial_success"])
+        self.assertEqual(len(cli_chk["failures"]), 1)
+        self.assertEqual(cli_chk["failures"][0]["code"], "FILE_NOT_FOUND")
+        self.assertEqual(cli_chk["failures"][0]["name"], self.missing_file.name)
+        self.assertIn("源图片文件不存在", cli_chk["failures"][0]["reason"])
+        self.assertEqual(cli_chk["failures"], api_chk["failures"])
+        self.assertEqual(cli_chk, api_chk)
+
+        # 2. 单个不存在的文件 prepare --json
+        p_prep = self._run_cli([str(self.missing_file), "--json"])
+        self.assertEqual(p_prep.returncode, 1)
+        self.assertEqual(p_prep.stderr, "")
+        cli_prep = self._assert_pure_json(p_prep.stdout)
+        api_prep = json.loads(json.dumps(prepare_images(self.missing_file, verbose=False)))
+
+        self.assertFalse(cli_prep["ok"])
+        self.assertEqual(cli_prep["total"], 1)
+        self.assertEqual(cli_prep["success_count"], 0)
+        self.assertEqual(cli_prep["failure_count"], 1)
+        self.assertFalse(cli_prep["partial_success"])
+        self.assertEqual(len(cli_prep["failures"]), 1)
+        self.assertEqual(cli_prep["failures"][0]["code"], "FILE_NOT_FOUND")
+        self.assertEqual(cli_prep["failures"][0]["name"], self.missing_file.name)
+        self.assertIn("源图片文件不存在", cli_prep["failures"][0]["reason"])
+        self.assertEqual(cli_prep["failures"], api_prep["failures"])
+        self.assertEqual(cli_prep, api_prep)
+
+        # 3. 不存在的目录路径
+        non_dir = self.dir_path / "non_existing_dir_404"
+        p_dir_chk = self._run_cli([str(non_dir), "--check", "--json"])
+        self.assertEqual(p_dir_chk.returncode, 1)
+        cli_dir_chk = self._assert_pure_json(p_dir_chk.stdout)
+        api_dir_chk = json.loads(json.dumps(check_images(non_dir, verbose=False)))
+        self.assertEqual(cli_dir_chk["failures"], api_dir_chk["failures"])
+        self.assertEqual(cli_dir_chk["failures"][0]["code"], "FILE_NOT_FOUND")
+
+        # 4. 存在但为空的目录 (无 PNG 图片)
+        empty_dir = self.dir_path / "empty_dir_no_images"
+        empty_dir.mkdir(parents=True, exist_ok=True)
+        p_empty_dir = self._run_cli([str(empty_dir), "--json"])
+        self.assertEqual(p_empty_dir.returncode, 1)
+        cli_empty_dir = self._assert_pure_json(p_empty_dir.stdout)
+        api_empty_dir = json.loads(json.dumps(prepare_images(empty_dir, verbose=False)))
+        self.assertEqual(cli_empty_dir["failures"][0]["code"], "TARGET_RESOLUTION_ERROR")
+        self.assertEqual(cli_empty_dir["failures"], api_empty_dir["failures"])
+
+    def test_real_cli_unreadable_and_corrupt_images(self):
+        """覆盖无法读取/损坏图片失败路径：0 字节空文件与文件内容损坏。"""
+        # 1. 0 字节文件
+        # check --json -> EMPTY_FILE
+        p_c_empty = self._run_cli([str(self.bad_empty), "--check", "--json"])
+        self.assertEqual(p_c_empty.returncode, 1)
+        self.assertEqual(p_c_empty.stderr, "")
+        cli_c_empty = self._assert_pure_json(p_c_empty.stdout)
+        api_c_empty = json.loads(json.dumps(check_images(self.bad_empty, verbose=False)))
+        self.assertEqual(cli_c_empty["failures"][0]["code"], "EMPTY_FILE")
+        self.assertEqual(cli_c_empty["failures"], api_c_empty["failures"])
+        self.assertEqual(cli_c_empty, api_c_empty)
+
+        # prepare --json -> EMPTY_FILE
+        p_p_empty = self._run_cli([str(self.bad_empty), "--json"])
+        self.assertEqual(p_p_empty.returncode, 1)
+        self.assertEqual(p_p_empty.stderr, "")
+        cli_p_empty = self._assert_pure_json(p_p_empty.stdout)
+        api_p_empty = json.loads(json.dumps(prepare_images(self.bad_empty, verbose=False)))
+        self.assertEqual(cli_p_empty["failures"][0]["code"], "EMPTY_FILE")
+        self.assertEqual(cli_p_empty["failures"], api_p_empty["failures"])
+        self.assertEqual(cli_p_empty, api_p_empty)
+
+        # 2. 损坏文件 (bad_corrupt)
+        # check --json -> UNREADABLE_IMAGE
+        p_c_corrupt = self._run_cli([str(self.bad_corrupt), "--check", "--json"])
+        self.assertEqual(p_c_corrupt.returncode, 1)
+        self.assertEqual(p_c_corrupt.stderr, "")
+        cli_c_corrupt = self._assert_pure_json(p_c_corrupt.stdout)
+        api_c_corrupt = json.loads(json.dumps(check_images(self.bad_corrupt, verbose=False)))
+        self.assertEqual(cli_c_corrupt["failures"][0]["code"], "UNREADABLE_IMAGE")
+        self.assertEqual(cli_c_corrupt["failures"], api_c_corrupt["failures"])
+        self.assertEqual(cli_c_corrupt, api_c_corrupt)
+
+        # prepare --json -> PREPARE_ERROR
+        p_p_corrupt = self._run_cli([str(self.bad_corrupt), "--json"])
+        self.assertEqual(p_p_corrupt.returncode, 1)
+        self.assertEqual(p_p_corrupt.stderr, "")
+        cli_p_corrupt = self._assert_pure_json(p_p_corrupt.stdout)
+        api_p_corrupt = json.loads(json.dumps(prepare_images(self.bad_corrupt, verbose=False)))
+        self.assertEqual(cli_p_corrupt["failures"][0]["code"], "PREPARE_ERROR")
+        self.assertEqual(cli_p_corrupt["failures"], api_p_corrupt["failures"])
+        self.assertEqual(cli_p_corrupt, api_p_corrupt)
+
+        # 3. 截断文件 (bad_truncated)
+        p_c_trunc = self._run_cli([str(self.bad_truncated), "--check", "--json"])
+        self.assertEqual(p_c_trunc.returncode, 1)
+        cli_c_trunc = self._assert_pure_json(p_c_trunc.stdout)
+        api_c_trunc = json.loads(json.dumps(check_images(self.bad_truncated, verbose=False)))
+        self.assertEqual(cli_c_trunc["failures"][0]["code"], "UNREADABLE_IMAGE")
+        self.assertEqual(cli_c_trunc["failures"], api_c_trunc["failures"])
+
+        p_p_trunc = self._run_cli([str(self.bad_truncated), "--json"])
+        self.assertEqual(p_p_trunc.returncode, 1)
+        cli_p_trunc = self._assert_pure_json(p_p_trunc.stdout)
+        api_p_trunc = json.loads(json.dumps(prepare_images(self.bad_truncated, verbose=False)))
+        self.assertEqual(cli_p_trunc["failures"][0]["code"], "PREPARE_ERROR")
+        self.assertEqual(cli_p_trunc["failures"], api_p_trunc["failures"])
+
+    def test_real_cli_quality_gate_failures(self):
+        """覆盖图片质量门禁失败路径：残留接缝、尺寸偏差及二者复合。"""
+        # 1. 残留接缝 (SEAM_DETECTED)
+        p_seam = self._run_cli([str(self.bad_seam), "--check", "--json"])
+        self.assertEqual(p_seam.returncode, 1)
+        self.assertEqual(p_seam.stderr, "")
+        cli_seam = self._assert_pure_json(p_seam.stdout)
+        api_seam = json.loads(json.dumps(check_images(self.bad_seam, verbose=False)))
+
+        self.assertFalse(cli_seam["ok"])
+        self.assertEqual(cli_seam["failure_count"], 1)
+        self.assertEqual(cli_seam["failures"][0]["code"], "SEAM_DETECTED")
+        self.assertIn("残留接缝", cli_seam["failures"][0]["reason"])
+        self.assertEqual(cli_seam["failures"], api_seam["failures"])
+        self.assertEqual(cli_seam, api_seam)
+
+        # 2. 尺寸偏差 (DIMENSION_MISMATCH)
+        p_dim = self._run_cli([str(self.clean1), "--check", "--json", "--size", "300x200"])
+        self.assertEqual(p_dim.returncode, 1)
+        self.assertEqual(p_dim.stderr, "")
+        cli_dim = self._assert_pure_json(p_dim.stdout)
+        api_dim = json.loads(json.dumps(check_images(self.clean1, size=(300, 200), verbose=False)))
+
+        self.assertFalse(cli_dim["ok"])
+        self.assertEqual(cli_dim["failure_count"], 1)
+        self.assertEqual(cli_dim["failures"][0]["code"], "DIMENSION_MISMATCH")
+        self.assertIn("尺寸不匹配", cli_dim["failures"][0]["reason"])
+        self.assertEqual(cli_dim["failures"], api_dim["failures"])
+        self.assertEqual(cli_dim, api_dim)
+
+        # 3. 复合门禁失败 (SEAM_AND_DIMENSION_MISMATCH)
+        p_both = self._run_cli([str(self.bad_seam), "--check", "--json", "--size", "300x200"])
+        self.assertEqual(p_both.returncode, 1)
+        self.assertEqual(p_both.stderr, "")
+        cli_both = self._assert_pure_json(p_both.stdout)
+        api_both = json.loads(json.dumps(check_images(self.bad_seam, size=(300, 200), verbose=False)))
+
+        self.assertFalse(cli_both["ok"])
+        self.assertEqual(cli_both["failure_count"], 1)
+        self.assertEqual(cli_both["failures"][0]["code"], "SEAM_AND_DIMENSION_MISMATCH")
+        self.assertIn("残留接缝", cli_both["failures"][0]["reason"])
+        self.assertIn("尺寸不符合预期", cli_both["failures"][0]["reason"])
+        self.assertEqual(cli_both["failures"], api_both["failures"])
+        self.assertEqual(cli_both, api_both)
+
+    def test_real_cli_batch_partial_failures_and_retention(self):
+        """覆盖批量输入中的部分失败：确认 partial_success、成功项完整保留、明细与 API 严格一致。"""
+        # 批量目录包含: clean1, clean2, bad_empty, bad_corrupt, bad_seam (共 5 项)
+
+        # 1. prepare --json 预演模式
+        p_prep = self._run_cli([str(self.batch_dir), "--json", "--size", "100x60"])
+        self.assertEqual(p_prep.returncode, 1)  # 包含失败项，退出码非零
+        self.assertEqual(p_prep.stderr, "")    # --json 纯净无 stderr 杂音
+        cli_prep = self._assert_pure_json(p_prep.stdout)
+        api_prep = json.loads(json.dumps(prepare_images(self.batch_dir, size=(100, 60), apply=False, verbose=False)))
+
+        self.assertFalse(cli_prep["ok"])
+        self.assertEqual(cli_prep["total"], 5)
+        # clean1, clean2, bad_seam（seam 在 prepare 中成功抹平）为 3 成功；bad_empty, bad_corrupt 为 2 失败
+        self.assertEqual(cli_prep["success_count"], 3)
+        self.assertEqual(cli_prep["failure_count"], 2)
+        self.assertTrue(cli_prep["partial_success"])
+        self.assertTrue(cli_prep["is_partial_success"])
+
+        # 成功项不会因部分失败消失
+        self.assertEqual(len(cli_prep["items"]), 3)
+        success_names = {item["name"] for item in cli_prep["items"]}
+        self.assertEqual(success_names, {"clean1.png", "clean2.png", "bad_seam.png"})
+
+        # 失败项定位与契约一致性
+        self.assertEqual(len(cli_prep["failures"]), 2)
+        fail_codes = {f["name"]: f["code"] for f in cli_prep["failures"]}
+        self.assertEqual(fail_codes["bad_empty.png"], "EMPTY_FILE")
+        self.assertEqual(fail_codes["bad_corrupt.png"], "PREPARE_ERROR")
+        self.assertEqual(cli_prep["failures"], api_prep["failures"])
+        self.assertEqual(cli_prep, api_prep)
+
+        # 2. prepare --json --out <dir> 实际写盘模式：成功项正常落地，失败项记录
+        out_batch_dir = self.dir_path / "out_batch_written"
+        p_prep_out = self._run_cli([str(self.batch_dir), "--out", str(out_batch_dir), "--json", "--size", "100x60"])
+        self.assertEqual(p_prep_out.returncode, 1)
+        cli_prep_out = self._assert_pure_json(p_prep_out.stdout)
+        self.assertTrue(cli_prep_out["partial_success"])
+        # 成功项物理落地存在
+        self.assertTrue((out_batch_dir / "clean1.png").is_file())
+        self.assertTrue((out_batch_dir / "clean2.png").is_file())
+        self.assertTrue((out_batch_dir / "bad_seam.png").is_file())
+        # 失败项未落地
+        self.assertFalse((out_batch_dir / "bad_empty.png").exists())
+        self.assertFalse((out_batch_dir / "bad_corrupt.png").exists())
+
+        # 3. check --check --json 门禁模式
+        p_chk = self._run_cli([str(self.batch_dir), "--check", "--json"])
+        self.assertEqual(p_chk.returncode, 1)
+        self.assertEqual(p_chk.stderr, "")
+        cli_chk = self._assert_pure_json(p_chk.stdout)
+        api_chk = json.loads(json.dumps(check_images(self.batch_dir, verbose=False)))
+
+        self.assertFalse(cli_chk["ok"])
+        self.assertEqual(cli_chk["total"], 5)
+        # clean1, clean2 为 2 成功；bad_empty, bad_corrupt, bad_seam 为 3 失败
+        self.assertEqual(cli_chk["success_count"], 2)
+        self.assertEqual(cli_chk["failure_count"], 3)
+        self.assertTrue(cli_chk["partial_success"])
+        self.assertTrue(cli_chk["is_partial_success"])
+
+        # 成功项未丢失
+        self.assertEqual(len(cli_chk["items"]), 2)
+        chk_success_names = {item["name"] for item in cli_chk["items"]}
+        self.assertEqual(chk_success_names, {"clean1.png", "clean2.png"})
+
+        # 失败项定位与契约一致性
+        self.assertEqual(len(cli_chk["failures"]), 3)
+        chk_fail_codes = {f["name"]: f["code"] for f in cli_chk["failures"]}
+        self.assertEqual(chk_fail_codes["bad_empty.png"], "EMPTY_FILE")
+        self.assertEqual(chk_fail_codes["bad_corrupt.png"], "UNREADABLE_IMAGE")
+        self.assertEqual(chk_fail_codes["bad_seam.png"], "SEAM_DETECTED")
+        self.assertEqual(cli_chk["failures"], api_chk["failures"])
+        self.assertEqual(cli_chk, api_chk)
+
+    def test_real_cli_quiet_and_verbose_consistency(self):
+        """确认 quiet 与 verbose 组合在 --json 模式下不改变 JSON 语义，且 stderr 不污染 stdout。"""
+        # 1. prepare --json: 默认 vs --quiet vs -q vs --verbose vs -v
+        p_def = self._run_cli([str(self.batch_dir), "--json", "--size", "100x60"])
+        p_quiet = self._run_cli([str(self.batch_dir), "--json", "--quiet", "--size", "100x60"])
+        p_q = self._run_cli([str(self.batch_dir), "--json", "-q", "--size", "100x60"])
+        p_verb = self._run_cli([str(self.batch_dir), "--json", "--verbose", "--size", "100x60"])
+        p_v = self._run_cli([str(self.batch_dir), "--json", "-v", "--size", "100x60"])
+
+        data_def = self._assert_pure_json(p_def.stdout)
+        for label, proc in [("quiet", p_quiet), ("-q", p_q), ("verbose", p_verb), ("-v", p_v)]:
+            self.assertEqual(proc.returncode, 1)
+            self.assertEqual(proc.stderr, "", f"{label} 产生了非预期的 stderr 输出")
+            data = self._assert_pure_json(proc.stdout)
+            self.assertEqual(data, data_def, f"{label} 改变了 JSON 语义")
+
+        # 2. check --check --json: 默认 vs --quiet vs -q vs --verbose vs -v
+        p_c_def = self._run_cli([str(self.batch_dir), "--check", "--json"])
+        p_c_quiet = self._run_cli([str(self.batch_dir), "--check", "--json", "--quiet"])
+        p_c_q = self._run_cli([str(self.batch_dir), "--check", "--json", "-q"])
+        p_c_verb = self._run_cli([str(self.batch_dir), "--check", "--json", "--verbose"])
+        p_c_v = self._run_cli([str(self.batch_dir), "--check", "--json", "-v"])
+
+        data_c_def = self._assert_pure_json(p_c_def.stdout)
+        for label, proc in [("quiet", p_c_quiet), ("-q", p_c_q), ("verbose", p_c_verb), ("-v", p_c_v)]:
+            self.assertEqual(proc.returncode, 1)
+            self.assertEqual(proc.stderr, "", f"{label} 产生了非预期的 stderr 输出")
+            data = self._assert_pure_json(proc.stdout)
+            self.assertEqual(data, data_c_def, f"{label} 改变了 JSON 语义")
+
+    def test_real_cli_no_sensitive_values_leaked(self):
+        """确认各种失败路径与异常状态下，不会向 stdout 或 stderr 泄漏敏感值。"""
+        fake_secrets = [
+            "SECRET_TOKEN_XYZ_1234567890",
+            "PASSWORD_MY_SUPER_SECRET_KEY",
+            "API_KEY_AI_AGENT_PLATFORM_ABC",
+        ]
+        secret_env = {
+            "SECRET_TOKEN": fake_secrets[0],
+            "API_PASSWORD": fake_secrets[1],
+            "OPENAI_API_KEY": fake_secrets[2],
+        }
+
+        # 针对各类失败模式运行并验证无敏感值输出
+        cases = [
+            # FILE_NOT_FOUND
+            [str(self.missing_file), "--json"],
+            [str(self.missing_file), "--check", "--json"],
+            # 坏图与空图
+            [str(self.bad_empty), "--json"],
+            [str(self.bad_corrupt), "--check", "--json"],
+            # 接缝门禁失败
+            [str(self.bad_seam), "--check", "--json"],
+            # 批量部分失败
+            [str(self.batch_dir), "--json", "--size", "100x60"],
+            [str(self.batch_dir), "--check", "--json"],
+            # 参数错误失败
+            [str(self.clean1), "--json", "--size", "invalid_size"],
+            [str(self.clean1), "--json", "--brightness", "-1"],
+        ]
+
+        for argv in cases:
+            proc = self._run_cli(argv, env=secret_env)
+            self._assert_no_sensitive_values(proc.stdout, proc.stderr, fake_secrets)
+
+    def test_real_cli_invalid_arguments_keep_clean_output(self):
+        """确认非法参数在 --json 下保持非零退出码，stdout 不被污染，stderr 包含合规诊断。"""
+        # 1. 非法尺寸 --size
+        p_size = self._run_cli([str(self.clean1), "--json", "--size", "invalid"])
+        self.assertEqual(p_size.returncode, 1)
+        self.assertEqual(p_size.stdout, "")
+        self.assertIn("尺寸格式无效", p_size.stderr)
+
+        # 2. 非法亮度 --brightness
+        p_b = self._run_cli([str(self.clean1), "--json", "--brightness", "-0.5"])
+        self.assertEqual(p_b.returncode, 1)
+        self.assertEqual(p_b.stdout, "")
+        self.assertIn("亮度系数必须 >= 0", p_b.stderr)
+
+        # 3. 非法接缝 --seam
+        p_seam = self._run_cli([str(self.clean1), "--json", "--seam", "bad_col"])
+        self.assertEqual(p_seam.returncode, 1)
+        self.assertEqual(p_seam.stdout, "")
+        self.assertIn("无效的接缝列号", p_seam.stderr)
+
+        # 4. quiet 模式下非法参数抑制 stderr
+        p_size_q = self._run_cli([str(self.clean1), "--json", "--size", "invalid", "--quiet"])
+        self.assertEqual(p_size_q.returncode, 1)
+        self.assertEqual(p_size_q.stdout, "")
+        self.assertEqual(p_size_q.stderr, "")
 
 
 if __name__ == "__main__":
