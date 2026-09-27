@@ -369,7 +369,23 @@ def check_line_collisions(root):
     return out
 
 
-def check_contrast(img, root):
+def spec_polarity(spec_path):
+    """从 spec_lock 的 background 颜色判定文字采样极性。"""
+    if not spec_path:
+        return "dark"
+    try:
+        text = Path(spec_path).read_text(encoding="utf-8")
+    except OSError:
+        return "dark"
+    m = re.search(r"^\s*-\s*background:\s*(#[0-9A-Fa-f]{6})", text, re.M)
+    if not m:
+        return "dark"
+    h = m.group(1)
+    rgb = tuple(int(h[i:i+2], 16) for i in (1, 3, 5))
+    return "light" if lum(rgb) >= 0.5 else "dark"
+
+
+def check_contrast(img, root, polarity="dark"):
     """对每段文本，取渲染图中文字包围盒：背景=20分位亮度，笔画=99.5分位亮度"""
     rgb = np.asarray(img.convert("RGB"), dtype=np.float64)
     g = rgb.mean(axis=2)
@@ -400,25 +416,25 @@ def check_contrast(img, root):
         reg = g[y0:y1, x0:x1]
         if reg.size < 30:
             continue
-        # 兼容暗底亮字与亮底暗字。旧算法固定取低分位作背景、高分位作笔画，
-        # 对小字号深色文字会把两端都采成背景，造成“背景 vs 背景”的假阴性。
         gray = reg
-        candidates = []
-        for bg_t, gl_t in ((np.percentile(gray, 20), np.percentile(gray, 99.5)),
-                           (np.percentile(gray, 99.5), np.percentile(gray, 5))):
-            bgm = gray <= bg_t if bg_t < gl_t else gray >= bg_t
-            glm = gray >= gl_t if bg_t < gl_t else gray <= gl_t
-            if not bgm.any() or not glm.any():
-                continue
-            bg = rgb[y0:y1, x0:x1][bgm].mean(axis=0)
-            gl = rgb[y0:y1, x0:x1][glm].mean(axis=0)
-            L1, L2 = lum(gl), lum(bg)
-            if L1 < L2:
-                L1, L2 = L2, L1
-            candidates.append((L1 + 0.05) / (L2 + 0.05))
-        if not candidates:
+        if polarity == "light":
+            stroke_t = np.percentile(gray, 0.5)
+            bg_t = np.percentile(gray, 80)
+            stroke_mask = gray <= stroke_t
+            bg_mask = gray >= bg_t
+        else:
+            bg_t = np.percentile(gray, 20)
+            stroke_t = np.percentile(gray, 99.5)
+            bg_mask = gray <= bg_t
+            stroke_mask = gray >= stroke_t
+        if not bg_mask.any() or not stroke_mask.any():
             continue
-        ratio = max(candidates)
+        bg = rgb[y0:y1, x0:x1][bg_mask].mean(axis=0)
+        gl = rgb[y0:y1, x0:x1][stroke_mask].mean(axis=0)
+        L1, L2 = lum(gl), lum(bg)
+        if L1 < L2:
+            L1, L2 = L2, L1
+        ratio = (L1 + 0.05) / (L2 + 0.05)
         rows.append((ratio, txt, size))
     return rows
 
@@ -601,7 +617,7 @@ def qa_single_layout(
             if "⚠️" in line:
                 bad += 1
 
-        rows = check_contrast(img, root)
+        rows = check_contrast(img, root, polarity=spec_polarity(spec))
         if not rows:
             _log("  [对比] 无可测文本")
         else:

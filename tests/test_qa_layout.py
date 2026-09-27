@@ -505,7 +505,7 @@ class TestContrastPolarity(unittest.TestCase):
         pixels[18:22, 10:90] = 17
         image = Image.fromarray(pixels, mode="RGB")
         root = ET.fromstring('<svg xmlns="http://www.w3.org/2000/svg"><text x="10" y="30" font-size="16">small</text></svg>')
-        rows = check_contrast(image, root)
+        rows = check_contrast(image, root, polarity="light")
         self.assertEqual(len(rows), 1)
         self.assertGreaterEqual(rows[0][0], 4.5)
 
