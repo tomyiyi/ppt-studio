@@ -4,6 +4,8 @@ from unittest.mock import patch
 from scripts import materialize_content_project as m
 
 class Tests(unittest.TestCase):
+ def test_hierarchy_tree_roster_name(self):
+  self.assertEqual(m.RENDERERS["hierarchy-tree"].name,"render_hierarchy_tree_svg.py")
  def test_cover_and_three_card_roster(self):
    with tempfile.TemporaryDirectory() as n:
     root=Path(n); plan={"schema":"ppt-studio-slide-plan/v1","slides":[{"id":"01","kind":"cover","blocks":[]},{"id":"02","kind":"content","title":"T","blocks":[{"type":"paragraph","text":"a"},{"type":"paragraph","text":"b"},{"type":"paragraph","text":"c"}]}]}; pp=root/"p.json"; pp.write_text(json.dumps(plan)); it={"schema":"ppt-studio-layout-intent/v1","source_plan_sha256":hashlib.sha256(pp.read_bytes()).hexdigest(),"slides":[{"id":"01","layout":"cover"},{"id":"02","layout":"three-card"}]}; ip=root/"i.json"; ip.write_text(json.dumps(it)); a,r=m.load(pp); b,_=m.load(ip); self.assertEqual(m.expected_files(a,b,r),["01_cover.svg","02_three_card.svg"])

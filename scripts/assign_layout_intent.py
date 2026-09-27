@@ -33,6 +33,7 @@ def assign_layout(slide: dict) -> str:
     has_layers = False
     has_bars = False
     has_tasks = False
+    has_hierarchy = False
     image_count = 0
     paragraph_count = 0
     for block in blocks:
@@ -85,6 +86,9 @@ def assign_layout(slide: dict) -> str:
         if block.get("type") == "task-list":
             has_tasks = True
             continue
+        if block.get("type") == "hierarchy-tree":
+            has_hierarchy = True
+            continue
         if block.get("type") != "paragraph":
             raise ValueError("unsupported block type")
         paragraph_count += 1
@@ -116,6 +120,9 @@ def assign_layout(slide: dict) -> str:
         if paragraph_count > 1 or has_bullets or has_steps or has_quote or has_table or has_image or has_metrics or has_layers:
             raise ValueError("mixed task-list blocks are not supported in v1")
         return "checklist-status"
+    if has_hierarchy:
+        if paragraph_count > 1 or len([b for b in blocks if b.get("type")=="hierarchy-tree"]) != 1 or any(b.get("type") not in {"hierarchy-tree","paragraph"} for b in blocks): raise ValueError("mixed hierarchy-tree blocks are not supported in v1")
+        return "hierarchy-tree"
     if has_risk:
         if paragraph_count or has_steps or has_quote or has_table or has_image or has_bullets:
             raise ValueError("mixed risk-register blocks are not supported in v1")

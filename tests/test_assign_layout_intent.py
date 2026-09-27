@@ -16,6 +16,9 @@ def plan(slides):
 
 
 class AssignLayoutIntentTests(unittest.TestCase):
+    def test_hierarchy_tree_layout(self):
+        slide={"kind":"content","blocks":[{"type":"hierarchy-tree","root":"R","children":["A","B"]}]}
+        self.assertEqual(MODULE.assign_layout(slide),"hierarchy-tree")
     def test_comparison_table_layout_and_mixed_reject(self):
         source=b"{}"; table={"type":"comparison-table","headers":["A","B"],"rows":[["a","b"],["c","d"]]}
         self.assertEqual(MODULE.build_intent(plan([{"id":"01","kind":"content","blocks":[table]}]),source)["slides"][0]["layout"],"comparison-table")

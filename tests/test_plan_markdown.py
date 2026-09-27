@@ -12,6 +12,14 @@ SPEC.loader.exec_module(MODULE)
 
 
 class PlanMarkdownTests(unittest.TestCase):
+    def test_hierarchy_tree_contract(self):
+        source=b"# D\n## Runtime\n- Runtime\n  - Planning\n  - Tools\n  - Recovery\n  - Verification"
+        block=MODULE.build_plan("x.md",source)["slides"][1]["blocks"][0]
+        self.assertEqual(block["type"],"hierarchy-tree")
+        self.assertEqual(len(block["children"]),4)
+        flat=MODULE.build_plan("x.md",b"# D\n## S\n- A\n- B")["slides"][1]["blocks"][0]
+        self.assertEqual(flat["type"],"bullets")
+        with self.assertRaises(ValueError): MODULE.build_plan("x.md",b"# D\n## S\n- R\n  - A\n  - B\n  - C\n  - D\n  - E")
     def test_comparison_table_contract(self):
         plan=MODULE.build_plan("x.md", "# D\n\n## Compare\n| A | B |\n| --- | --- |\n| a | b |\n| c | d |\n| e | f |".encode())
         self.assertEqual(plan["slides"][1]["blocks"],[{"type":"comparison-table","headers":["A","B"],"rows":[["a","b"],["c","d"],["e","f"]]}])

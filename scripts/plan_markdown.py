@@ -10,6 +10,8 @@ from pathlib import Path, PurePosixPath
 
 _HEADING = re.compile(r"^(#{1,3})[ \t]+(.+?)[ \t]*$")
 _BULLET = re.compile(r"^[ \t]*([-*])[ \t]+(.+?)[ \t]*$")
+_BULLET_ROOT = re.compile(r"^([-*])[ \t]+(.+?)[ \t]*$")
+_BULLET_CHILD = re.compile(r"^  ([-*])[ \t]+(.+?)[ \t]*$")
 _FAQ_Q = re.compile(r"^[ \t]*Q:[ \t]*(.+?)[ \t]*$")
 _FAQ_A = re.compile(r"^[ \t]*A:[ \t]*(.+?)[ \t]*$")
 _FAQ_Q_MARKER = re.compile(r"^[ \t]*Q:[ \t]*$")
@@ -142,6 +144,18 @@ def parse_markdown(text: str) -> list[dict]:
             continue
         bullet = _BULLET.match(line)
         if bullet:
+            if _BULLET_ROOT.match(line) and i + 1 < len(lines) and lines[i + 1].startswith(" "):
+                root = _BULLET_ROOT.match(line).group(2).strip(); i += 1; children = []
+                while i < len(lines) and lines[i].strip():
+                    if _BULLET_ROOT.match(lines[i]): raise ValueError("hierarchy tree requires exactly one root in v1")
+                    child = _BULLET_CHILD.match(lines[i])
+                    if not child:
+                        if lines[i].startswith((" ", "\t")): raise ValueError("hierarchy tree supports exactly one nesting level in v1")
+                        break
+                    children.append(child.group(2).strip()); i += 1
+                if not root or any(not child for child in children): raise ValueError("hierarchy tree labels must be non-empty")
+                if not 2 <= len(children) <= 4: raise ValueError("hierarchy tree requires 2-4 children in v1")
+                current["blocks"].append({"type":"hierarchy-tree","root":root,"children":children}); continue
             items = []
             while i < len(lines):
                 item = _BULLET.match(lines[i])
