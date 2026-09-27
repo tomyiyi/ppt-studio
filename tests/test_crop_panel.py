@@ -9,6 +9,7 @@ tests/test_crop_panel.py
 
 import io
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -59,6 +60,32 @@ def create_test_image(
         arr[y : y + h, x : x + w] = 220
     im = Image.fromarray(arr, "RGB")
     im.save(path)
+
+
+PYTHON_BIN = REPO_ROOT / ".venv" / "bin" / "python3"
+if not PYTHON_BIN.exists():
+    PYTHON_BIN = REPO_ROOT / ".venv" / "bin" / "python"
+if not PYTHON_BIN.exists():
+    PYTHON_BIN = Path(sys.executable)
+
+SCRIPT_PATH = REPO_ROOT / "scripts" / "crop_panel.py"
+
+
+def run_cli_subprocess(
+    args: list[str], cwd: Path | None = None, env: dict | None = None
+) -> subprocess.CompletedProcess:
+    """以独立外部子进程方式执行 crop_panel.py，验证真实 OS 进程契约。"""
+    full_env = os.environ.copy()
+    full_env["PYTHONPATH"] = str(REPO_ROOT)
+    if env:
+        full_env.update(env)
+    return subprocess.run(
+        [str(PYTHON_BIN), str(SCRIPT_PATH), *args],
+        capture_output=True,
+        text=True,
+        cwd=str(cwd) if cwd else str(REPO_ROOT),
+        env=full_env,
+    )
 
 
 class TestParseAspect(unittest.TestCase):
@@ -554,6 +581,239 @@ class TestCropPanelQuietVerbose(unittest.TestCase):
             res = crop_panel([self.good_img], apply=False, verbose=True)
         self.assertEqual(len(res), 1)
         self.assertIn("[预演] good.png", buf_out.getvalue())
+
+
+class TestCropPanelContract(unittest.TestCase):
+    """收敛后的进程契约测试：聚焦 4 类关键风险与 OS 级子进程契约。
+
+    覆盖范围（仅 9 个用例）：
+    - 风险 1：缺失输入（CLI 退出码与 quiet/verbose 行为）
+    - 风险 2：损坏或不可读图片（坏数据与暗图无主体，均不产生坏产物）
+    - 风险 3：明确门禁失败（--check 墨量门禁未通过）
+    - 风险 4：成功路径回归（dry-run 预演、--apply 写盘产物一致性、参数优先级）
+    - 真实子进程：验证 OS 级退出码、标准流与文件生成契约（1 个失败，1 个成功）
+    """
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.tmp_path = Path(self.temp_dir.name)
+        self.good_img = self.tmp_path / "good.png"
+        create_test_image(self.good_img, 400, 300, (100, 100, 150, 100))
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    # ---------------- 风险 1：缺失输入 ----------------
+
+    def test_missing_input_contract(self):
+        """缺失输入：quiet 保持 rc=1 且静默，verbose 增加诊断信息。"""
+        missing = self.tmp_path / "non_existing.png"
+
+        # quiet / -q: 保持失败退出码 1 且不输出任何信息
+        for flags in [["--quiet"], ["-q"]]:
+            buf_out = io.StringIO()
+            buf_err = io.StringIO()
+            with redirect_stdout(buf_out), redirect_stderr(buf_err):
+                code = main([str(missing), *flags])
+            self.assertEqual(code, 1)
+            self.assertEqual(buf_out.getvalue(), "")
+            self.assertEqual(buf_err.getvalue(), "")
+
+        # verbose: 退出码 1 且 stderr 明确指出缺失文件
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with redirect_stdout(buf_out), redirect_stderr(buf_err):
+            code = main([str(missing), "--verbose"])
+        self.assertEqual(code, 1)
+        self.assertEqual(buf_out.getvalue(), "")
+        self.assertIn("源图片文件不存在", buf_err.getvalue())
+
+    # ---------------- 风险 2：损坏或不可读图片 ----------------
+
+    def test_corrupted_image_contract(self):
+        """损坏图片：quiet 保持 rc=1 且静默，verbose 诊断异常，均不落盘产物。"""
+        broken = self.tmp_path / "broken.png"
+        broken.write_bytes(b"INVALID_HEADER_GARBAGE_BYTES")
+        out_panel = broken.with_name("broken_panel.png")
+
+        # quiet
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with redirect_stdout(buf_out), redirect_stderr(buf_err):
+            code = main([str(broken), "--apply", "--quiet"])
+        self.assertEqual(code, 1)
+        self.assertEqual(buf_out.getvalue(), "")
+        self.assertEqual(buf_err.getvalue(), "")
+        self.assertFalse(out_panel.exists())
+
+        # verbose
+        buf_out_v = io.StringIO()
+        buf_err_v = io.StringIO()
+        with redirect_stdout(buf_out_v), redirect_stderr(buf_err_v):
+            code_v = main([str(broken), "--apply", "--verbose"])
+        self.assertEqual(code_v, 1)
+        self.assertEqual(buf_out_v.getvalue(), "")
+        self.assertIn("裁切发生异常", buf_err_v.getvalue())
+        self.assertFalse(out_panel.exists())
+
+    def test_unreadable_dark_image_contract(self):
+        """暗图/无主体不可读：quiet 保持 rc=1 且静默，verbose 诊断无主体，均不写盘。"""
+        dark = self.tmp_path / "dark.png"
+        create_test_image(dark, 300, 200)
+        out_panel = dark.with_name("dark_panel.png")
+
+        # quiet
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with redirect_stdout(buf_out), redirect_stderr(buf_err):
+            code = main([str(dark), "--apply", "--quiet"])
+        self.assertEqual(code, 1)
+        self.assertEqual(buf_out.getvalue(), "")
+        self.assertEqual(buf_err.getvalue(), "")
+        self.assertFalse(out_panel.exists())
+
+        # verbose
+        buf_out_v = io.StringIO()
+        buf_err_v = io.StringIO()
+        with redirect_stdout(buf_out_v), redirect_stderr(buf_err_v):
+            code_v = main([str(dark), "--apply", "--verbose"])
+        self.assertEqual(code_v, 1)
+        self.assertEqual(buf_out_v.getvalue(), "")
+        self.assertIn("没找到主体（亮像素太少）", buf_err_v.getvalue())
+        self.assertFalse(out_panel.exists())
+
+    # ---------------- 风险 3：明确门禁失败 ----------------
+
+    def test_explicit_gate_failure_contract(self):
+        """明确门禁失败（主体墨量不足）：quiet 保持 rc=1 且静默，verbose 诊断不足。"""
+        sparse = self.tmp_path / "sparse.png"
+        arr = np.zeros((400, 500, 3), dtype=np.uint8)
+        arr[100:104, 100:104] = 220
+        arr[100:104, 396:400] = 220
+        arr[296:300, 100:104] = 220
+        arr[296:300, 396:400] = 220
+        Image.fromarray(arr, "RGB").save(sparse)
+
+        # quiet
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with redirect_stdout(buf_out), redirect_stderr(buf_err):
+            code = main([str(sparse), "--check", "--quiet"])
+        self.assertEqual(code, 1)
+        self.assertEqual(buf_out.getvalue(), "")
+        self.assertEqual(buf_err.getvalue(), "")
+
+        # verbose
+        buf_out_v = io.StringIO()
+        buf_err_v = io.StringIO()
+        with redirect_stdout(buf_out_v), redirect_stderr(buf_err_v):
+            code_v = main([str(sparse), "--check", "--verbose"])
+        self.assertEqual(code_v, 1)
+        self.assertIn("主体墨量不足", buf_err_v.getvalue())
+
+    # ---------------- 风险 4：成功路径回归 ----------------
+
+    def test_success_dry_run_contract(self):
+        """成功预演场景：quiet 保持 rc=0 完全静默，verbose 输出统计摘要，均不写盘。"""
+        out_panel = self.good_img.with_name("good_panel.png")
+
+        # quiet
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with redirect_stdout(buf_out), redirect_stderr(buf_err):
+            code = main([str(self.good_img), "--quiet"])
+        self.assertEqual(code, 0)
+        self.assertEqual(buf_out.getvalue(), "")
+        self.assertEqual(buf_err.getvalue(), "")
+        self.assertFalse(out_panel.exists())
+
+        # verbose
+        buf_out_v = io.StringIO()
+        buf_err_v = io.StringIO()
+        with redirect_stdout(buf_out_v), redirect_stderr(buf_err_v):
+            code_v = main([str(self.good_img), "--verbose"])
+        self.assertEqual(code_v, 0)
+        self.assertIn("good.png", buf_out_v.getvalue())
+        self.assertIn("主体 bbox", buf_out_v.getvalue())
+        self.assertEqual(buf_err_v.getvalue(), "")
+        self.assertFalse(out_panel.exists())
+
+    def test_success_apply_contract(self):
+        """成功写盘场景：quiet 与 verbose 均返回 rc=0，且写入的产物完全一致。"""
+        out_q = self.tmp_path / "panel_quiet.png"
+        out_v = self.tmp_path / "panel_verbose.png"
+
+        # quiet 写盘
+        buf_out_q = io.StringIO()
+        buf_err_q = io.StringIO()
+        with redirect_stdout(buf_out_q), redirect_stderr(buf_err_q):
+            code_q = main([str(self.good_img), "--out", str(out_q), "--apply", "--quiet"])
+        self.assertEqual(code_q, 0)
+        self.assertEqual(buf_out_q.getvalue(), "")
+        self.assertEqual(buf_err_q.getvalue(), "")
+        self.assertTrue(out_q.exists())
+
+        # verbose 写盘
+        buf_out_v = io.StringIO()
+        buf_err_v = io.StringIO()
+        with redirect_stdout(buf_out_v), redirect_stderr(buf_err_v):
+            code_v = main([str(self.good_img), "--out", str(out_v), "--apply", "--verbose"])
+        self.assertEqual(code_v, 0)
+        self.assertIn("已保存", buf_out_v.getvalue())
+        self.assertEqual(buf_err_v.getvalue(), "")
+        self.assertTrue(out_v.exists())
+
+        # 产物属性严格一致
+        with Image.open(out_q) as im_q, Image.open(out_v) as im_v:
+            self.assertEqual(im_q.size, im_v.size)
+            self.assertEqual(im_q.mode, im_v.mode)
+
+    def test_flag_precedence_quiet_over_verbose(self):
+        """参数冲突时 quiet 优先级最高：--quiet 与 --verbose 混用时强制保持静默。"""
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with redirect_stdout(buf_out), redirect_stderr(buf_err):
+            code = main([str(self.good_img), "--verbose", "--quiet"])
+        self.assertEqual(code, 0)
+        self.assertEqual(buf_out.getvalue(), "")
+        self.assertEqual(buf_err.getvalue(), "")
+
+    # ---------------- 真实 OS 子进程契约 ----------------
+
+    def test_subprocess_failure_contract(self):
+        """真实外部子进程失败契约：缺失输入在 OS 级退出 1，quiet 完全静默，verbose 输出 stderr。"""
+        missing = self.tmp_path / "sub_missing.png"
+
+        # quiet
+        p_q = run_cli_subprocess([str(missing), "--quiet"])
+        self.assertEqual(p_q.returncode, 1)
+        self.assertEqual(p_q.stdout, "")
+        self.assertEqual(p_q.stderr, "")
+
+        # verbose
+        p_v = run_cli_subprocess([str(missing), "--verbose"])
+        self.assertEqual(p_v.returncode, 1)
+        self.assertEqual(p_v.stdout, "")
+        self.assertIn("源图片文件不存在", p_v.stderr)
+
+    def test_subprocess_success_apply_contract(self):
+        """真实外部子进程成功契约：写盘在 OS 级退出 0，quiet 静默并写盘，verbose 输出确认信息。"""
+        out_q = self.tmp_path / "sub_out_q.png"
+        out_v = self.tmp_path / "sub_out_v.png"
+
+        # quiet
+        p_q = run_cli_subprocess([str(self.good_img), "--out", str(out_q), "--apply", "--quiet"])
+        self.assertEqual(p_q.returncode, 0)
+        self.assertEqual(p_q.stdout, "")
+        self.assertEqual(p_q.stderr, "")
+        self.assertTrue(out_q.exists())
+
+        # verbose
+        p_v = run_cli_subprocess([str(self.good_img), "--out", str(out_v), "--apply", "--verbose"])
+        self.assertEqual(p_v.returncode, 0)
+        self.assertIn("已保存", p_v.stdout)
+        self.assertEqual(p_v.stderr, "")
+        self.assertTrue(out_v.exists())
 
 
 if __name__ == "__main__":
