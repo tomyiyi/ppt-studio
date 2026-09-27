@@ -5,6 +5,8 @@ from pathlib import Path
 HEX = re.compile(r"#[0-9A-Fa-f]{6}")
 TAG = re.compile(r"<[^>]+>")
 COLOR_ATTR = re.compile(r'(\b(?:fill|stroke|stop-color)\s*=\s*["\'])(#[0-9A-Fa-f]{6})(["\'])', re.I)
+ROOT_SVG = re.compile(r'<svg\b[^>]*>', re.I)
+ROOT_FONT = re.compile(r'\sfont-family\s*=\s*("[^"]*"|\'[^\']*\')', re.I)
 
 def transform_svg(text, mapping, role_mapping):
     def transform_tag(match):
@@ -18,6 +20,17 @@ def transform_svg(text, mapping, role_mapping):
         return COLOR_ATTR.sub(replace_color, tag)
     return TAG.sub(transform_tag, text)
 
+def apply_root_font_family(text, root_font_family):
+    if not root_font_family:
+        return text
+    def replace_root(match):
+        tag = match.group(0)
+        value = 'font-family="' + root_font_family.replace('&', '&amp;').replace('"', '&quot;') + '"'
+        if ROOT_FONT.search(tag):
+            return ROOT_FONT.sub(' ' + value, tag, count=1)
+        return tag[:-1].rstrip() + ' ' + value + '>'
+    return ROOT_SVG.sub(replace_root, text, count=1)
+
 def main(argv=None):
     p = argparse.ArgumentParser()
     p.add_argument("source_svg", type=Path)
@@ -30,15 +43,21 @@ def main(argv=None):
     palette = theme["colors"]
     mapping = {k.upper(): v.upper() for k, v in palette.items()}
     role_mapping = {role: {k.upper(): v.upper() for k, v in colors.items()} for role, colors in theme.get("role_colors", {}).items()}
+    typography = theme.get("typography", {})
+    root_font_family = typography.get("root_font_family")
     a.output_svg.mkdir(parents=True, exist_ok=True)
     for src in sorted(a.source_svg.glob("*.svg")):
         text = src.read_text(encoding="utf-8")
         text = transform_svg(text, mapping, role_mapping)
+        text = apply_root_font_family(text, root_font_family)
         (a.output_svg / src.name).write_text(text, encoding="utf-8")
     if a.spec_in and a.spec_out:
         spec = a.spec_in.read_text(encoding="utf-8")
         for old, new in mapping.items():
             spec = spec.replace(old, new).replace(old.lower(), new)
+        if root_font_family:
+            for key in ("font_family", "title_family", "body_family"):
+                spec = re.sub(rf"(?m)^(- {key}: ).*$", rf"\g<1>{root_font_family}", spec)
         a.spec_out.write_text(spec, encoding="utf-8")
     print(f"THEME_APPLIED name={theme['name']} files={len(list(a.output_svg.glob('*.svg')))}")
 

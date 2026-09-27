@@ -1,5 +1,8 @@
 {
   "name": "light-business",
+  "typography": {
+    "root_font_family": "\"Noto Sans CJK SC\", \"Microsoft YaHei\", \"PingFang SC\", Arial, sans-serif"
+  },
   "colors": {
     "#08090C": "#111827",
     "#12131A": "#1F2937",

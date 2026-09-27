@@ -5,6 +5,39 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.apply_theme import main
 
 class ThemeTest(unittest.TestCase):
+    def test_root_typography_token_changes_only_svg_root(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); src=root/'src'; out=root/'out'; src.mkdir()
+            (src/'01.svg').write_text('<svg font-family="Old Sans"><text>正文</text><text font-family="Arial, Helvetica, sans-serif">42%</text><text font-family="Consolas, monospace">[exec]</text></svg>')
+            theme=root/'theme.json'; theme.write_text(json.dumps({'name':'x','colors':{},'typography':{'root_font_family':'"Noto Sans CJK SC", Arial, sans-serif'}}))
+            main([str(src),str(out),'--theme',str(theme)])
+            got=(out/'01.svg').read_text()
+            self.assertIn('font-family="&quot;Noto Sans CJK SC&quot;, Arial, sans-serif"', got)
+            self.assertIn('font-family="Arial, Helvetica, sans-serif"', got)
+            self.assertIn('font-family="Consolas, monospace"', got)
+
+    def test_typography_missing_is_backward_compatible(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); src=root/'src'; out=root/'out'; src.mkdir()
+            original='<svg font-family="Old Sans"><text>正文</text></svg>'
+            (src/'01.svg').write_text(original)
+            theme=root/'theme.json'; theme.write_text(json.dumps({'name':'x','colors':{}}))
+            main([str(src),str(out),'--theme',str(theme)])
+            self.assertEqual((out/'01.svg').read_text(), original)
+
+    def test_typography_updates_themed_spec_families_only(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); src=root/'src'; out=root/'out'; src.mkdir()
+            (src/'01.svg').write_text('<svg/>')
+            spec_in=root/'in.md'; spec_out=root/'out.md'
+            spec_in.write_text('- font_family: Old\n- title_family: Old Title\n- body_family: Old Body\n- mono_family: Consolas, monospace\n- statement: 56\n')
+            theme=root/'theme.json'; theme.write_text(json.dumps({'name':'x','colors':{},'typography':{'root_font_family':'Noto Sans CJK SC, Arial, sans-serif'}}))
+            main([str(src),str(out),'--theme',str(theme),'--spec-in',str(spec_in),'--spec-out',str(spec_out)])
+            got=spec_out.read_text()
+            self.assertEqual(got.count('Noto Sans CJK SC, Arial, sans-serif'), 3)
+            self.assertIn('- mono_family: Consolas, monospace', got)
+            self.assertIn('- statement: 56', got)
+
     def test_image_scrim_role_maps_stop_color_without_touching_stop_geometry(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); src=root/'src'; out=root/'out'; src.mkdir()
