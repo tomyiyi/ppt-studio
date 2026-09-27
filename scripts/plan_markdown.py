@@ -120,17 +120,17 @@ def parse_markdown(text: str) -> list[dict]:
                 rows.append(cells); i += 1
             if len(rows)==1: raise ValueError("unsupported markdown structure: table")
             if len(rows)<3: raise ValueError("comparison table requires header and 2-4 data rows")
-                if rows[0] == ["Item", "W1", "W2", "W3", "W4"]:
-                    if len(rows[1])!=5 or any(not re.fullmatch(r":?-{3,}:?", x) for x in rows[1]): raise ValueError("status heatmap alignment syntax is not supported")
-                    data=rows[2:]
-                    if not 3<=len(data)<=5 or any(len(x)!=5 or any(not cell for cell in x) for x in data): raise ValueError("status heatmap requires 3-5 non-empty data rows")
-                    items=[row[0] for row in data]
-                    if len(set(items)) != len(items): raise ValueError("status heatmap items must be unique in v1")
-                    if any(len(row[0])>18 for row in data): raise ValueError("status heatmap item exceeds budget")
-                    allowed={"Low","Medium","High"}
-                    if any(value not in allowed for row in data for value in row[1:]): raise ValueError("status heatmap values must be Low, Medium, or High in v1")
-                    current["blocks"].append({"type":"status-heatmap","headers":rows[0],"periods":["W1","W2","W3","W4"],"items":[{"item":row[0],"statuses":row[1:]} for row in data]})
-                    continue
+            if rows[0] == ["Item", "W1", "W2", "W3", "W4"]:
+                if len(rows[1])!=5 or any(not re.fullmatch(r":?-{3,}:?", x) for x in rows[1]): raise ValueError("status heatmap alignment syntax is not supported")
+                data=rows[2:]
+                if not 3<=len(data)<=5 or any(len(x)!=5 or any(not cell for cell in x) for x in data): raise ValueError("status heatmap requires 3-5 non-empty data rows")
+                items=[row[0] for row in data]
+                if len(set(items)) != len(items): raise ValueError("status heatmap items must be unique in v1")
+                if any(len(row[0])>18 for row in data): raise ValueError("status heatmap item exceeds budget")
+                allowed={"Low","Medium","High"}
+                if any(value not in allowed for row in data for value in row[1:]): raise ValueError("status heatmap values must be Low, Medium, or High in v1")
+                current["blocks"].append({"type":"status-heatmap","headers":rows[0],"periods":["W1","W2","W3","W4"],"items":[{"item":row[0],"statuses":row[1:]} for row in data]})
+                continue
             if len(rows[0])==3:
                 if rows[0] == ["Option", "Impact", "Effort"]:
                     if len(rows[1])!=3 or any(not re.fullmatch(r":?-{3,}:?", x) for x in rows[1]): raise ValueError("decision matrix alignment syntax is not supported")
