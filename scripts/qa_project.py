@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
+
+if __package__ in (None, ""):
+    repo_root = Path(__file__).resolve().parent.parent
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
 
 from scripts.qa_image_pipeline import run_image_qa
 from scripts.qa_layout import run_qa_layout
@@ -89,3 +96,35 @@ def write_qa_attestation(result: dict[str, Any], output_path: str | Path) -> dic
             pass
         raise
     return attestation
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="PPT-Studio 项目级全链路客观质量验收门禁")
+    parser.add_argument("project", nargs="?", default=".", help="项目根目录（默认当前目录）")
+    parser.add_argument("--attestation", help="可选输出验收凭据 JSON 路径")
+    parser.add_argument("--json", action="store_true", dest="as_json", help="以 JSON 格式输出验收结果")
+    parser.add_argument("--verbose", "-v", action="store_true", help="详细日志输出")
+    args = parser.parse_args(argv)
+
+    try:
+        result = run_project_qa(args.project, verbose=args.verbose)
+        if args.attestation:
+            write_qa_attestation(result, args.attestation)
+    except (FileNotFoundError, OSError, ValueError, RuntimeError) as err:
+        if args.as_json:
+            print(json.dumps({"ok": False, "error": str(err)}, ensure_ascii=False))
+        else:
+            print(f"[err] {err}", file=sys.stderr)
+        return 1
+
+    if args.as_json:
+        print(json.dumps(result, ensure_ascii=False, default=str))
+    else:
+        status = "✓ 项目客观质量门禁全量通过" if result["ok"] else f"✗ 项目客观质量门禁失败 (阶段: {result.get('failed_stage')})"
+        print(f"[门禁] {status}")
+    return 0 if result["ok"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+

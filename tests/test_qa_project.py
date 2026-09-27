@@ -1,10 +1,14 @@
-import unittest
+import io
 import json
+import subprocess
+import sys
+import tempfile
+import unittest
+from contextlib import ExitStack, redirect_stdout
 from pathlib import Path
-from contextlib import ExitStack
 from unittest.mock import patch
 
-from scripts.qa_project import build_qa_attestation, run_project_qa, write_qa_attestation
+from scripts.qa_project import build_qa_attestation, main, run_project_qa, write_qa_attestation
 
 
 class TestProjectQA(unittest.TestCase):
@@ -113,6 +117,60 @@ class TestProjectQA(unittest.TestCase):
         }}
         with self.assertRaises((NotADirectoryError, FileNotFoundError, FileExistsError)):
             write_qa_attestation(result, "/dev/null/qa-attestation.json")
+
+    def test_cli_success(self):
+        with ExitStack() as stack:
+            self._patch_all(stack)
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = main(["/tmp/mock-project"])
+            self.assertEqual(code, 0)
+            self.assertIn("✓ 项目客观质量门禁全量通过", buf.getvalue())
+
+    def test_cli_failure(self):
+        with ExitStack() as stack:
+            self._patch_all(stack, layout=False)
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = main(["/tmp/mock-project"])
+            self.assertEqual(code, 1)
+            self.assertIn("✗ 项目客观质量门禁失败 (阶段: layout)", buf.getvalue())
+
+    def test_cli_json_mode(self):
+        with ExitStack() as stack:
+            self._patch_all(stack)
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = main(["/tmp/mock-project", "--json"])
+            self.assertEqual(code, 0)
+            data = json.loads(buf.getvalue())
+            self.assertTrue(data["ok"])
+            self.assertIsNone(data["failed_stage"])
+
+    def test_cli_writes_attestation(self):
+        with tempfile.TemporaryDirectory() as td:
+            attestation_path = Path(td) / "qa.json"
+            with ExitStack() as stack:
+                self._patch_all(stack)
+                code = main(["/tmp/mock-project", "--attestation", str(attestation_path)])
+            self.assertEqual(code, 0)
+            self.assertTrue(attestation_path.exists())
+            data = json.loads(attestation_path.read_text(encoding="utf-8"))
+            self.assertEqual(data["schema_version"], 1)
+            self.assertTrue(data["overall"])
+
+    def test_cli_subprocess_invocation(self):
+        script = Path(__file__).resolve().parent.parent / "scripts" / "qa_project.py"
+        fixture = Path(__file__).resolve().parent.parent / "projects" / "agentflow-os-launch"
+        completed = subprocess.run(
+            [sys.executable, str(script), str(fixture), "--json"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        data = json.loads(completed.stdout)
+        self.assertTrue(data["ok"])
+        self.assertIn("stages", data)
 
 
 if __name__ == "__main__":
