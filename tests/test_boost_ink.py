@@ -604,7 +604,7 @@ class TestBoostInkContract(unittest.TestCase):
     - 风险 2：损坏或不可读图片（坏数据字节，不产生坏产物，返回失败）
     - 风险 3：明确门禁失败（--check 墨量门禁未通过）
     - 风险 4：成功路径回归（dry-run 预演、--apply 写盘与备份契约、参数优先级）
-    - 真实子进程：验证 OS 级退出码、标准流与文件生成契约（1 个失败，1 个成功）
+    - 真实子进程：验证 OS 级退出码、标准流与文件生成契约（预演、写盘、门禁失败、缺失输入、未知参数）
     """
 
     def setUp(self):
@@ -752,6 +752,68 @@ class TestBoostInkContract(unittest.TestCase):
         self.assertEqual(p_v.returncode, 1)
         self.assertEqual(p_v.stdout, "")
         self.assertIn("[err]", p_v.stderr)
+
+    def test_subprocess_success_dry_run_contract(self):
+        """真实外部子进程成功预演契约：canonical dry-run 在 OS 级退出 0 且绝不写盘，quiet 完全静默，verbose 输出预演摘要。"""
+        sub_img = self.tmp_path / "sub_dry.png"
+        create_test_image(sub_img, stroke_box=(20, 20, 60, 60), stroke_val=150)
+        orig_bytes = sub_img.read_bytes()
+        mtime_before = sub_img.stat().st_mtime
+        bak = self.tmp_path / f"_pre_{sub_img.name}"
+
+        # 默认 dry-run
+        p_def = run_cli_subprocess([str(sub_img)])
+        self.assertEqual(p_def.returncode, 0)
+        self.assertIn("预演模式", p_def.stdout)
+        self.assertEqual(p_def.stderr, "")
+        self.assertEqual(sub_img.read_bytes(), orig_bytes)
+        self.assertEqual(sub_img.stat().st_mtime, mtime_before)
+        self.assertFalse(bak.exists())
+
+        # quiet dry-run: rc=0 且完全静默，不写盘
+        p_q = run_cli_subprocess([str(sub_img), "--quiet"])
+        self.assertEqual(p_q.returncode, 0)
+        self.assertEqual(p_q.stdout, "")
+        self.assertEqual(p_q.stderr, "")
+        self.assertEqual(sub_img.read_bytes(), orig_bytes)
+        self.assertEqual(sub_img.stat().st_mtime, mtime_before)
+        self.assertFalse(bak.exists())
+
+        # verbose dry-run: rc=0 且输出统计与预演摘要，不写盘
+        p_v = run_cli_subprocess([str(sub_img), "--verbose"])
+        self.assertEqual(p_v.returncode, 0)
+        self.assertIn("预演模式", p_v.stdout)
+        self.assertIn("sub_dry.png", p_v.stdout)
+        self.assertEqual(p_v.stderr, "")
+        self.assertEqual(sub_img.read_bytes(), orig_bytes)
+        self.assertEqual(sub_img.stat().st_mtime, mtime_before)
+        self.assertFalse(bak.exists())
+
+    def test_subprocess_explicit_gate_failure_contract(self):
+        """真实外部子进程门禁失败契约：明确质量门禁失败时 canonical quiet/verbose 均 rc=1 且 quiet 静默、verbose 有门禁诊断。"""
+        # quiet: rc=1 且完全静默
+        p_q = run_cli_subprocess([str(self.good_img), "--check", "--min-ink", "99.0", "--quiet"])
+        self.assertEqual(p_q.returncode, 1)
+        self.assertEqual(p_q.stdout, "")
+        self.assertEqual(p_q.stderr, "")
+
+        # verbose: rc=1 且 stderr 输出门禁诊断信息
+        p_v = run_cli_subprocess([str(self.good_img), "--check", "--min-ink", "99.0", "--verbose"])
+        self.assertEqual(p_v.returncode, 1)
+        self.assertIn("存在未通过客观质量门禁的配图", p_v.stderr)
+        self.assertIn("墨量不足", p_v.stderr)
+
+    def test_subprocess_unknown_argument_contract(self):
+        """真实外部子进程未知参数契约：未知参数保持 argparse 规范行为 rc=2，stderr 输出 usage 诊断。"""
+        p = run_cli_subprocess(["--unknown-parameter-flag-999"])
+        self.assertEqual(p.returncode, 2)
+        self.assertEqual(p.stdout, "")
+        self.assertIn("unrecognized arguments", p.stderr)
+
+        p_q = run_cli_subprocess([str(self.good_img), "--unknown-flag", "--quiet"])
+        self.assertEqual(p_q.returncode, 2)
+        self.assertEqual(p_q.stdout, "")
+        self.assertIn("unrecognized arguments", p_q.stderr)
 
     def test_subprocess_success_apply_contract(self):
         """真实外部子进程成功契约：写盘在 OS 级退出 0，quiet 静默并写盘，verbose 输出确认信息。"""
