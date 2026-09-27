@@ -15,6 +15,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # 将项目根目录加入 sys.path
@@ -90,6 +91,156 @@ def create_test_image(
         raise ValueError(f"Unsupported mode: {mode}")
 
     im.save(path, "PNG")
+
+
+# ==============================================================================
+# 极小独立 JSON v1 Consumer / Parser
+# 与 BatchResult、SCHEMA_VERSION、脚本内部 Schema 常量完全解耦，
+# 仅依据公开 JSON v1 契约进行反序列化、格式验证与字段读取。
+# ==============================================================================
+
+
+class V1ConsumerError(ValueError):
+    """JSON v1 独立消费者契约违规异常。"""
+
+    pass
+
+
+@dataclass
+class V1ConsumerFailure:
+    """JSON v1 失败明细项独立消费模型。"""
+
+    file: str
+    name: str
+    code: str
+    reason: str
+    extra: dict = field(default_factory=dict)
+
+    def __getitem__(self, key: str):
+        if hasattr(self, key):
+            return getattr(self, key)
+        return self.extra[key]
+
+    def get(self, key: str, default=None):
+        if hasattr(self, key):
+            return getattr(self, key)
+        return self.extra.get(key, default)
+
+
+@dataclass
+class V1ConsumerResult:
+    """JSON v1 独立消费根结果模型。"""
+
+    schema_version: int
+    ok: bool
+    total: int
+    success_count: int
+    failure_count: int
+    failures: list[V1ConsumerFailure]
+    items: list = field(default_factory=list)
+    raw: dict = field(default_factory=dict)
+
+    def __getitem__(self, key: str):
+        if hasattr(self, key):
+            return getattr(self, key)
+        return self.raw[key]
+
+    def get(self, key: str, default=None):
+        if hasattr(self, key):
+            return getattr(self, key)
+        return self.raw.get(key, default)
+
+
+def parse_v1_json(raw: str | bytes | dict) -> V1ConsumerResult:
+    """解析并校验 JSON v1 输出。
+
+    独立消费者规则：
+    1. 根对象必须为合法 JSON 字典；
+    2. schema_version 必须严格为整型 1 (非 1、字符串或 bool 均明确拒绝)；
+    3. 必需基础字段包含 ok(bool), total(int>=0), success_count(int>=0), failure_count(int>=0), failures(list)；
+    4. failures[] 列表项中每个元素必须包含 file(str), name(str), code(str), reason(str)；
+    5. 未知额外字段（例如 reports, unreadable, partial_success, 自定义扩展字段）完全容忍并保留；
+    6. 缺失必需字段或基础类型错误均明确拒绝 (抛出 V1ConsumerError)。
+    """
+    if isinstance(raw, (str, bytes)):
+        try:
+            data = json.loads(raw)
+        except Exception as e:
+            raise V1ConsumerError(f"无效的 JSON 数据: {e}") from e
+    elif isinstance(raw, dict):
+        data = raw
+    else:
+        raise V1ConsumerError(f"预期输入 str, bytes 或 dict，实际收到 {type(raw).__name__}")
+
+    if not isinstance(data, dict):
+        raise V1ConsumerError(f"根节点必须为 JSON 对象 (dict)，实际为 {type(data).__name__}")
+
+    # 1. 严格检查 schema_version == 1
+    if "schema_version" not in data:
+        raise V1ConsumerError("缺少必需字段: 'schema_version'")
+    sv = data["schema_version"]
+    if type(sv) is not int or isinstance(sv, bool):
+        raise V1ConsumerError(f"schema_version 必须为严格整型，实际为 {type(sv).__name__}")
+    if sv != 1:
+        raise V1ConsumerError(f"不支持的 schema_version: {sv} (当前独立消费者仅支持 v1)")
+
+    # 2. 检查根节点必需字段存在性
+    required_root = ("ok", "total", "success_count", "failure_count", "failures")
+    for req in required_root:
+        if req not in data:
+            raise V1ConsumerError(f"缺少必需字段: '{req}'")
+
+    # 3. 基础类型与计数严格校验
+    if type(data["ok"]) is not bool:
+        raise V1ConsumerError(f"'ok' 必须为 bool 类型，实际为 {type(data['ok']).__name__}")
+
+    for count_key in ("total", "success_count", "failure_count"):
+        val = data[count_key]
+        if type(val) is not int or isinstance(val, bool):
+            raise V1ConsumerError(f"'{count_key}' 必须为严格整型，实际为 {type(val).__name__}")
+        if val < 0:
+            raise V1ConsumerError(f"'{count_key}' 不能为负数，实际为 {val}")
+
+    if not isinstance(data["failures"], list):
+        raise V1ConsumerError(f"'failures' 必须为列表，实际为 {type(data['failures']).__name__}")
+
+    # 4. 解析与校验 failures[] 项
+    parsed_failures: list[V1ConsumerFailure] = []
+    failure_req_fields = ("file", "name", "code", "reason")
+    for i, item in enumerate(data["failures"]):
+        if not isinstance(item, dict):
+            raise V1ConsumerError(f"failures[{i}] 必须为字典对象，实际为 {type(item).__name__}")
+        for fkey in failure_req_fields:
+            if fkey not in item:
+                raise V1ConsumerError(f"failures[{i}] 缺失必需字段: '{fkey}'")
+            if type(item[fkey]) is not str:
+                raise V1ConsumerError(f"failures[{i}].{fkey} 必须为 str，实际为 {type(item[fkey]).__name__}")
+        extra_fields = {k: v for k, v in item.items() if k not in failure_req_fields}
+        parsed_failures.append(
+            V1ConsumerFailure(
+                file=item["file"],
+                name=item["name"],
+                code=item["code"],
+                reason=item["reason"],
+                extra=extra_fields,
+            )
+        )
+
+    # 5. 可选 items 字段处理（若存在需为 list）
+    items_list = data.get("items", [])
+    if items_list is not None and not isinstance(items_list, list):
+        raise V1ConsumerError(f"'items' 若存在必须为列表，实际为 {type(items_list).__name__}")
+
+    return V1ConsumerResult(
+        schema_version=sv,
+        ok=data["ok"],
+        total=data["total"],
+        success_count=data["success_count"],
+        failure_count=data["failure_count"],
+        failures=parsed_failures,
+        items=items_list if isinstance(items_list, list) else [],
+        raw=dict(data),
+    )
 
 
 class TestParseSize(unittest.TestCase):
@@ -1935,6 +2086,372 @@ class TestCLIJSONSchemaCompatibilityContract(unittest.TestCase):
         self.assertEqual(e_v, "")
         self.assertEqual(d_q, d_v)
         self._assert_root_schema(d_q, mode="prepare")
+
+
+class TestJSONV1IndependentConsumerContract(unittest.TestCase):
+    """验证网页 ChatGPT 指定的 JSON v1 独立消费者兼容性门禁。
+
+    设计规范：
+    1. 与 BatchResult、SCHEMA_VERSION 及内部契约常量完全解耦；
+    2. 喂入真实 CLI 子进程 stdout，覆盖 success、failure、partial-success；
+    3. 检验消费者对 schema_version、计数、failures[].(file, name, code, reason) 的读取能力；
+    4. 检验对未知额外字段的完全容忍；
+    5. 检验对缺失必需字段、基础类型错误及 schema_version != 1 的明确拒绝。
+    """
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.dir_path = Path(self.temp_dir.name)
+
+        # 1. 干净有效图片目录 (success)
+        self.clean_dir = self.dir_path / "clean_dir"
+        self.clean_dir.mkdir(parents=True, exist_ok=True)
+        create_test_image(self.clean_dir / "c1.png", width=120, height=80)
+        create_test_image(self.clean_dir / "c2.png", width=120, height=80)
+
+        # 2. 失败图片目录 (failure)
+        self.fail_dir = self.dir_path / "fail_dir"
+        self.fail_dir.mkdir(parents=True, exist_ok=True)
+        (self.fail_dir / "bad_empty.png").write_bytes(b"")
+        (self.fail_dir / "bad_corrupt.png").write_bytes(b"BAD_IMAGE_DATA\x00\x01\x02")
+
+        # 3. 混合图片目录 (partial-success)
+        self.partial_dir = self.dir_path / "partial_dir"
+        self.partial_dir.mkdir(parents=True, exist_ok=True)
+        create_test_image(self.partial_dir / "good.png", width=120, height=80)
+        (self.partial_dir / "empty.png").write_bytes(b"")
+
+        # 4. 接缝失败目录 (check failure)
+        self.seam_dir = self.dir_path / "seam_dir"
+        self.seam_dir.mkdir(parents=True, exist_ok=True)
+        create_test_image(self.seam_dir / "s1.png", width=120, height=80, left_val=20, right_val=60, seam_x=60)
+        create_test_image(self.seam_dir / "s2.png", width=120, height=80, left_val=20, right_val=60, seam_x=60)
+
+        # 5. 接缝混合目录 (check partial-success)
+        self.seam_partial_dir = self.dir_path / "seam_partial_dir"
+        self.seam_partial_dir.mkdir(parents=True, exist_ok=True)
+        create_test_image(self.seam_partial_dir / "sp_clean.png", width=120, height=80)
+        create_test_image(self.seam_partial_dir / "sp_seam.png", width=120, height=80, left_val=20, right_val=60, seam_x=60)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def _run_cli_subprocess_raw(self, argv: list[str]) -> tuple[int, str, str]:
+        """执行真实系统 CLI 子进程，原样返回退出码与原始标准输出/标准错误。"""
+        full_env = os.environ.copy()
+        full_env["PYTHONPATH"] = str(REPO_ROOT)
+        proc = subprocess.run(
+            [str(PYTHON_BIN), str(SCRIPT_PATH), *argv],
+            capture_output=True,
+            text=True,
+            env=full_env,
+        )
+        return proc.returncode, proc.stdout, proc.stderr
+
+    def test_real_cli_subprocess_success_parsed_by_independent_consumer(self):
+        """真实 CLI 子进程 success 场景喂给独立 consumer：
+        验证 consumer 正确解析 schema_version=1、ok=True、计数，且无 failure。
+        """
+        # prepare 模式成功
+        code, stdout, stderr = self._run_cli_subprocess_raw(
+            [str(self.clean_dir), "--json", "--size", "100x60"]
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(stderr, "")
+        consumer_res = parse_v1_json(stdout)
+        self.assertEqual(consumer_res.schema_version, 1)
+        self.assertIs(consumer_res.ok, True)
+        self.assertEqual(consumer_res.total, 2)
+        self.assertEqual(consumer_res.success_count, 2)
+        self.assertEqual(consumer_res.failure_count, 0)
+        self.assertEqual(len(consumer_res.failures), 0)
+        self.assertEqual(len(consumer_res.items), 2)
+        # 兼容字典访问语法
+        self.assertEqual(consumer_res["schema_version"], 1)
+        self.assertIs(consumer_res["ok"], True)
+        self.assertEqual(consumer_res["total"], 2)
+
+        # check 模式成功
+        code_c, stdout_c, stderr_c = self._run_cli_subprocess_raw(
+            [str(self.clean_dir), "--check", "--json", "--size", "120x80"]
+        )
+        self.assertEqual(code_c, 0)
+        self.assertEqual(stderr_c, "")
+        consumer_chk = parse_v1_json(stdout_c)
+        self.assertEqual(consumer_chk.schema_version, 1)
+        self.assertIs(consumer_chk.ok, True)
+        self.assertEqual(consumer_chk.total, 2)
+        self.assertEqual(consumer_chk.success_count, 2)
+        self.assertEqual(consumer_chk.failure_count, 0)
+        self.assertEqual(len(consumer_chk.failures), 0)
+
+    def test_real_cli_subprocess_failure_parsed_by_independent_consumer(self):
+        """真实 CLI 子进程 failure 场景喂给独立 consumer：
+        验证 consumer 正确解析 schema_version=1、ok=False、计数，
+        并能逐一读取 failures[].file/name/code/reason。
+        """
+        # prepare 模式全失败
+        code, stdout, stderr = self._run_cli_subprocess_raw(
+            [str(self.fail_dir), "--json", "--size", "100x60"]
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(stderr, "")
+        res = parse_v1_json(stdout)
+        self.assertEqual(res.schema_version, 1)
+        self.assertIs(res.ok, False)
+        self.assertEqual(res.total, 2)
+        self.assertEqual(res.success_count, 0)
+        self.assertEqual(res.failure_count, 2)
+        self.assertEqual(len(res.failures), 2)
+
+        # 逐项验证 consumer 读取 failures 结构的能力（属性访问与字典下标均支持）
+        for f in res.failures:
+            self.assertIsInstance(f, V1ConsumerFailure)
+            self.assertIsInstance(f.file, str)
+            self.assertGreater(len(f.file), 0)
+            self.assertIsInstance(f.name, str)
+            self.assertGreater(len(f.name), 0)
+            self.assertIsInstance(f.code, str)
+            self.assertGreater(len(f.code), 0)
+            self.assertIsInstance(f.reason, str)
+            self.assertGreater(len(f.reason), 0)
+            # 字典语法对齐
+            self.assertEqual(f["file"], f.file)
+            self.assertEqual(f["name"], f.name)
+            self.assertEqual(f["code"], f.code)
+            self.assertEqual(f["reason"], f.reason)
+
+        fail_names = {f.name for f in res.failures}
+        self.assertEqual(fail_names, {"bad_empty.png", "bad_corrupt.png"})
+
+        # check 模式接缝门禁全失败
+        code_s, stdout_s, _ = self._run_cli_subprocess_raw(
+            [str(self.seam_dir), "--check", "--json"]
+        )
+        self.assertEqual(code_s, 1)
+        res_s = parse_v1_json(stdout_s)
+        self.assertEqual(res_s.schema_version, 1)
+        self.assertIs(res_s.ok, False)
+        self.assertEqual(res_s.failure_count, 2)
+        for f in res_s.failures:
+            self.assertEqual(f.code, "SEAM_DETECTED")
+            self.assertIn("接缝", f.reason)
+
+        # 单文件不存在失败
+        code_nf, stdout_nf, _ = self._run_cli_subprocess_raw(
+            ["non_existing_9999.png", "--json"]
+        )
+        self.assertEqual(code_nf, 1)
+        res_nf = parse_v1_json(stdout_nf)
+        self.assertEqual(res_nf.schema_version, 1)
+        self.assertIs(res_nf.ok, False)
+        self.assertEqual(res_nf.failure_count, 1)
+        self.assertEqual(res_nf.failures[0].code, "FILE_NOT_FOUND")
+
+    def test_real_cli_subprocess_partial_success_parsed_by_independent_consumer(self):
+        """真实 CLI 子进程 partial-success 场景喂给独立 consumer：
+        验证 consumer 能准确读取混合状态下的 success/failure 计数与局部失败详情。
+        """
+        # prepare 混合模式 (1 成功 1 失败)
+        code, stdout, stderr = self._run_cli_subprocess_raw(
+            [str(self.partial_dir), "--json", "--size", "100x60"]
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(stderr, "")
+        res = parse_v1_json(stdout)
+        self.assertEqual(res.schema_version, 1)
+        self.assertIs(res.ok, False)
+        self.assertEqual(res.total, 2)
+        self.assertEqual(res.success_count, 1)
+        self.assertEqual(res.failure_count, 1)
+        self.assertEqual(len(res.failures), 1)
+
+        f0 = res.failures[0]
+        self.assertEqual(f0.name, "empty.png")
+        self.assertEqual(f0.code, "EMPTY_FILE")
+        self.assertIn("0 字节", f0.reason)
+        self.assertGreater(len(f0.reason), 0)
+
+        # check 混合模式 (1 干净 1 接缝)
+        code_cp, stdout_cp, _ = self._run_cli_subprocess_raw(
+            [str(self.seam_partial_dir), "--check", "--json"]
+        )
+        self.assertEqual(code_cp, 1)
+        res_cp = parse_v1_json(stdout_cp)
+        self.assertEqual(res_cp.schema_version, 1)
+        self.assertIs(res_cp.ok, False)
+        self.assertEqual(res_cp.total, 2)
+        self.assertEqual(res_cp.success_count, 1)
+        self.assertEqual(res_cp.failure_count, 1)
+        self.assertEqual(len(res_cp.failures), 1)
+        self.assertEqual(res_cp.failures[0].name, "sp_seam.png")
+        self.assertEqual(res_cp.failures[0].code, "SEAM_DETECTED")
+
+    def test_consumer_tolerates_unknown_extra_fields(self):
+        """验证独立 consumer 对未知额外字段的前向兼容与完全容忍（顶层与 failures 内均不应报错）。"""
+        payload = {
+            "schema_version": 1,
+            "ok": False,
+            "total": 5,
+            "success_count": 4,
+            "failure_count": 1,
+            "failures": [
+                {
+                    "file": "/path/to/img.png",
+                    "name": "img.png",
+                    "code": "CUSTOM_GATE_FAIL",
+                    "reason": "gate triggered",
+                    "unexpected_failure_meta": {"timestamp": 12345678, "level": "WARN"},
+                    "retry_count": 3,
+                }
+            ],
+            # 未知扩展字段
+            "future_spec_v1_patch": True,
+            "orchestrator_node_id": "worker-09",
+            "extended_metrics": {"avg_time_ms": 42.1},
+        }
+
+        # 字符串形式与字典形式均能安全解析，不抛出任何异常
+        res = parse_v1_json(json.dumps(payload))
+        self.assertEqual(res.schema_version, 1)
+        self.assertIs(res.ok, False)
+        self.assertEqual(res.total, 5)
+        self.assertEqual(res.success_count, 4)
+        self.assertEqual(res.failure_count, 1)
+        self.assertEqual(len(res.failures), 1)
+
+        f = res.failures[0]
+        self.assertEqual(f.file, "/path/to/img.png")
+        self.assertEqual(f.name, "img.png")
+        self.assertEqual(f.code, "CUSTOM_GATE_FAIL")
+        self.assertEqual(f.reason, "gate triggered")
+        self.assertEqual(f["retry_count"], 3)
+        self.assertEqual(f.extra["unexpected_failure_meta"]["level"], "WARN")
+
+        # 根字典扩展字段能够透过 raw 或下标安全读取
+        self.assertEqual(res["future_spec_v1_patch"], True)
+        self.assertEqual(res.raw["orchestrator_node_id"], "worker-09")
+        self.assertEqual(res.get("extended_metrics"), {"avg_time_ms": 42.1})
+
+    def test_consumer_rejects_missing_required_fields(self):
+        """验证缺少必需字段时 consumer 明确抛出 V1ConsumerError 异常拒绝。"""
+        valid_base = {
+            "schema_version": 1,
+            "ok": True,
+            "total": 0,
+            "success_count": 0,
+            "failure_count": 0,
+            "failures": [],
+        }
+
+        # 顶层缺少必需字段
+        for missing_key in ("schema_version", "ok", "total", "success_count", "failure_count", "failures"):
+            mutated = dict(valid_base)
+            del mutated[missing_key]
+            with self.assertRaises(V1ConsumerError, msg=f"缺少顶层字段 {missing_key} 应拒绝") as ctx:
+                parse_v1_json(json.dumps(mutated))
+            self.assertIn("缺少必需字段", str(ctx.exception))
+
+        # failures 内部缺少必需字段
+        for missing_fkey in ("file", "name", "code", "reason"):
+            bad_item = {
+                "file": "/a/b.png",
+                "name": "b.png",
+                "code": "ERR",
+                "reason": "bad image",
+            }
+            del bad_item[missing_fkey]
+            mutated = dict(valid_base)
+            mutated["failures"] = [bad_item]
+            with self.assertRaises(V1ConsumerError, msg=f"failures 缺少项字段 {missing_fkey} 应拒绝") as ctx:
+                parse_v1_json(mutated)
+            self.assertIn(f"缺失必需字段: '{missing_fkey}'", str(ctx.exception))
+
+    def test_consumer_rejects_basic_type_errors(self):
+        """验证基础类型不匹配时 consumer 明确抛出 V1ConsumerError 异常拒绝。"""
+        base = {
+            "schema_version": 1,
+            "ok": True,
+            "total": 1,
+            "success_count": 1,
+            "failure_count": 0,
+            "failures": [],
+        }
+
+        # ok 不是 bool (如整型 1、0 或字符串 "true")
+        for bad_ok in (1, 0, "true", "False", None, []):
+            d = dict(base, ok=bad_ok)
+            with self.assertRaises(V1ConsumerError):
+                parse_v1_json(d)
+
+        # 计数不是严格整型或为负数
+        for bad_count in ("1", 1.5, True, False, None, -1):
+            d1 = dict(base, total=bad_count)
+            with self.assertRaises(V1ConsumerError):
+                parse_v1_json(d1)
+            d2 = dict(base, success_count=bad_count)
+            with self.assertRaises(V1ConsumerError):
+                parse_v1_json(d2)
+            d3 = dict(base, failure_count=bad_count)
+            with self.assertRaises(V1ConsumerError):
+                parse_v1_json(d3)
+
+        # failures 不是 list
+        for bad_failures in ("not_a_list", 123, None, {}):
+            d = dict(base, failures=bad_failures)
+            with self.assertRaises(V1ConsumerError):
+                parse_v1_json(d)
+
+        # failures 中的项不是 dict
+        d = dict(base, failures=["string_item"])
+        with self.assertRaises(V1ConsumerError):
+            parse_v1_json(d)
+
+        # failures 中的项字段类型不为 str
+        for bad_str in (123, True, None, [], {}):
+            item_bad_file = {"file": bad_str, "name": "n", "code": "C", "reason": "R"}
+            with self.assertRaises(V1ConsumerError):
+                parse_v1_json(dict(base, failures=[item_bad_file]))
+
+            item_bad_code = {"file": "f", "name": "n", "code": bad_str, "reason": "R"}
+            with self.assertRaises(V1ConsumerError):
+                parse_v1_json(dict(base, failures=[item_bad_code]))
+
+    def test_consumer_rejects_schema_version_mismatch(self):
+        """验证 schema_version != 1 或类型非严格整型时明确拒绝。"""
+        base = {
+            "schema_version": 1,
+            "ok": True,
+            "total": 0,
+            "success_count": 0,
+            "failure_count": 0,
+            "failures": [],
+        }
+
+        # 版本非 1
+        for bad_ver in (0, 2, -1, 99):
+            d = dict(base, schema_version=bad_ver)
+            with self.assertRaises(V1ConsumerError) as ctx:
+                parse_v1_json(d)
+            self.assertIn("不支持的 schema_version", str(ctx.exception))
+
+        # 版本类型非严格 int
+        for bad_ver_type in ("1", 1.0, True, False, None, [1]):
+            d = dict(base, schema_version=bad_ver_type)
+            with self.assertRaises(V1ConsumerError) as ctx:
+                parse_v1_json(d)
+            self.assertIn("schema_version", str(ctx.exception))
+
+    def test_consumer_rejects_malformed_json_and_non_dict_root(self):
+        """验证非合法 JSON 或根节点不是字典时明确拒绝。"""
+        for malformed in ("{bad json", "[1, 2, 3]", "42", "true", "null", ""):
+            with self.assertRaises(V1ConsumerError):
+                parse_v1_json(malformed)
+
+        with self.assertRaises(V1ConsumerError):
+            parse_v1_json([{"schema_version": 1}])
+        with self.assertRaises(V1ConsumerError):
+            parse_v1_json(12345)
 
 
 if __name__ == "__main__":
