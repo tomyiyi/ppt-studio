@@ -1,0 +1,18 @@
+diff --git a/scripts/svg_to_pptx/drawingml/elements.py b/scripts/svg_to_pptx/drawingml/elements.py
+--- a/scripts/svg_to_pptx/drawingml/elements.py
++++ b/scripts/svg_to_pptx/drawingml/elements.py
+@@
+ _TEXT_WIDTH_HEADROOM_BASE = 1.06
+ _TEXT_WIDTH_HEADROOM_CAPS = 1.12
++# LibreOffice needs a small additional extent for short, tracked, all-caps
++# Latin labels. Keep this narrower than the global caps multiplier so ordinary
++# uppercase and untracked text do not change.
++_TRACKED_CAPS_HEADROOM = 1.14
+@@
+-        width += _estimate_run_text_width(segment) * (
+-            base + (ceiling - base) * caps
+-        )
++        headroom = base + (ceiling - base) * caps
++        if not cjk and caps == 1.0 and letter_spacing_px > 0:
++            headroom = max(headroom, _TRACKED_CAPS_HEADROOM)
++        width += _estimate_run_text_width(segment) * headroom
