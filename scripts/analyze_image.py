@@ -239,6 +239,132 @@ def resolve_image_targets(
     raise ValueError("未指定路径且无法安全自动发现图片目录，请提供图片文件或目录路径")
 
 
+def check_image_quality(
+    target: Path | str | Image.Image,
+    min_ink: float = 2.0,
+) -> tuple[bool, dict, list[str]]:
+    """客观质量门禁判定：验证单张图片是否满足清晰度、接缝、亮度和墨量要求。
+
+    :param target: 图片文件路径 (Path/str) 或 PIL Image 对象
+    :param min_ink: 最低有效墨量百分比阈值（默认: 2.0%）
+    :return: (通过布尔值, 统计指标字典, 未通过原因列表)
+    """
+    if isinstance(target, Image.Image):
+        im = target.convert("RGB")
+        g = np.asarray(im.convert("L"), dtype=np.float32)
+        m = ink_map(im)
+        ink_ratio = measure_ink(im, thr=35)
+        ssharp = subject_sharp(im)
+        p99 = float(np.percentile(g, 99))
+        seam = detect_seam(im)
+        ink_pct = round(ink_ratio * 100.0, 2)
+        name = getattr(target, "filename", None) or "image.png"
+        name = Path(name).name if name else "image.png"
+        r = {
+            "name": name,
+            "path": getattr(target, "filename", "") or "",
+            "size": f"{im.size[0]}x{im.size[1]}",
+            "width": im.size[0],
+            "height": im.size[1],
+            "sharp": laplacian_variance(im),
+            "ssharp": ssharp,
+            "mean": float(g.mean()),
+            "p99": p99,
+            "ink_ratio": round(ink_ratio, 4),
+            "ink_pct": ink_pct,
+            "ink": m,
+            "seam": seam,
+            "colhead": "左  中  右",
+        }
+    else:
+        r = report(target)
+
+    issues: list[str] = []
+    if r["ssharp"] < 40.0:
+        issues.append(f"严重模糊 (主体锐 {r['ssharp']:.1f} < 40.0)")
+    if r["seam"] is not None:
+        issues.append(f"存在接缝 (x={r['seam']})")
+    if r["p99"] < 30.0:
+        issues.append(f"整体过暗 (P99 {r['p99']:.1f} < 30.0)")
+    if r["ink_pct"] < min_ink:
+        issues.append(f"墨量不足 ({r['ink_pct']:.2f}% < {min_ink:.1f}%)")
+
+    ok = len(issues) == 0
+    return ok, r, issues
+
+
+def run_qa_images(
+    targets: str | Path | list[str | Path] | None = None,
+    min_ink: float = 2.0,
+    verbose: bool = True,
+) -> bool:
+    """运行 PPT-Studio 配图客观质量门禁。
+
+    :param targets: 目标图片、目录、项目路径或图片列表（默认自发现）
+    :param min_ink: 最低墨量百分比阈值（默认: 2.0%）
+    :param verbose: 是否输出日志（默认 True）
+    :return: 全部通过返回 True，否则返回 False
+    """
+    try:
+        paths = resolve_image_targets(targets)
+    except Exception as e:
+        if verbose:
+            print(f"[err] {e}", file=sys.stderr)
+        return False
+
+    if not paths:
+        if verbose:
+            print("[err] 没有可分析的 PNG 图片", file=sys.stderr)
+        return False
+
+    all_ok = True
+    reports = []
+    failed_items: list[tuple[str, list[str]]] = []
+
+    for p in paths:
+        try:
+            ok, r, issues = check_image_quality(p, min_ink=min_ink)
+            reports.append(r)
+            if not ok:
+                all_ok = False
+                failed_items.append((r["name"], issues))
+        except Exception as e:
+            all_ok = False
+            failed_items.append((Path(p).name, [f"分析失败: {e}"]))
+
+    if verbose:
+        print(f"{'文件':<22}{'尺寸':>10}{'全图锐':>8}{'主体锐':>8}{'均亮':>7}{'P99':>7}{'墨量%':>8}  "
+              f"主体分布(上/中/下 × 左/中/右, %)      接缝")
+        print("-" * 138)
+        for r in reports:
+            rows = ["  ".join(f"{r['ink'][i][j]*100:5.1f}" for j in range(3)) for i in range(3)]
+            print(f"{r['name']:<22}{r['size']:>10}{r['sharp']:>8.1f}{r['ssharp']:>8.1f}"
+                  f"{r['mean']:>7.1f}{r['p99']:>7.1f}{r['ink_pct']:>7.1f}%  "
+                  f"{rows[0]}  |  {rows[1]}  |  {rows[2]}   {r['seam']}")
+
+        print("\n判读：")
+        print("  主体锐 —— 只框定最亮 1% 像素区域算的拉普拉斯方差，判断线条是否锐利；<80 判糊")
+        print("  全图锐 —— 含大片纯黑，会被稀释，仅作参考")
+        print("  墨量   —— 画面有效笔画像素占比 (max(R,G,B) ≥ 35)；<2.0% 判漏图/空白，≥6.0% 为充盈")
+        print("  主体分布 —— 每格 11% 为均匀分布基线；最高格 >=25% 才有明确主体，<15% 视为没画出图形")
+        print("  P99 —— 亮部强度，<40 说明整体过暗没高光")
+        print("  接缝 —— None 为无；有数值交由 prepare_agnes_image.py --seam 修")
+
+        if not all_ok:
+            print("\n[门禁] ⚠️ 存在未通过客观质量门禁的配图（模糊/接缝/过暗/墨量不足）:", file=sys.stderr)
+            for fname, issues in failed_items:
+                print(f"  ✗ {fname}: {', '.join(issues)}", file=sys.stderr)
+        else:
+            print("\n[门禁] ✓ 配图客观质量门禁通过")
+
+    return all_ok
+
+
+qa_images = run_qa_images
+qa_single_image = check_image_quality
+run_qa_single_image = check_image_quality
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="配图客观验收（当无法肉眼看图时用数据代替眼睛）"
@@ -265,38 +391,51 @@ def main(argv: list[str] | None = None) -> int:
         default=2.0,
         help="质量门禁最低墨量百分比阈值（默认: 2.0%%，防漏图/空白画布）",
     )
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        default=True,
+        help="详细日志输出（默认开启）",
+    )
+    parser.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        help="静默模式（仅通过退出码返回结果）",
+    )
 
     args = parser.parse_args(argv)
+    verbose = not args.quiet if args.quiet else args.verbose
 
     try:
         paths = resolve_image_targets(args.images if args.images else None)
     except Exception as e:
-        print(f"[err] {e}", file=sys.stderr)
+        if verbose:
+            print(f"[err] {e}", file=sys.stderr)
         return 1
 
     if not paths:
-        print("[err] 没有可分析的 PNG 图片", file=sys.stderr)
+        if verbose:
+            print("[err] 没有可分析的 PNG 图片", file=sys.stderr)
         return 1
 
     reports = []
     has_check_failure = False
+    failed_items: list[tuple[str, list[str]]] = []
 
     for p in paths:
         try:
-            r = report(p)
+            ok, r, issues = check_image_quality(p, min_ink=args.min_ink)
             reports.append(r)
-            if args.check:
-                if (
-                    r["ssharp"] < 40.0
-                    or r["seam"] is not None
-                    or r["p99"] < 30.0
-                    or r["ink_pct"] < args.min_ink
-                ):
-                    has_check_failure = True
-        except Exception as e:
-            print(f"[err] 分析 {p} 失败: {e}", file=sys.stderr)
-            if args.check:
+            if not ok:
                 has_check_failure = True
+                failed_items.append((r["name"], issues))
+        except Exception as e:
+            if verbose:
+                print(f"[err] 分析 {p} 失败: {e}", file=sys.stderr)
+            has_check_failure = True
+            failed_items.append((Path(p).name, [f"分析失败: {e}"]))
 
     if args.json:
         json_data = []
@@ -307,25 +446,31 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(json_data, ensure_ascii=False, indent=2))
         return 1 if (args.check and has_check_failure) else 0
 
-    print(f"{'文件':<22}{'尺寸':>10}{'全图锐':>8}{'主体锐':>8}{'均亮':>7}{'P99':>7}{'墨量%':>8}  "
-          f"主体分布(上/中/下 × 左/中/右, %)      接缝")
-    print("-" * 138)
-    for r in reports:
-        rows = ["  ".join(f"{r['ink'][i][j]*100:5.1f}" for j in range(3)) for i in range(3)]
-        print(f"{r['name']:<22}{r['size']:>10}{r['sharp']:>8.1f}{r['ssharp']:>8.1f}"
-              f"{r['mean']:>7.1f}{r['p99']:>7.1f}{r['ink_pct']:>7.1f}%  "
-              f"{rows[0]}  |  {rows[1]}  |  {rows[2]}   {r['seam']}")
+    if verbose:
+        print(f"{'文件':<22}{'尺寸':>10}{'全图锐':>8}{'主体锐':>8}{'均亮':>7}{'P99':>7}{'墨量%':>8}  "
+              f"主体分布(上/中/下 × 左/中/右, %)      接缝")
+        print("-" * 138)
+        for r in reports:
+            rows = ["  ".join(f"{r['ink'][i][j]*100:5.1f}" for j in range(3)) for i in range(3)]
+            print(f"{r['name']:<22}{r['size']:>10}{r['sharp']:>8.1f}{r['ssharp']:>8.1f}"
+                  f"{r['mean']:>7.1f}{r['p99']:>7.1f}{r['ink_pct']:>7.1f}%  "
+                  f"{rows[0]}  |  {rows[1]}  |  {rows[2]}   {r['seam']}")
 
-    print("\n判读：")
-    print("  主体锐 —— 只框定最亮 1% 像素区域算的拉普拉斯方差，判断线条是否锐利；<80 判糊")
-    print("  全图锐 —— 含大片纯黑，会被稀释，仅作参考")
-    print("  墨量   —— 画面有效笔画像素占比 (max(R,G,B) ≥ 35)；<2.0% 判漏图/空白，≥6.0% 为充盈")
-    print("  主体分布 —— 每格 11% 为均匀分布基线；最高格 >=25% 才有明确主体，<15% 视为没画出图形")
-    print("  P99 —— 亮部强度，<40 说明整体过暗没高光")
-    print("  接缝 —— None 为无；有数值交由 prepare_agnes_image.py --seam 修")
+        print("\n判读：")
+        print("  主体锐 —— 只框定最亮 1% 像素区域算的拉普拉斯方差，判断线条是否锐利；<80 判糊")
+        print("  全图锐 —— 含大片纯黑，会被稀释，仅作参考")
+        print("  墨量   —— 画面有效笔画像素占比 (max(R,G,B) ≥ 35)；<2.0% 判漏图/空白，≥6.0% 为充盈")
+        print("  主体分布 —— 每格 11% 为均匀分布基线；最高格 >=25% 才有明确主体，<15% 视为没画出图形")
+        print("  P99 —— 亮部强度，<40 说明整体过暗没高光")
+        print("  接缝 —— None 为无；有数值交由 prepare_agnes_image.py --seam 修")
+
+        if args.check:
+            if has_check_failure:
+                print("\n[门禁] ⚠️ 存在未通过客观质量门禁的配图（模糊/接缝/过暗/墨量不足）", file=sys.stderr)
+            else:
+                print("\n[门禁] ✓ 配图客观质量门禁通过")
 
     if args.check and has_check_failure:
-        print("\n[门禁] ⚠️ 存在未通过客观质量门禁的配图（模糊/接缝/过暗/墨量不足）", file=sys.stderr)
         return 1
 
     return 0

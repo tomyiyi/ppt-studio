@@ -36,6 +36,11 @@ from scripts.analyze_image import (
     measure_ink,
     report,
     resolve_image_targets,
+    check_image_quality,
+    run_qa_images,
+    qa_images,
+    qa_single_image,
+    run_qa_single_image,
     main,
 )
 
@@ -306,6 +311,109 @@ class TestAnalyzeImageCLI(unittest.TestCase):
         ret_custom = main([str(sparse_img), "--check", "--min-ink", "0.5"])
         # 若主体锐度 < 40 仍可能被锐度拦截，测试当 --min-ink 设为更高时 (如 50%) 正常图像 (11.1%) 也应被拦截
         self.assertEqual(main([str(self.img1), "--check", "--min-ink", "50.0"]), 1)
+
+    def test_cli_quiet_flag(self):
+        old_stdout, old_stderr = sys.stdout, sys.stderr
+        try:
+            sys.stdout = io.StringIO()
+            sys.stderr = io.StringIO()
+            ret = main([str(self.img1), "--check", "--quiet"])
+            out = sys.stdout.getvalue()
+            err = sys.stderr.getvalue()
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+
+        self.assertEqual(ret, 0)
+        self.assertEqual(out, "")
+        self.assertEqual(err, "")
+
+    def test_cli_verbose_check_success_output(self):
+        old_stdout = sys.stdout
+        try:
+            sys.stdout = io.StringIO()
+            ret = main([str(self.img1), "--check", "--verbose"])
+            out = sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_stdout
+
+        self.assertEqual(ret, 0)
+        self.assertIn("[门禁] ✓ 配图客观质量门禁通过", out)
+
+
+class TestCheckImageQuality(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.dir_path = Path(self.temp_dir.name)
+        self.good_img = self.dir_path / "good.png"
+        create_test_image(self.good_img, 100, 100, box=(20, 20, 40, 40), box_val=220)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_check_quality_success(self):
+        ok, r, issues = check_image_quality(self.good_img)
+        self.assertTrue(ok)
+        self.assertEqual(issues, [])
+        self.assertEqual(r["name"], "good.png")
+        self.assertGreaterEqual(r["ssharp"], 40.0)
+        self.assertGreaterEqual(r["p99"], 30.0)
+        self.assertGreaterEqual(r["ink_pct"], 2.0)
+        self.assertIsNone(r["seam"])
+
+    def test_check_quality_with_pil_image(self):
+        im = Image.open(self.good_img)
+        ok, r, issues = check_image_quality(im)
+        self.assertTrue(ok)
+        self.assertEqual(issues, [])
+        self.assertIn("sharp", r)
+        self.assertIn("ink_pct", r)
+
+    def test_check_quality_dark_image(self):
+        dark_img = self.dir_path / "dark.png"
+        create_test_image(dark_img, 80, 80, bg_val=0)
+        ok, r, issues = check_image_quality(dark_img)
+        self.assertFalse(ok)
+        self.assertTrue(any("严重模糊" in s or "整体过暗" in s or "墨量不足" in s for s in issues))
+
+    def test_check_quality_low_ink(self):
+        sparse_img = self.dir_path / "sparse.png"
+        create_test_image(sparse_img, 100, 100, box=(40, 40, 5, 5), box_val=200)
+        ok, r, issues = check_image_quality(sparse_img, min_ink=5.0)
+        self.assertFalse(ok)
+        self.assertTrue(any("墨量不足" in s for s in issues))
+
+
+class TestRunQaImages(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.dir_path = Path(self.temp_dir.name)
+        self.img1 = self.dir_path / "img1.png"
+        self.img2 = self.dir_path / "img2.png"
+        create_test_image(self.img1, 90, 90, box=(20, 20, 40, 40), box_val=220)
+        create_test_image(self.img2, 90, 90, box=(20, 20, 30, 30), box_val=210)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_run_qa_images_file_and_directory(self):
+        self.assertTrue(run_qa_images(self.img1, verbose=False))
+        self.assertTrue(run_qa_images(self.dir_path, verbose=False))
+        self.assertTrue(run_qa_images([self.img1, self.img2], verbose=False))
+
+    def test_run_qa_images_failure(self):
+        dark = self.dir_path / "dark.png"
+        create_test_image(dark, 80, 80, bg_val=0)
+        self.assertFalse(run_qa_images(dark, verbose=False))
+        self.assertFalse(run_qa_images(self.dir_path, verbose=False))
+
+    def test_run_qa_images_missing_path(self):
+        self.assertFalse(run_qa_images(self.dir_path / "non_existing.png", verbose=False))
+
+    def test_run_qa_images_aliases(self):
+        self.assertIs(qa_images, run_qa_images)
+        self.assertIs(qa_single_image, check_image_quality)
+        self.assertIs(run_qa_single_image, check_image_quality)
 
 
 if __name__ == "__main__":
