@@ -169,6 +169,23 @@ def parse_markdown(text: str) -> list[dict]:
                         items.append({"label":row[0],"x":values[0],"y":values[1]})
                     current["blocks"].append({"type":"scatter-data","headers":rows[0],"items":items})
                     continue
+                if rows[0] == ["Metric", "Actual", "Target"]:
+                    if len(rows[1])!=3 or any(not re.fullmatch(r":?-{3,}:?", x) for x in rows[1]): raise ValueError("target progress alignment syntax is not supported")
+                    data=rows[2:]
+                    if not 3<=len(data)<=5 or any(len(x)!=3 or any(not cell for cell in x) for x in data): raise ValueError("target progress requires 3-5 non-empty data rows")
+                    metrics=[x[0] for x in data]
+                    if len(set(metrics)) != len(metrics): raise ValueError("target progress metrics must be unique in v1")
+                    items=[]
+                    for row in data:
+                        if len(row[0])>20: raise ValueError("target progress metric exceeds budget")
+                        values=[]
+                        for raw in row[1:]:
+                            if not re.fullmatch(r"(?:0|[1-9]\d{0,3})(?:\.\d{1,2})?", raw): raise ValueError("target progress values must be non-negative decimals up to 9999")
+                            values.append(float(raw))
+                        if values[1] <= 0: raise ValueError("target progress target must be greater than zero in v1")
+                        items.append({"metric":row[0],"actual":values[0],"target":values[1]})
+                    current["blocks"].append({"type":"target-progress","headers":rows[0],"items":items})
+                    continue
                 if rows[0] == ["Task", "Start", "End"]:
                     if len(rows[1])!=3 or any(not re.fullmatch(r":?-{3,}:?", x) for x in rows[1]): raise ValueError("gantt schedule alignment syntax is not supported")
                     data=rows[2:]

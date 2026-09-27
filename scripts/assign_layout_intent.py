@@ -43,6 +43,7 @@ def assign_layout(slide: dict) -> str:
     has_scatter = False
     has_gantt = False
     has_heatmap = False
+    has_target_progress = False
     image_count = 0
     paragraph_count = 0
     for block in blocks:
@@ -125,6 +126,9 @@ def assign_layout(slide: dict) -> str:
         if block.get("type") == "status-heatmap":
             has_heatmap = True
             continue
+        if block.get("type") == "target-progress":
+            has_target_progress = True
+            continue
         if block.get("type") != "paragraph":
             raise ValueError("unsupported block type")
         paragraph_count += 1
@@ -186,6 +190,10 @@ def assign_layout(slide: dict) -> str:
         if len([b for b in blocks if b.get("type")=="gantt-schedule"]) != 1 or any(b.get("type") not in {"gantt-schedule","paragraph"} for b in blocks) or paragraph_count > 1:
             raise ValueError("mixed gantt-schedule blocks are not supported in v1")
         return "gantt-schedule"
+    if has_target_progress:
+        if len([b for b in blocks if b.get("type")=="target-progress"]) != 1 or any(b.get("type") not in {"target-progress","paragraph"} for b in blocks) or paragraph_count > 1:
+            raise ValueError("mixed target-progress blocks are not supported in v1")
+        return "target-progress"
     if has_heatmap:
         if len([b for b in blocks if b.get("type")=="status-heatmap"]) != 1 or any(b.get("type") not in {"status-heatmap","paragraph"} for b in blocks) or paragraph_count > 1:
             raise ValueError("mixed status-heatmap blocks are not supported in v1")
