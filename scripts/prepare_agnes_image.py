@@ -639,7 +639,7 @@ def check_images(
                 "seam": seam_x,
             })
 
-    total_count = len(target_files) if target_files else len(failures)
+    total_count = len(results) + len(failures)
     success_count = len(results)
     failure_count = len(failures)
     partial_success = (success_count > 0 and failure_count > 0)
@@ -840,7 +840,7 @@ def prepare_agnes_images(
                 issues_summary.extend([f"尺寸偏差: {s}" for s in gate_res["dimension_mismatches"]])
             raise RuntimeError(f"配图客观后处理门禁未通过: {'; '.join(issues_summary)}")
 
-    total_count = len(target_files) if target_files else len(failures)
+    total_count = len(reports) + len(failures)
     success_count = len(reports)
     failure_count = len(failures)
     partial_success = (success_count > 0 and failure_count > 0)
@@ -866,8 +866,7 @@ prepare_images = prepare_agnes_images
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Agnes 配图后处理：裁 16:9 + 去接缝 + 压暗")
-    ap.add_argument("raw", nargs="?", default=None, help="原始输入图片路径、图片目录或项目路径（默认自发现）")
-    ap.add_argument("out", nargs="?", default=None, help="处理后输出图片路径（可选；省略时配合 --apply 原地写盘）")
+    ap.add_argument("raw", nargs="*", default=[], help="原始输入图片路径、图片目录或项目路径（默认自发现，支持多个目标）")
     ap.add_argument("--out", dest="out_flag", default=None, help="显式指定输出图片路径或目录")
     ap.add_argument("--size", default="2560x1440", help="目标分辨率 (默认: 2560x1440)")
     ap.add_argument("--brightness", type=float, default=1.0, help="亮度缩放系数 (默认: 1.0)")
@@ -892,16 +891,17 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         raw_args = argv if argv is not None else sys.argv[1:]
         target_size = (tw, th) if "--size" in raw_args else None
+        check_targets = a.raw if len(a.raw) > 1 else (a.raw[0] if len(a.raw) == 1 else None)
 
         if a.json:
             # 显式 opt-in 机器可读模式：直接序列化 check_images 结构化结果
             # stdout 纯净，不混入人类日志
-            res = check_images(a.raw, size=target_size, verbose=False)
+            res = check_images(check_targets, size=target_size, verbose=False)
             print(json.dumps(res, ensure_ascii=False, indent=2))
             return 0 if res["ok"] else 1
         else:
             try:
-                targets = resolve_image_targets(a.raw)
+                targets = resolve_image_targets(check_targets)
                 res = check_images(targets, size=target_size, verbose=verbose)
                 return 0 if res["ok"] else 1
             except Exception as e:
@@ -911,7 +911,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # 2. 清单模式 (--manifest)
     if a.manifest is not None:
-        raw_manifest_arg = a.manifest if a.manifest != "" else a.raw
+        raw_manifest_arg = a.manifest if a.manifest != "" else (a.raw[0] if a.raw else None)
         try:
             mf_path = resolve_manifest_target(raw_manifest_arg)
         except (FileNotFoundError, ValueError) as e:
@@ -972,7 +972,16 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     # 3. 常规图片处理
-    output_target = a.out_flag or a.out
+    output_target = a.out_flag
+    raw_targets = a.raw
+    if not output_target and len(a.raw) == 2 and not a.apply:
+        # 传统两参数调用: <raw.png> <out.png>
+        raw_targets = [a.raw[0]]
+        output_target = a.raw[1]
+    elif not output_target and len(a.raw) == 1:
+        raw_targets = a.raw[0]
+    elif not output_target and len(a.raw) == 0:
+        raw_targets = None
     try:
         tw, th = parse_size(a.size)
     except ValueError as e:
@@ -1004,7 +1013,7 @@ def main(argv: list[str] | None = None) -> int:
         # --json 必须直接序列化当前 prepare_images 的结构化结果，不重新实现统计逻辑
         # stdout 不混入人类日志
         res = prepare_images(
-            targets=a.raw,
+            targets=raw_targets,
             out=output_target,
             size=(tw, th),
             brightness=a.brightness,
@@ -1019,7 +1028,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # 默认不带 --json 的 CLI 输出必须完全保持现状
     try:
-        targets = resolve_image_targets(a.raw)
+        targets = resolve_image_targets(raw_targets)
     except (FileNotFoundError, ValueError) as e:
         if verbose:
             print(f"[!] {e}", file=sys.stderr)
