@@ -25,7 +25,7 @@ Agnes Studio -> PPT Master 配图桥接器
   # 4) 客观门禁校验 / 交付验收
   python3 agnes_ppt_bridge.py --check [manifest/project]
 
-依赖：生图走本机 New API（127.0.0.1:3000）。
+依赖：生图走本机 New API（默认 127.0.0.1:13000/v1；也可由 ~/.new-api/local_key.json 的 base_url 覆盖）。
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ from pathlib import Path
 def load_gateway(config_path: Path | str | None = None) -> tuple[str, str]:
     """复用 Agnes Studio 的 ~/.new-api/local_key.json，不另存密钥。"""
     p = Path(config_path) if config_path else Path.home() / ".new-api" / "local_key.json"
-    base, key = "http://127.0.0.1:3000/v1", ""
+    base, key = "http://127.0.0.1:13000/v1", ""
     if p.exists():
         try:
             d = json.loads(p.read_text(encoding="utf-8"))

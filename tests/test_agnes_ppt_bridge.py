@@ -62,7 +62,7 @@ class TestGatewayConfig(unittest.TestCase):
     def test_load_gateway_default_fallback(self):
         non_exist = self.tmp_dir / "no_key.json"
         base, key = load_gateway(non_exist)
-        self.assertEqual(base, "http://127.0.0.1:3000/v1")
+        self.assertEqual(base, "http://127.0.0.1:13000/v1")
         self.assertEqual(key, "")
 
     def test_load_gateway_valid_config(self):
@@ -81,7 +81,7 @@ class TestGatewayConfig(unittest.TestCase):
         buf = io.StringIO()
         with redirect_stdout(buf):
             base, key = load_gateway(cfg)
-        self.assertEqual(base, "http://127.0.0.1:3000/v1")
+        self.assertEqual(base, "http://127.0.0.1:13000/v1")
         self.assertEqual(key, "")
         self.assertIn("[warn] 读取网关配置失败", buf.getvalue())
 
