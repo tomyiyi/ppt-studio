@@ -5,11 +5,11 @@ from scripts import materialize_content_project as m
 
 class Tests(unittest.TestCase):
  def fixture(self,root):
-  plan={"schema":"ppt-studio-slide-plan/v1","slides":[{"id":"01"},{"id":"02"},{"id":"03"}]}; pp=root/"p.json"; pp.write_text(json.dumps(plan))
-  it={"schema":"ppt-studio-layout-intent/v1","source_plan_sha256":hashlib.sha256(pp.read_bytes()).hexdigest(),"slides":[{"id":"01","layout":"cover"},{"id":"02","layout":"statement-list"},{"id":"03","layout":"statement"}]}; ip=root/"i.json"; ip.write_text(json.dumps(it)); return pp,ip
+  plan={"schema":"ppt-studio-slide-plan/v1","slides":[{"id":"01"},{"id":"02"},{"id":"03"},{"id":"04"}]}; pp=root/"p.json"; pp.write_text(json.dumps(plan))
+  it={"schema":"ppt-studio-layout-intent/v1","source_plan_sha256":hashlib.sha256(pp.read_bytes()).hexdigest(),"slides":[{"id":"01","layout":"cover"},{"id":"02","layout":"statement-list"},{"id":"03","layout":"statement"},{"id":"04","layout":"statement-split"}]}; ip=root/"i.json"; ip.write_text(json.dumps(it)); return pp,ip
  def test_files_and_hash(self):
   with tempfile.TemporaryDirectory() as n:
-   p,i=self.fixture(Path(n)); a,r=m.load(p); b,_=m.load(i); self.assertEqual(m.expected_files(a,b,r),["01_cover.svg","02_statement_list.svg","03_statement.svg"])
+   p,i=self.fixture(Path(n)); a,r=m.load(p); b,_=m.load(i); self.assertEqual(m.expected_files(a,b,r),["01_cover.svg","02_statement_list.svg","03_statement.svg","04_statement_split.svg"])
  def test_unsupported_hash_and_nonempty(self):
   with tempfile.TemporaryDirectory() as n:
    root=Path(n); p,i=self.fixture(root); d=json.loads(i.read_text()); d["slides"][0]["layout"]="bad"; i.write_text(json.dumps(d))
@@ -26,6 +26,6 @@ class Tests(unittest.TestCase):
  def test_deterministic(self):
   with tempfile.TemporaryDirectory() as n:
    root=Path(n); p,i=self.fixture(root)
-   def fake(renderer,*args): (args[-1]/({"render_cover_svg.py":"01_cover.svg","render_statement_list_svg.py":"02_statement_list.svg","render_statement_svg.py":"03_statement.svg"}[renderer.name])).write_text(renderer.name)
+   def fake(renderer,*args): (args[-1]/({"render_cover_svg.py":"01_cover.svg","render_statement_list_svg.py":"02_statement_list.svg","render_statement_svg.py":"03_statement.svg","render_split_statement_svg.py":"04_statement_split.svg"}[renderer.name])).write_text(renderer.name)
    with patch.object(m,"run_renderer",side_effect=fake): m.main([str(p),str(i),"--spec",str(p),"-o",str(root/"a")]); m.main([str(p),str(i),"--spec",str(p),"-o",str(root/"b")])
    self.assertEqual(sorted(x.name for x in (root/"a").iterdir()),sorted(x.name for x in (root/"b").iterdir()))

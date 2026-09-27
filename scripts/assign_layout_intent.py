@@ -15,13 +15,21 @@ def assign_layout(slide: dict) -> str:
     blocks = slide.get("blocks")
     if not isinstance(blocks, list):
         raise ValueError("slide blocks must be a list")
+    has_bullets = False
+    paragraph_count = 0
     for block in blocks:
         if not isinstance(block, dict):
             raise ValueError("slide block must be an object")
         if block.get("type") == "bullets":
-            return "statement-list"
+            has_bullets = True
+            continue
         if block.get("type") != "paragraph":
             raise ValueError("unsupported block type")
+        paragraph_count += 1
+    if has_bullets:
+        return "statement-list"
+    if paragraph_count == 2:
+        return "statement-split"
     return "statement"
 
 

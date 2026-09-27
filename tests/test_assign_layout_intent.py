@@ -21,9 +21,10 @@ class AssignLayoutIntentTests(unittest.TestCase):
             {"id": "01", "kind": "cover", "blocks": []},
             {"id": "02", "kind": "content", "blocks": [{"type": "paragraph", "text": "x"}]},
             {"id": "03", "kind": "content", "blocks": [{"type": "bullets", "items": ["x"]}]},
+            {"id": "04", "kind": "content", "blocks": [{"type": "paragraph", "text": "a"}, {"type": "paragraph", "text": "b"}]},
         ]), ensure_ascii=False, indent=2).encode() + b"\n"
         intent = MODULE.build_intent(json.loads(source), source)
-        self.assertEqual([s["layout"] for s in intent["slides"]], ["cover", "statement", "statement-list"])
+        self.assertEqual([s["layout"] for s in intent["slides"]], ["cover", "statement", "statement-list", "statement-split"])
 
     def test_bullets_win_when_paragraph_also_exists(self):
         source = b"{}"
