@@ -7,6 +7,7 @@ tests/test_prepare_agnes_image.py
 """
 
 import io
+import json
 import os
 import shutil
 import sys
@@ -361,8 +362,13 @@ class TestMainCLI(unittest.TestCase):
         self.assertEqual(ret, 0)
         import json
         out_data = json.loads(buf.getvalue().strip())
-        self.assertIsInstance(out_data, list)
-        self.assertEqual(out_data[0]["name"], self.raw_path.name)
+        self.assertIsInstance(out_data, dict)
+        self.assertEqual(out_data["total"], 1)
+        self.assertEqual(out_data["success_count"], 1)
+        self.assertEqual(out_data["failure_count"], 0)
+        self.assertFalse(out_data["partial_success"])
+        self.assertEqual(out_data["failures"], [])
+        self.assertEqual(out_data["items"][0]["name"], self.raw_path.name)
 
 
 class TestTargetResolutionAndManifest(unittest.TestCase):
@@ -774,6 +780,300 @@ class TestBatchStructuredResultAndFailures(unittest.TestCase):
                 self.assertEqual(chk["failure_count"], prep["failure_count"])
                 self.assertEqual(chk["partial_success"], prep["partial_success"])
                 self.assertEqual(chk["ok"], prep["ok"])
+
+
+class TestCLIJsonAndExitCodes(unittest.TestCase):
+    """测试配图处理与客观门禁 CLI 的 --json 机器可读模式与退出码语义。"""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.dir_path = Path(self.temp_dir.name)
+
+        # 1. 全成功目录
+        self.clean_dir = self.dir_path / "clean_dir"
+        self.clean_dir.mkdir(parents=True)
+        self.clean1 = self.clean_dir / "clean1.png"
+        self.clean2 = self.clean_dir / "clean2.png"
+        create_test_image(self.clean1, width=120, height=80)
+        create_test_image(self.clean2, width=120, height=80)
+
+        # 2. 部分失败目录 (1 正常 + 1 坏图: 空文件)
+        self.partial_dir = self.dir_path / "partial_dir"
+        self.partial_dir.mkdir(parents=True)
+        self.p_good = self.partial_dir / "p_good.png"
+        self.p_bad = self.partial_dir / "p_bad.png"
+        create_test_image(self.p_good, width=120, height=80)
+        self.p_bad.write_bytes(b"")
+
+        # 3. 全失败目录 (2 坏图: 0 字节文件与非图片文本文件)
+        self.fail_dir = self.dir_path / "fail_dir"
+        self.fail_dir.mkdir(parents=True)
+        self.f_bad1 = self.fail_dir / "f_bad1.png"
+        self.f_bad2 = self.fail_dir / "f_bad2.png"
+        self.f_bad1.write_bytes(b"")
+        self.f_bad2.write_bytes(b"NOT_A_PNG_FILE_CONTENT")
+
+        # 4. 门禁部分失败与全失败目录 (含接缝)
+        self.seam_partial_dir = self.dir_path / "seam_partial_dir"
+        self.seam_partial_dir.mkdir(parents=True)
+        self.sp_clean = self.seam_partial_dir / "sp_clean.png"
+        self.sp_seam = self.seam_partial_dir / "sp_seam.png"
+        create_test_image(self.sp_clean, width=120, height=80)
+        create_test_image(self.sp_seam, width=120, height=80, left_val=20, right_val=60, seam_x=60)
+
+        self.seam_all_fail_dir = self.dir_path / "seam_all_fail_dir"
+        self.seam_all_fail_dir.mkdir(parents=True)
+        self.sa_seam1 = self.seam_all_fail_dir / "sa_seam1.png"
+        self.sa_seam2 = self.seam_all_fail_dir / "sa_seam2.png"
+        create_test_image(self.sa_seam1, width=120, height=80, left_val=20, right_val=60, seam_x=60)
+        create_test_image(self.sa_seam2, width=120, height=80, left_val=20, right_val=60, seam_x=60)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_prepare_cli_json_all_success(self):
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with redirect_stdout(buf_out), redirect_stderr(buf_err):
+            code = main([str(self.clean_dir), "--json", "--size", "100x60"])
+        self.assertEqual(code, 0)
+        self.assertEqual(buf_err.getvalue(), "")
+
+        # 标准 JSON 解析与字段契约
+        data = json.loads(buf_out.getvalue())
+        self.assertIsInstance(data, dict)
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["total"], 2)
+        self.assertEqual(data["success_count"], 2)
+        self.assertEqual(data["failure_count"], 0)
+        self.assertFalse(data["partial_success"])
+        self.assertEqual(data["failures"], [])
+        self.assertEqual(len(data["items"]), 2)
+
+        # stdout 纯净无人类日志混入
+        self.assertTrue(buf_out.getvalue().strip().startswith("{"))
+        self.assertTrue(buf_out.getvalue().strip().endswith("}"))
+        self.assertNotIn("✓", buf_out.getvalue())
+        self.assertNotIn("[预演]", buf_out.getvalue())
+
+    def test_prepare_cli_json_partial_success(self):
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with redirect_stdout(buf_out), redirect_stderr(buf_err):
+            code = main([str(self.partial_dir), "--json", "--size", "100x60"])
+        # 存在失败时必须返回非零退出码
+        self.assertEqual(code, 1)
+
+        data = json.loads(buf_out.getvalue())
+        self.assertFalse(data["ok"])
+        self.assertEqual(data["total"], 2)
+        self.assertEqual(data["success_count"], 1)
+        self.assertEqual(data["failure_count"], 1)
+        self.assertTrue(data["partial_success"])
+        self.assertEqual(len(data["failures"]), 1)
+
+        fail = data["failures"][0]
+        self.assertEqual(fail["name"], "p_bad.png")
+        self.assertEqual(fail["code"], "EMPTY_FILE")
+        self.assertIn("空图片文件", fail["reason"])
+
+    def test_prepare_cli_json_all_failure(self):
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with redirect_stdout(buf_out), redirect_stderr(buf_err):
+            code = main([str(self.fail_dir), "--json", "--size", "100x60"])
+        self.assertEqual(code, 1)
+
+        data = json.loads(buf_out.getvalue())
+        self.assertFalse(data["ok"])
+        self.assertEqual(data["total"], 2)
+        self.assertEqual(data["success_count"], 0)
+        self.assertEqual(data["failure_count"], 2)
+        self.assertFalse(data["partial_success"])
+        self.assertEqual(len(data["failures"]), 2)
+        for fail in data["failures"]:
+            self.assertIn("file", fail)
+            self.assertIn("code", fail)
+            self.assertIn("reason", fail)
+
+    def test_prepare_cli_json_matches_python_api(self):
+        buf_out = io.StringIO()
+        with redirect_stdout(buf_out):
+            code = main([str(self.clean_dir), "--json", "--size", "100x60"])
+        self.assertEqual(code, 0)
+        cli_data = json.loads(buf_out.getvalue())
+
+        api_res = prepare_images(self.clean_dir, size=(100, 60), apply=False, verbose=False)
+        api_data = json.loads(json.dumps(api_res))
+        self.assertEqual(cli_data, api_data)
+
+    def test_check_cli_json_all_success(self):
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with redirect_stdout(buf_out), redirect_stderr(buf_err):
+            code = main([str(self.clean_dir), "--check", "--json", "--size", "120x80"])
+        self.assertEqual(code, 0)
+        self.assertEqual(buf_err.getvalue(), "")
+
+        data = json.loads(buf_out.getvalue())
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["total"], 2)
+        self.assertEqual(data["success_count"], 2)
+        self.assertEqual(data["failure_count"], 0)
+        self.assertFalse(data["partial_success"])
+        self.assertEqual(data["failures"], [])
+        self.assertNotIn("ALL CLEAR", buf_out.getvalue())
+        self.assertNotIn("🔍", buf_out.getvalue())
+
+    def test_check_cli_json_partial_success(self):
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with redirect_stdout(buf_out), redirect_stderr(buf_err):
+            code = main([str(self.seam_partial_dir), "--check", "--json"])
+        self.assertEqual(code, 1)
+
+        data = json.loads(buf_out.getvalue())
+        self.assertFalse(data["ok"])
+        self.assertEqual(data["total"], 2)
+        self.assertEqual(data["success_count"], 1)
+        self.assertEqual(data["failure_count"], 1)
+        self.assertTrue(data["partial_success"])
+        self.assertEqual(len(data["failures"]), 1)
+        self.assertEqual(data["failures"][0]["code"], "SEAM_DETECTED")
+        self.assertIn("残留接缝", data["failures"][0]["reason"])
+
+    def test_check_cli_json_all_failure(self):
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with redirect_stdout(buf_out), redirect_stderr(buf_err):
+            code = main([str(self.seam_all_fail_dir), "--check", "--json"])
+        self.assertEqual(code, 1)
+
+        data = json.loads(buf_out.getvalue())
+        self.assertFalse(data["ok"])
+        self.assertEqual(data["total"], 2)
+        self.assertEqual(data["success_count"], 0)
+        self.assertEqual(data["failure_count"], 2)
+        self.assertFalse(data["partial_success"])
+        self.assertEqual(len(data["failures"]), 2)
+        for fail in data["failures"]:
+            self.assertEqual(fail["code"], "SEAM_DETECTED")
+
+    def test_check_cli_json_matches_python_api(self):
+        buf_out = io.StringIO()
+        with redirect_stdout(buf_out):
+            code = main([str(self.clean_dir), "--check", "--json", "--size", "120x80"])
+        self.assertEqual(code, 0)
+        cli_data = json.loads(buf_out.getvalue())
+
+        api_res = check_images(self.clean_dir, size=(120, 80), verbose=False)
+        api_data = json.loads(json.dumps(api_res))
+        self.assertEqual(cli_data, api_data)
+
+    def test_cli_json_deterministic_structure_and_ordering(self):
+        buf1 = io.StringIO()
+        with redirect_stdout(buf1):
+            code1 = main([str(self.clean_dir), "--json", "--size", "100x60"])
+        buf2 = io.StringIO()
+        with redirect_stdout(buf2):
+            code2 = main([str(self.clean_dir), "--json", "--size", "100x60"])
+
+        self.assertEqual(code1, code2)
+        self.assertEqual(buf1.getvalue(), buf2.getvalue())
+
+        data1 = json.loads(buf1.getvalue())
+        data2 = json.loads(buf2.getvalue())
+        self.assertEqual(
+            [item["file"] for item in data1["items"]],
+            [item["file"] for item in data2["items"]],
+        )
+
+    def test_cli_quiet_and_verbose_combinations_with_json(self):
+        # 1. prepare --json + --quiet
+        buf_out_q = io.StringIO()
+        buf_err_q = io.StringIO()
+        with redirect_stdout(buf_out_q), redirect_stderr(buf_err_q):
+            code_q = main([str(self.clean_dir), "--json", "--quiet"])
+        self.assertEqual(code_q, 0)
+        self.assertEqual(buf_err_q.getvalue(), "")
+        json.loads(buf_out_q.getvalue())
+
+        # 2. prepare --json + --verbose
+        buf_out_v = io.StringIO()
+        buf_err_v = io.StringIO()
+        with redirect_stdout(buf_out_v), redirect_stderr(buf_err_v):
+            code_v = main([str(self.clean_dir), "--json", "--verbose"])
+        self.assertEqual(code_v, 0)
+        self.assertEqual(buf_err_v.getvalue(), "")
+        json.loads(buf_out_v.getvalue())
+
+        # 3. check --json + --quiet
+        buf_out_cq = io.StringIO()
+        buf_err_cq = io.StringIO()
+        with redirect_stdout(buf_out_cq), redirect_stderr(buf_err_cq):
+            code_cq = main([str(self.clean_dir), "--check", "--json", "--quiet"])
+        self.assertEqual(code_cq, 0)
+        self.assertEqual(buf_err_cq.getvalue(), "")
+        json.loads(buf_out_cq.getvalue())
+
+        # 4. check --json + --verbose
+        buf_out_cv = io.StringIO()
+        buf_err_cv = io.StringIO()
+        with redirect_stdout(buf_out_cv), redirect_stderr(buf_err_cv):
+            code_cv = main([str(self.clean_dir), "--check", "--json", "--verbose"])
+        self.assertEqual(code_cv, 0)
+        self.assertEqual(buf_err_cv.getvalue(), "")
+        json.loads(buf_out_cv.getvalue())
+
+    def test_default_cli_output_and_batch_exit_codes_without_json(self):
+        # 全成功: 退出码 0，保持人类可读输出与提示
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with redirect_stdout(buf_out), redirect_stderr(buf_err):
+            code = main([str(self.clean_dir), "--size", "100x60"])
+        self.assertEqual(code, 0)
+        self.assertEqual(buf_err.getvalue(), "")
+        self.assertIn("[预演]", buf_out.getvalue())
+        self.assertIn("clean1.png", buf_out.getvalue())
+        self.assertIn("clean2.png", buf_out.getvalue())
+        self.assertIn("加 --apply 执行写盘", buf_out.getvalue())
+
+        # 包含失败项: 退出码为 1，诊断信息走 stderr，stdout 仍正常输出成功项预演
+        buf_out_p = io.StringIO()
+        buf_err_p = io.StringIO()
+        with redirect_stdout(buf_out_p), redirect_stderr(buf_err_p):
+            code_p = main([str(self.partial_dir), "--size", "100x60"])
+        self.assertEqual(code_p, 1)
+        self.assertIn("[预演] p_good.png", buf_out_p.getvalue())
+        self.assertIn("[!] 处理图片 p_bad.png 失败", buf_err_p.getvalue())
+
+    def test_invalid_cli_arguments_keep_contract(self):
+        # 非法 size
+        buf_err = io.StringIO()
+        with redirect_stderr(buf_err):
+            ret = main([str(self.clean_dir), "--size", "invalid_size"])
+        self.assertEqual(ret, 1)
+        self.assertIn("尺寸格式无效", buf_err.getvalue())
+
+        # 非法 brightness
+        buf_err2 = io.StringIO()
+        with redirect_stderr(buf_err2):
+            ret2 = main([str(self.clean_dir), "--brightness", "-1"])
+        self.assertEqual(ret2, 1)
+        self.assertIn("亮度系数必须 >= 0", buf_err2.getvalue())
+
+        # 非法 seam
+        buf_err3 = io.StringIO()
+        with redirect_stderr(buf_err3):
+            ret3 = main([str(self.clean_dir), "--seam", "bad_col"])
+        self.assertEqual(ret3, 1)
+        self.assertIn("无效的接缝列号", buf_err3.getvalue())
+
+        # 非法 argparse 参数抛出 SystemExit 且退出码为 2
+        with self.assertRaises(SystemExit) as cm:
+            with redirect_stderr(io.StringIO()):
+                main([str(self.clean_dir), "--non-existent-option"])
+        self.assertEqual(cm.exception.code, 2)
 
 
 if __name__ == "__main__":

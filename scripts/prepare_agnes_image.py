@@ -851,17 +851,29 @@ def main(argv: list[str] | None = None) -> int:
     # 1. 门禁模式
     if a.check:
         try:
-            targets = resolve_image_targets(a.raw)
             tw, th = parse_size(a.size) if a.size else (2560, 1440)
-            target_size = (tw, th) if "--size" in (argv or []) else None
-            res = check_images(targets, size=target_size, verbose=verbose and not a.json)
-            if a.json:
-                print(json.dumps(res, ensure_ascii=False, indent=2))
-            return 0 if res["ok"] else 1
-        except Exception as e:
+        except ValueError as e:
             if verbose:
-                print(f"[!] 门禁检查失败: {e}", file=sys.stderr)
+                print(f"[!] {e}", file=sys.stderr)
             return 1
+        raw_args = argv if argv is not None else sys.argv[1:]
+        target_size = (tw, th) if "--size" in raw_args else None
+
+        if a.json:
+            # 显式 opt-in 机器可读模式：直接序列化 check_images 结构化结果
+            # stdout 纯净，不混入人类日志
+            res = check_images(a.raw, size=target_size, verbose=False)
+            print(json.dumps(res, ensure_ascii=False, indent=2))
+            return 0 if res["ok"] else 1
+        else:
+            try:
+                targets = resolve_image_targets(a.raw)
+                res = check_images(targets, size=target_size, verbose=verbose)
+                return 0 if res["ok"] else 1
+            except Exception as e:
+                if verbose:
+                    print(f"[!] 门禁检查失败: {e}", file=sys.stderr)
+                return 1
 
     # 2. 清单模式 (--manifest)
     if a.manifest is not None:
@@ -934,6 +946,44 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[!] {e}", file=sys.stderr)
         return 1
 
+    if a.brightness < 0:
+        if verbose:
+            print(f"[!] 亮度系数必须 >= 0，当前为: {a.brightness}", file=sys.stderr)
+        return 1
+
+    seam_norm = a.seam.strip().lower()
+    if seam_norm not in ("auto", "off"):
+        parts = [p.strip() for p in a.seam.split(",") if p.strip()]
+        if not parts:
+            if verbose:
+                print(f"[!] 接缝参数格式无效: '{a.seam}'", file=sys.stderr)
+            return 1
+        for p in parts:
+            try:
+                int(p)
+            except ValueError:
+                if verbose:
+                    print(f"[!] 无效的接缝列号: '{p}' (完整参数: '{a.seam}')", file=sys.stderr)
+                return 1
+
+    if a.json:
+        # --json 必须直接序列化当前 prepare_images 的结构化结果，不重新实现统计逻辑
+        # stdout 不混入人类日志
+        res = prepare_images(
+            targets=a.raw,
+            out=output_target,
+            size=(tw, th),
+            brightness=a.brightness,
+            seam=a.seam,
+            apply=a.apply or bool(output_target),
+            no_backup=a.no_backup,
+            check=False,
+            verbose=False,
+        )
+        print(json.dumps(res, ensure_ascii=False, indent=2))
+        return 0 if res["ok"] else 1
+
+    # 默认不带 --json 的 CLI 输出必须完全保持现状
     try:
         targets = resolve_image_targets(a.raw)
     except (FileNotFoundError, ValueError) as e:
@@ -956,44 +1006,51 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"[!] 处理失败: {e}", file=sys.stderr)
             return 1
 
-        if not a.json and verbose:
+        if verbose:
             seam_txt = (
                 f"接缝@{','.join(str(c) for c in rep['seam'])} ✓已抹平"
                 if isinstance(rep["seam"], list)
                 else (f"接缝@x={rep['seam']} ✓已抹平" if rep["seam"] else "无接缝")
             )
             print(f"✓ {out_p.name}  {rep['src']} → {rep['out']}  {rep['kb']}KB  [{seam_txt}]")
-        if a.json:
-            print(json.dumps(rep, ensure_ascii=False, indent=2))
         return 0
 
     # 批量或单张原地处理
     reports = []
+    has_failure = False
     for src_p in targets:
         if a.apply:
             if not a.no_backup:
                 bak = src_p.parent / f"_pre_{src_p.name}"
                 if not bak.exists():
                     shutil.copy2(src_p, bak)
-            rep = prepare(src_p, src_p, (tw, th), a.brightness, a.seam)
-            rep["name"] = src_p.name
-            reports.append(rep)
-            if not a.json and verbose:
-                seam_txt = f"接缝@{rep['seam']} ✓已抹平" if rep["seam"] else "无接缝"
-                print(f"✓ {src_p.name}  {rep['src']} → {rep['out']}  {rep['kb']}KB  [{seam_txt}] (已写盘)")
+            try:
+                rep = prepare(src_p, src_p, (tw, th), a.brightness, a.seam)
+                rep["name"] = src_p.name
+                reports.append(rep)
+                if verbose:
+                    seam_txt = f"接缝@{rep['seam']} ✓已抹平" if rep["seam"] else "无接缝"
+                    print(f"✓ {src_p.name}  {rep['src']} → {rep['out']}  {rep['kb']}KB  [{seam_txt}] (已写盘)")
+            except Exception as e:
+                has_failure = True
+                if verbose:
+                    print(f"[!] 处理图片 {src_p.name} 失败: {e}", file=sys.stderr)
         else:
-            rep = prepare(src_p, None, (tw, th), a.brightness, a.seam)
-            rep["name"] = src_p.name
-            reports.append(rep)
-            if not a.json and verbose:
-                seam_txt = f"接缝@{rep['seam']} 需抹平" if rep["seam"] else "无接缝"
-                print(f"[预演] {src_p.name}  {rep['src']} → {rep['out']}  [{seam_txt}]")
+            try:
+                rep = prepare(src_p, None, (tw, th), a.brightness, a.seam)
+                rep["name"] = src_p.name
+                reports.append(rep)
+                if verbose:
+                    seam_txt = f"接缝@{rep['seam']} 需抹平" if rep["seam"] else "无接缝"
+                    print(f"[预演] {src_p.name}  {rep['src']} → {rep['out']}  [{seam_txt}]")
+            except Exception as e:
+                has_failure = True
+                if verbose:
+                    print(f"[!] 处理图片 {src_p.name} 失败: {e}", file=sys.stderr)
 
-    if not a.apply and not a.json and verbose:
+    if not a.apply and verbose:
         print("[提示] 当前为预演模式（未写盘），加 --apply 执行写盘")
-    if a.json:
-        print(json.dumps(reports, ensure_ascii=False, indent=2))
-    return 0
+    return 0 if not has_failure else 1
 
 
 if __name__ == "__main__":
