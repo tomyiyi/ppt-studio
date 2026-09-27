@@ -162,3 +162,13 @@ def _trend_series_contract(self):
         with self.subTest(source=bad):
             with self.assertRaises(ValueError): MODULE.build_plan("x.md",bad)
 PlanMarkdownTests.test_trend_series_contract=_trend_series_contract
+
+
+def _composition_contract(self):
+    source=b"# D\n## C\n| Segment | Share |\n| --- | --- |\n| Browser | 35% |\n| Code | 30% |\n| Search | 20% |\n| Files | 15% |"
+    block=MODULE.build_plan("x.md",source)["slides"][1]["blocks"][0]
+    self.assertEqual(block["type"], "composition-data")
+    self.assertEqual([x["share"] for x in block["items"]], [35,30,20,15])
+    for bad in (b"# D\n## C\n| Segment | Share |\n| --- | --- |\n| A | 20% |\n| B | 20% |", b"# D\n## C\n| Segment | Share |\n| --- | --- |\n| A | 7% |\n| B | 93% |", b"# D\n## C\n| Segment | Share |\n| --- | --- |\n| A | 35 |\n| B | 65 |", b"# D\n## C\n| Segment | Share |\n| --- | --- |\n| A | 35% |\n| A | 65% |"):
+        with self.assertRaises(ValueError): MODULE.build_plan("x.md",bad)
+PlanMarkdownTests.test_composition_contract=_composition_contract

@@ -146,6 +146,19 @@ def parse_markdown(text: str) -> list[dict]:
                 if any(x not in {"Low","Medium","High"} for x in [r[1] for r in data]): raise ValueError("risk-register severity must be Low, Medium, or High")
                 current["blocks"].append({"type":"risk-register","headers":rows[0],"rows":data})
                 continue
+            if rows[0] == ["Segment", "Share"]:
+                if len(rows[1])!=2 or any(not re.fullmatch(r":?-{3,}:?", x) for x in rows[1]): raise ValueError("composition bar alignment syntax is not supported")
+                data=rows[2:]
+                if not 3<=len(data)<=5 or any(len(x)!=2 or not x[0] for x in data): raise ValueError("composition data requires 3-5 data rows")
+                segments=[x[0] for x in data]
+                if len(set(segments)) != len(segments): raise ValueError("composition data segments must be unique in v1")
+                items=[]
+                for row in data:
+                    if not re.fullmatch(r"(?:[1-9]|[1-7]\d|8[0-4])%", row[1]): raise ValueError("composition shares must be integer percentages from 8% to 84%")
+                    items.append({"segment":row[0],"share":int(row[1][:-1])})
+                if sum(x["share"] for x in items) != 100: raise ValueError("composition shares must sum to 100 in v1")
+                current["blocks"].append({"type":"composition-data","headers":rows[0],"items":items})
+                continue
             if rows[0] == ["Period", "Value"]:
                 if len(rows[1])!=2 or any(not re.fullmatch(r":?-{3,}:?", x) for x in rows[1]): raise ValueError("trend series alignment syntax is not supported")
                 data=rows[2:]

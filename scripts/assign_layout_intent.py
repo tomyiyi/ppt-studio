@@ -36,6 +36,7 @@ def assign_layout(slide: dict) -> str:
     has_hierarchy = False
     has_swimlane = False
     has_trend = False
+    has_composition = False
     image_count = 0
     paragraph_count = 0
     for block in blocks:
@@ -97,6 +98,9 @@ def assign_layout(slide: dict) -> str:
         if block.get("type") == "trend-series":
             has_trend = True
             continue
+        if block.get("type") == "composition-data":
+            has_composition = True
+            continue
         if block.get("type") != "paragraph":
             raise ValueError("unsupported block type")
         paragraph_count += 1
@@ -137,6 +141,9 @@ def assign_layout(slide: dict) -> str:
     if has_trend:
         if len([b for b in blocks if b.get("type")=="trend-series"]) != 1 or any(b.get("type") not in {"trend-series","paragraph"} for b in blocks) or paragraph_count > 1: raise ValueError("mixed trend-line-chart blocks are not supported in v1")
         return "trend-line-chart"
+    if has_composition:
+        if len([b for b in blocks if b.get("type")=="composition-data"]) != 1 or any(b.get("type") != "composition-data" for b in blocks): raise ValueError("mixed composition-bar blocks are not supported in v1")
+        return "composition-bar"
     if has_risk:
         if paragraph_count or has_steps or has_quote or has_table or has_image or has_bullets:
             raise ValueError("mixed risk-register blocks are not supported in v1")

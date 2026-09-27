@@ -128,3 +128,10 @@ def _trend_layout(self):
     with self.assertRaisesRegex(ValueError, "mixed trend"):
         MODULE.build_intent(plan([{"id":"01","kind":"content","blocks":[{"type":"paragraph","text":"x"},{"type":"paragraph","text":"y"},block]}]),source)
 AssignLayoutIntentTests.test_trend_layout=_trend_layout
+
+
+def _composition_layout(self):
+    source=b"{}"; block={"type":"composition-data","items":[{"segment":"A","share":60},{"segment":"B","share":40}]}
+    self.assertEqual(MODULE.build_intent(plan([{"id":"01","kind":"content","blocks":[block]}]),source)["slides"][0]["layout"],"composition-bar")
+    with self.assertRaises(ValueError): MODULE.build_intent(plan([{"id":"01","kind":"content","blocks":[block,{"type":"paragraph","text":"x"}]}]),source)
+AssignLayoutIntentTests.test_composition_layout=_composition_layout
