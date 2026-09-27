@@ -73,10 +73,15 @@ def build(args: argparse.Namespace) -> None:
         (stage / "preview").mkdir(); (stage / "output").mkdir()
         shutil.copy2(spec, stage / "spec_lock.md")
         (stage / "source.md").write_bytes(source.read_bytes())
+        assets = source.parent / "assets"
+        if assets.is_dir():
+            shutil.copytree(assets, stage / "assets")
         plan = stage / "slide_plan.json"; intent = stage / "layout_intent.json"
         python = str(master_py)
         run([python, str(REPO / "scripts/plan_markdown.py"), str(stage / "source.md"), "-o", str(plan)])
         run([python, str(REPO / "scripts/assign_layout_intent.py"), str(plan), "-o", str(intent)])
+        plan_data = json.loads(plan.read_text(encoding="utf-8"))
+        expected_media = sum(1 for slide in plan_data["slides"] for block in slide.get("blocks", []) if block.get("type") == "image")
         run([python, str(REPO / "scripts/materialize_content_project.py"), str(plan), str(intent), "--spec", str(stage / "spec_lock.md"), "-o", str(stage / "svg_output")])
         title = args.title or source.stem
         run([python, str(REPO / "scripts/build_preview.py"), str(stage / "svg_output"), str(stage / "preview/content-deck.html"), title, "--check"])
@@ -89,7 +94,7 @@ def build(args: argparse.Namespace) -> None:
         pptx = stage / "output/content-deck.pptx"
         run([str(master_py), str(master_root / "skills/ppt-master/scripts/svg_to_pptx.py"), str(stage), "-o", str(pptx)])
         slides = len(json.loads(plan.read_text(encoding="utf-8"))["slides"])
-        run([python, str(REPO / "scripts/qa_pptx.py"), str(pptx), "--spec", str(stage / "spec_lock.md"), "--expected-slides", str(slides), "--expected-media", "0"])
+        run([python, str(REPO / "scripts/qa_pptx.py"), str(pptx), "--spec", str(stage / "spec_lock.md"), "--expected-slides", str(slides), "--expected-media", str(expected_media)])
         required=[stage/"source.md",stage/"spec_lock.md",plan,intent,stage/"preview/content-deck.html",report,pptx]
         required += sorted((stage/"svg_output").glob("*.svg"))
         if not all(p.is_file() and p.stat().st_size for p in required): raise ValueError("final artifact set incomplete")
