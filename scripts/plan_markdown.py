@@ -158,6 +158,21 @@ def parse_markdown(text: str) -> list[dict]:
                         items.append({"label":row[0],"x":values[0],"y":values[1]})
                     current["blocks"].append({"type":"scatter-data","headers":rows[0],"items":items})
                     continue
+                if rows[0] == ["Task", "Start", "End"]:
+                    if len(rows[1])!=3 or any(not re.fullmatch(r":?-{3,}:?", x) for x in rows[1]): raise ValueError("gantt schedule alignment syntax is not supported")
+                    data=rows[2:]
+                    if not 3<=len(data)<=5 or any(len(x)!=3 or any(not cell for cell in x) for x in data): raise ValueError("gantt schedule requires 3-5 non-empty data rows")
+                    tasks=[x[0] for x in data]
+                    if len(set(tasks)) != len(tasks): raise ValueError("gantt tasks must be unique in v1")
+                    items=[]
+                    for row in data:
+                        if len(row[0])>20: raise ValueError("gantt task exceeds budget")
+                        if not re.fullmatch(r"W(?:[1-9]|1[0-2])", row[1]) or not re.fullmatch(r"W(?:[1-9]|1[0-2])", row[2]): raise ValueError("gantt weeks must be W1 through W12")
+                        start,end=int(row[1][1:]),int(row[2][1:])
+                        if start>end: raise ValueError("gantt task start must be <= end")
+                        items.append({"task":row[0],"start":start,"end":end})
+                    current["blocks"].append({"type":"gantt-schedule","headers":rows[0],"items":items})
+                    continue
                 if rows[0] == ["Stage", "Owner", "Output"]:
                     if len(rows[1])!=3 or any(not re.fullmatch(r":?-{3,}:?", x) for x in rows[1]): raise ValueError("swimlane handoff alignment syntax is not supported")
                     data=rows[2:]

@@ -41,6 +41,7 @@ def assign_layout(slide: dict) -> str:
     has_grouped_bar = False
     has_cycle = False
     has_scatter = False
+    has_gantt = False
     image_count = 0
     paragraph_count = 0
     for block in blocks:
@@ -117,6 +118,9 @@ def assign_layout(slide: dict) -> str:
         if block.get("type") == "scatter-data":
             has_scatter = True
             continue
+        if block.get("type") == "gantt-schedule":
+            has_gantt = True
+            continue
         if block.get("type") != "paragraph":
             raise ValueError("unsupported block type")
         paragraph_count += 1
@@ -174,6 +178,10 @@ def assign_layout(slide: dict) -> str:
         if len([b for b in blocks if b.get("type")=="scatter-data"]) != 1 or any(b.get("type") not in {"scatter-data","paragraph"} for b in blocks) or paragraph_count > 1:
             raise ValueError("mixed scatter-plot blocks are not supported in v1")
         return "scatter-plot"
+    if has_gantt:
+        if len([b for b in blocks if b.get("type")=="gantt-schedule"]) != 1 or any(b.get("type") not in {"gantt-schedule","paragraph"} for b in blocks) or paragraph_count > 1:
+            raise ValueError("mixed gantt-schedule blocks are not supported in v1")
+        return "gantt-schedule"
     if has_risk:
         if paragraph_count or has_steps or has_quote or has_table or has_image or has_bullets:
             raise ValueError("mixed risk-register blocks are not supported in v1")
