@@ -24,6 +24,7 @@ from scripts.render_svg import (
     inline_images,
     resolve_targets,
     resolve_chrome,
+    render_svg,
     main,
 )
 
@@ -249,6 +250,208 @@ class TestMainCLI(unittest.TestCase):
     def test_cli_nonexistent_src(self):
         ret = main(["/non_existent_path_12345"])
         self.assertEqual(ret, 2)
+
+    @patch("scripts.render_svg.render_one")
+    @patch("scripts.render_svg.run_qa_layout")
+    def test_cli_check_success(self, mock_qa_layout, mock_render_one):
+        mock_render_one.return_value = True
+        mock_qa_layout.return_value = True
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            svg = td / "01_test.svg"
+            create_minimal_svg(svg)
+            out_dir = td / "out"
+
+            ret = main([str(svg), str(out_dir), "--check"])
+            self.assertEqual(ret, 0)
+            mock_qa_layout.assert_called_once()
+
+    @patch("scripts.render_svg.render_one")
+    @patch("scripts.render_svg.run_qa_layout")
+    def test_cli_check_failure(self, mock_qa_layout, mock_render_one):
+        mock_render_one.return_value = True
+        mock_qa_layout.return_value = False
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            svg = td / "01_test.svg"
+            create_minimal_svg(svg)
+            out_dir = td / "out"
+
+            ret = main([str(svg), str(out_dir), "--check"])
+            self.assertEqual(ret, 1)
+
+    @patch("scripts.render_svg.render_one")
+    @patch("scripts.render_svg.run_qa_layout")
+    def test_cli_spec_argument(self, mock_qa_layout, mock_render_one):
+        mock_render_one.return_value = True
+        mock_qa_layout.return_value = True
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            svg = td / "01_test.svg"
+            spec = td / "custom_spec.md"
+            spec.write_text("# Spec", encoding="utf-8")
+            create_minimal_svg(svg)
+            out_dir = td / "out"
+
+            ret = main([str(svg), str(out_dir), "--check", "--spec", str(spec)])
+            self.assertEqual(ret, 0)
+            _, kwargs = mock_qa_layout.call_args
+            self.assertEqual(kwargs["spec_path"], str(spec))
+
+
+class TestRenderSvgProgrammatic(unittest.TestCase):
+    @patch("scripts.render_svg.render_one")
+    def test_render_svg_basic(self, mock_render_one):
+        mock_render_one.return_value = True
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            svg1 = td / "01_cover.svg"
+            svg2 = td / "02_detail.svg"
+            create_minimal_svg(svg1)
+            create_minimal_svg(svg2)
+            out_dir = td / "render"
+
+            res = render_svg(src=td, out=out_dir)
+            self.assertEqual(len(res), 2)
+            self.assertEqual(mock_render_one.call_count, 2)
+            self.assertIn(out_dir.resolve() / "01_cover.png", res)
+            self.assertIn(out_dir.resolve() / "02_detail.png", res)
+
+    @patch("scripts.render_svg.render_one")
+    def test_render_svg_only_filter(self, mock_render_one):
+        mock_render_one.return_value = True
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            svg1 = td / "01_cover.svg"
+            svg2 = td / "02_detail.svg"
+            create_minimal_svg(svg1)
+            create_minimal_svg(svg2)
+
+            res = render_svg(src=td, only="detail")
+            self.assertEqual(len(res), 1)
+            self.assertTrue(res[0].name.endswith("02_detail.png"))
+
+    @patch("scripts.render_svg.render_one")
+    def test_render_svg_single_png_out(self, mock_render_one):
+        mock_render_one.return_value = True
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            svg = td / "01_cover.svg"
+            create_minimal_svg(svg)
+            custom_out = td / "custom.png"
+
+            res = render_svg(src=svg, out=custom_out)
+            self.assertEqual(res, [custom_out.resolve()])
+
+    def test_render_svg_nonexistent_src_raises(self):
+        with self.assertRaises(FileNotFoundError):
+            render_svg(src="/non_existent_path_xyz")
+
+    @patch("scripts.render_svg.render_one")
+    def test_render_svg_no_matching_only_raises(self, mock_render_one):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            svg = td / "01_cover.svg"
+            create_minimal_svg(svg)
+            with self.assertRaises(FileNotFoundError):
+                render_svg(src=td, only="not_found")
+
+    @patch("scripts.render_svg.render_one")
+    def test_render_svg_failure_raises_runtime_error(self, mock_render_one):
+        mock_render_one.side_effect = RuntimeError("Playwright error")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            svg = td / "01_cover.svg"
+            create_minimal_svg(svg)
+            with self.assertRaises(RuntimeError) as ctx:
+                render_svg(src=td)
+            self.assertIn("Playwright error", str(ctx.exception))
+
+
+class TestRenderSvgQualityGates(unittest.TestCase):
+    @patch("scripts.render_svg.render_one")
+    @patch("scripts.render_svg.run_qa_layout")
+    def test_slides_quality_gate_pass(self, mock_qa_layout, mock_render_one):
+        mock_render_one.return_value = True
+        mock_qa_layout.return_value = True
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            svg_dir = td / "svg_output"
+            svg1 = svg_dir / "01_cover.svg"
+            svg2 = svg_dir / "02_detail.svg"
+            create_minimal_svg(svg1)
+            create_minimal_svg(svg2)
+
+            res = render_svg(src=svg_dir, check=True)
+            self.assertEqual(len(res), 2)
+            mock_qa_layout.assert_called_once()
+            args, kwargs = mock_qa_layout.call_args
+            self.assertEqual(args[0], svg_dir.resolve())
+            self.assertEqual(kwargs["render_dir"], (td / "render").resolve())
+
+    @patch("scripts.render_svg.render_one")
+    @patch("scripts.render_svg.run_qa_layout")
+    def test_slides_quality_gate_fail(self, mock_qa_layout, mock_render_one):
+        mock_render_one.return_value = True
+        mock_qa_layout.return_value = False
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            svg_dir = td / "svg_output"
+            svg = svg_dir / "01_cover.svg"
+            create_minimal_svg(svg)
+
+            with self.assertRaises(RuntimeError) as ctx:
+                render_svg(src=svg_dir, check=True)
+            self.assertIn("SVG 版面客观质量门禁未通过", str(ctx.exception))
+
+    @patch("scripts.render_svg.render_one")
+    @patch("scripts.render_svg.run_qa_cards")
+    def test_cards_quality_gate_pass(self, mock_qa_cards, mock_render_one):
+        mock_render_one.return_value = True
+        mock_qa_cards.return_value = True
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            card_dir = td / "cards"
+            card1 = card_dir / "01_card.svg"
+            create_minimal_svg(card1)
+
+            res = render_svg(src=card_dir, check=True)
+            self.assertEqual(len(res), 1)
+            mock_qa_cards.assert_called_once()
+            args, kwargs = mock_qa_cards.call_args
+            self.assertEqual(args[0], card_dir.resolve())
+            self.assertEqual(kwargs["render_dir"], (td / "render_cards").resolve())
+
+    @patch("scripts.render_svg.render_one")
+    @patch("scripts.render_svg.run_qa_cards")
+    def test_cards_quality_gate_fail(self, mock_qa_cards, mock_render_one):
+        mock_render_one.return_value = True
+        mock_qa_cards.return_value = False
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            card_dir = td / "cards"
+            card1 = card_dir / "01_card.svg"
+            create_minimal_svg(card1)
+
+            with self.assertRaises(RuntimeError) as ctx:
+                render_svg(src=card_dir, check=True)
+            self.assertIn("卡片客观质量门禁未通过", str(ctx.exception))
+
+    @patch("scripts.render_svg.render_one")
+    @patch("scripts.render_svg.run_qa_layout")
+    def test_spec_forwarding(self, mock_qa_layout, mock_render_one):
+        mock_render_one.return_value = True
+        mock_qa_layout.return_value = True
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            svg = td / "01_test.svg"
+            create_minimal_svg(svg)
+            spec = td / "spec_lock.md"
+            spec.write_text("# Spec", encoding="utf-8")
+
+            render_svg(src=svg, check=True, spec_path=str(spec))
+            _, kwargs = mock_qa_layout.call_args
+            self.assertEqual(kwargs["spec_path"], str(spec))
 
 
 if __name__ == "__main__":

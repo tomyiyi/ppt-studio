@@ -11,6 +11,7 @@ SVG 页面渲染器（视觉验证用）
   python3 render_svg.py <svg_or_dir> <out_dir> [--scale 1] [--only 01_cover]
   python3 render_svg.py <project>/svg_output [--scale 1]
   python3 render_svg.py                                    # 自动发现项目与渲染目录
+  python3 render_svg.py --check                            # 渲染后自动执行质量门禁校验
 
 依赖：playwright + 本机 Google Chrome / Chromium。
 """
@@ -38,6 +39,26 @@ except ImportError:
         from playwright.sync_api import sync_playwright
     except ImportError:
         sync_playwright = None
+
+try:
+    from scripts.qa_layout import run_qa_layout
+    from scripts.qa_cards import run_qa_cards
+except ImportError:
+    repo_root = Path(__file__).resolve().parent.parent
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    if str(repo_root / "scripts") not in sys.path:
+        sys.path.insert(0, str(repo_root / "scripts"))
+    try:
+        from scripts.qa_layout import run_qa_layout
+        from scripts.qa_cards import run_qa_cards
+    except ImportError:
+        try:
+            from qa_layout import run_qa_layout
+            from qa_cards import run_qa_cards
+        except ImportError:
+            run_qa_layout = None
+            run_qa_cards = None
 
 CHROME_CANDIDATES = [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -273,43 +294,114 @@ def render_one(svg_path: Path, out_path: Path, scale: float = 1.0) -> bool:
     return True
 
 
+def render_svg(
+    src: str | Path | None = None,
+    out: str | Path | None = None,
+    scale: float = 1.0,
+    only: str | None = None,
+    check: bool = False,
+    spec_path: str | Path | None = None,
+    base_dir: str | Path | None = None,
+) -> list[Path]:
+    """渲染 PPT Master SVG 或卡片 SVG 为 PNG，并可选执行客观质量门禁校验。
+
+    :param src: 单个 .svg 文件、包含 SVG 的目录或项目目录（默认自发现）
+    :param out: 输出目录或单文件路径（默认自适应推导为 render 或 render_cards）
+    :param scale: 渲染缩放比例（默认 1.0）
+    :param only: 过滤文件名子串
+    :param check: 是否在渲染完成后执行客观质量门禁校验 (qa_layout.py / qa_cards.py)
+    :param spec_path: 可选指定的规范文件 (spec_lock.md 或 card_spec.md)
+    :param base_dir: 基础目录（默认当前工作目录）
+    :return: 渲染生成的 PNG 文件 Path 列表
+    """
+    files, out_dir = resolve_targets(src, out, base_dir=base_dir)
+
+    if only:
+        files = [f for f in files if only in f.name]
+
+    if not files:
+        target_info = str(src) if src else "目标目录"
+        filter_info = f" (匹配 '{only}')" if only else ""
+        raise FileNotFoundError(f"未找到 SVG{filter_info}: {target_info}")
+
+    is_single_png_out = len(files) == 1 and out_dir.suffix.lower() == ".png"
+
+    ok = 0
+    rendered: list[Path] = []
+    errors: list[str] = []
+    for f in files:
+        dst = out_dir if is_single_png_out else out_dir / (f.stem + ".png")
+        try:
+            render_one(f, dst, scale)
+            size_kb = dst.stat().st_size // 1024 if dst.exists() else 0
+            print(f"✓ {f.name} → {dst}  ({size_kb}KB)")
+            ok += 1
+            rendered.append(dst)
+        except Exception as e:
+            msg = f"✗ {f.name}: {type(e).__name__} {e}"
+            print(msg, file=sys.stderr)
+            errors.append(msg)
+
+    print(f"完成 {ok}/{len(files)}")
+    if ok != len(files):
+        raise RuntimeError(f"渲染未全部成功完成 ({ok}/{len(files)}): {'; '.join(errors)}")
+
+    if check:
+        # 判断是卡片还是版面幻灯片
+        is_cards = any("cards" in p.parts for p in files) or (files and files[0].parent.name == "cards")
+        target_render_dir = out_dir.parent if is_single_png_out else out_dir
+
+        if is_cards:
+            target_cards_dir = files[0].parent
+            if run_qa_cards is not None:
+                passed = run_qa_cards(target_cards_dir, render_dir=target_render_dir, spec_path=spec_path)
+                if not passed:
+                    raise RuntimeError(f"卡片客观质量门禁未通过: {target_cards_dir}")
+                print("  [门禁] ✓ 卡片客观质量门禁通过")
+            else:
+                print("  [warn] 未导入 run_qa_cards，跳过卡片门禁检查")
+        else:
+            target_layout = files[0] if len(files) == 1 else files[0].parent
+            if run_qa_layout is not None:
+                passed = run_qa_layout(target_layout, render_dir=target_render_dir, spec_path=spec_path)
+                if not passed:
+                    raise RuntimeError(f"SVG 版面客观质量门禁未通过: {target_layout}")
+                print("  [门禁] ✓ SVG 版面客观质量门禁通过")
+            else:
+                print("  [warn] 未导入 run_qa_layout，跳过版面门禁检查")
+
+    return rendered
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="渲染 PPT Master SVG 为 PNG")
     ap.add_argument("src", nargs="?", default=None, help="单个 .svg、svg 目录或项目目录（默认自动发现）")
     ap.add_argument("out", nargs="?", default=None, help="输出目录（可选，默认自动推导为 render 或 render_cards）")
     ap.add_argument("--scale", type=float, default=1.0)
     ap.add_argument("--only", help="只渲染文件名包含该串的页")
+    ap.add_argument("--check", action="store_true", help="渲染完成后执行客观质量门禁校验 (qa_layout.py / qa_cards.py)")
+    ap.add_argument("--spec", default=None, help="可选指定规范文件 (spec_lock.md 或 card_spec.md)")
     args = ap.parse_args(argv)
 
     try:
-        files, out_dir = resolve_targets(args.src, args.out)
+        render_svg(
+            src=args.src,
+            out=args.out,
+            scale=args.scale,
+            only=args.only,
+            check=args.check,
+            spec_path=args.spec,
+        )
+        return 0
     except (FileNotFoundError, ValueError) as err:
         print(f"[err] {err}", file=sys.stderr)
         return 2
-
-    if args.only:
-        files = [f for f in files if args.only in f.name]
-
-    if not files:
-        target_info = args.src or "目标目录"
-        filter_info = f" (匹配 '{args.only}')" if args.only else ""
-        print(f"[err] 未找到 SVG{filter_info}: {target_info}", file=sys.stderr)
-        return 2
-
-    is_single_png_out = len(files) == 1 and out_dir.suffix.lower() == ".png"
-
-    ok = 0
-    for f in files:
-        dst = out_dir if is_single_png_out else out_dir / (f.stem + ".png")
-        try:
-            render_one(f, dst, args.scale)
-            size_kb = dst.stat().st_size // 1024 if dst.exists() else 0
-            print(f"✓ {f.name} → {dst}  ({size_kb}KB)")
-            ok += 1
-        except Exception as e:
-            print(f"✗ {f.name}: {type(e).__name__} {e}", file=sys.stderr)
-    print(f"完成 {ok}/{len(files)}")
-    return 0 if ok == len(files) else 1
+    except RuntimeError as err:
+        print(f"[err] {err}", file=sys.stderr)
+        return 1
+    except Exception as err:
+        print(f"[err] {err}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
