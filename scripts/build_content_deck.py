@@ -75,7 +75,7 @@ def build(args: argparse.Namespace) -> None:
         (stage / "source.md").write_bytes(source.read_bytes())
         plan = stage / "slide_plan.json"; intent = stage / "layout_intent.json"
         python = str(master_py)
-        run([python, str(REPO / "scripts/plan_markdown.py"), str(source), "-o", str(plan)])
+        run([python, str(REPO / "scripts/plan_markdown.py"), str(stage / "source.md"), "-o", str(plan)])
         run([python, str(REPO / "scripts/assign_layout_intent.py"), str(plan), "-o", str(intent)])
         run([python, str(REPO / "scripts/materialize_content_project.py"), str(plan), str(intent), "--spec", str(stage / "spec_lock.md"), "-o", str(stage / "svg_output")])
         title = args.title or source.stem

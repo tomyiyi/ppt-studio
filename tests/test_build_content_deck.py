@@ -21,6 +21,22 @@ class BuildContractTests(unittest.TestCase):
     with patch.object(mod,'run',side_effect=fake):
       with self.assertRaises(Exception): mod.build(self.args(out))
     self.assertEqual([Path(x[1]).name for x in calls[:4]],['plan_markdown.py','assign_layout_intent.py','materialize_content_project.py','build_preview.py'])
+    self.assertEqual(Path(calls[0][2]).name, 'source.md')
+    self.assertNotEqual(Path(calls[0][2]).resolve(), self.src.resolve())
+
+  def test_same_bytes_use_canonical_source_name(self):
+    calls=[]
+    out=self.root/'out'
+    def fake(argv,**kw):
+      calls.append(argv)
+      script=Path(argv[1]).name if len(argv)>1 else ''
+      if script == 'plan_markdown.py':
+        Path(argv[argv.index('-o')+1]).write_text(json.dumps({'source_name':Path(argv[2]).name,'slides':[{'id':'s1'}]}))
+      raise RuntimeError('stop after canonical plan handoff')
+    with patch.object(mod,'run',side_effect=fake):
+      with self.assertRaisesRegex(RuntimeError,'canonical plan handoff'):
+        mod.build(self.args(out))
+    self.assertEqual(Path(calls[0][2]).name,'source.md')
   def test_nonempty_output_rejected(self):
     out=self.root/'out'; out.mkdir(); (out/'keep').write_text('x')
     with self.assertRaises(ValueError): mod.build(self.args(out))
