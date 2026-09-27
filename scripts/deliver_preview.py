@@ -45,26 +45,48 @@ def deliver_preview(
 ) -> Path:
     """凭据通过后调用现有 preview builder；失败时不触碰输出文件。"""
     validate_attestation_for_preview(attestation_path)
+    if not output_path or not str(output_path).strip():
+        raise ValueError("交付目标路径不能为空")
+    out = Path(output_path)
+    if out.is_dir():
+        raise IsADirectoryError(f"交付目标不能是已存在目录: {out}")
     return build_preview(src=src, out=output_path, title=title, cards=cards, check=False)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="带 QA attestation 门禁的 HTML preview 交付")
-    parser.add_argument("src", nargs="?", default=None, help="build_preview 原有源目录参数")
+    parser.add_argument("src", nargs="?", default=None, help="包含 SVG 文件的目录或项目根目录（默认自发现）")
+    parser.add_argument("output", nargs="?", default=None, help="最终 HTML 输出路径")
     parser.add_argument("--attestation", required=True, help="已生成的 QA attestation JSON")
-    parser.add_argument("--output", required=True, help="最终 HTML 输出路径")
+    parser.add_argument("--src", dest="src_opt", help="包含 SVG 文件的目录或项目根目录（覆盖位置参数）")
+    parser.add_argument("--output", dest="output_opt", help="最终 HTML 输出路径（覆盖位置参数）")
     parser.add_argument("--title", default=None, help="HTML 标题")
     parser.add_argument("--cards", action="store_true", help="沿用 build_preview 的 cards 模式")
     args = parser.parse_args(argv)
+
+    src = args.src_opt or args.src
+    out = args.output_opt or args.output
+
+    if args.output_opt is None and args.output is None and args.src is not None:
+        if args.src_opt is not None:
+            out = args.src
+            src = args.src_opt
+        elif args.src.lower().endswith((".html", ".htm")):
+            out = args.src
+            src = None
+
     try:
-        deliver_preview(
+        if not out:
+            raise ValueError("交付翻页预览时必须指定输出路径")
+        delivered = deliver_preview(
             attestation_path=args.attestation,
-            src=args.src,
-            output_path=args.output,
+            src=src,
+            output_path=out,
             title=args.title,
             cards=args.cards,
         )
-    except (FileNotFoundError, OSError, ValueError, RuntimeError) as err:
+        print(f"[✓] 已交付翻页预览: {delivered}")
+    except (FileNotFoundError, NotADirectoryError, OSError, ValueError, RuntimeError) as err:
         print(f"[err] {err}", file=sys.stderr)
         return 1
     return 0
