@@ -125,15 +125,21 @@ def parse_markdown(text: str) -> list[dict]:
                 items.append(item.group(2).strip())
                 i += 1
             metric_items = []
+            metric_matches = 0
             for item in items:
                 metric = _METRIC.match(item)
                 if not metric:
+                    if ":" in item or "：" in item:
+                        raise ValueError("mixed metric and plain bullet items are not supported in v1")
                     metric_items = []
-                    break
+                    continue
                 label, value = metric.group(1).strip(), metric.group(2).strip()
                 if not label or not value:
                     raise ValueError("metric label and value must be non-empty")
                 metric_items.append({"label": label, "value": value})
+                metric_matches += 1
+            if metric_matches and metric_matches != len(items):
+                raise ValueError("mixed metric and plain bullet items are not supported in v1")
             if metric_items:
                 if not 2 <= len(metric_items) <= 4:
                     raise ValueError("metric list requires 2-4 items in v1")

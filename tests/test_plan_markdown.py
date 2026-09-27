@@ -68,6 +68,8 @@ class PlanMarkdownTests(unittest.TestCase):
         for source in (b"# D\n## K\n- A: 1", b"# D\n## K\n- A: 1\n- B: 2\n- C: 3\n- D: 4\n- E: 5"):
             with self.assertRaisesRegex(ValueError, "metric list"):
                 MODULE.build_plan("x.md", source)
+        with self.assertRaisesRegex(ValueError, "mixed metric and plain"):
+            MODULE.build_plan("x.md", b"# D\n## K\n- A: 1\n- ordinary bullet")
 
 
 if __name__ == "__main__":
