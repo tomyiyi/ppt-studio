@@ -15,6 +15,7 @@ _QUOTE = re.compile(r"^>[ \t]+(.+?)[ \t]*$")
 _TABLE = re.compile(r"^\|(.+)\|[ \t]*$")
 _METRIC = re.compile(r"^([^:：\-][^:：]*?)[ \t]*:[ \t]*(.+)$")
 _MILESTONE = re.compile(r"^(\d{4}(?:-\d{2})?(?:-\d{2})?)[ \t]*:[ \t]*(.+)$")
+_LAYER = re.compile(r"^([^=:\-][^=:\-]*?)[ \t]*=>[ \t]*(.+)$")
 _IMAGE = re.compile(r"^!\[([^\]]+)\]\(([^)]+)\)[ \t]*$")
 _CODE_OPEN = re.compile(r"^```([A-Za-z0-9_+\-]{0,16})[ \t]*$")
 _CODE_LANGUAGES = {"python", "bash", "json", "typescript", "sql"}
@@ -177,7 +178,20 @@ def parse_markdown(text: str) -> list[dict]:
                     raise ValueError("milestone list requires 3-5 items in v1")
                 current["blocks"].append({"type": "milestone-list", "items": milestones})
             else:
-                current["blocks"].append({"type": "steps", "items": items})
+                layer_items=[]; matches=0
+                for item in items:
+                    m=_LAYER.match(item)
+                    if not m:
+                        if "=>" in item: raise ValueError("mixed structured and plain bullet items are not supported in v1")
+                        layer_items=[]; continue
+                    label,description=m.group(1).strip(),m.group(2).strip()
+                    if not label or not description: raise ValueError("layer label and description must be non-empty")
+                    layer_items.append({"label":label,"description":description}); matches+=1
+                if matches and matches != len(items): raise ValueError("mixed structured and plain bullet items are not supported in v1")
+                if layer_items:
+                    if not 3 <= len(layer_items) <= 5: raise ValueError("layer list requires 3-5 items in v1")
+                    current["blocks"].append({"type":"layer-list","items":layer_items})
+                else: current["blocks"].append({"type":"steps","items":items})
             continue
         quote = _QUOTE.match(line)
         if quote:
