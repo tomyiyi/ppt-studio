@@ -9,7 +9,7 @@ def render(slide,out):
     items=data[0].get("items",[])
     if len(items) not in SLOTS: raise ValueError("cycle requires 3-5 stages")
     e=html.escape; pts=SLOTS[len(items)]
-    z=['<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">','<rect width="1280" height="720" fill="#FFFFFF"/>','<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#555"/></marker></defs>',f'<text x="64" y="104" font-size="32" font-weight="700">{e(slide["title"])}</text>']
+    z=['<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">','<rect width="1280" height="720" fill="#FFFFFF"/>','<defs><marker markerUnits="userSpaceOnUse" id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#555"/></marker></defs>',f'<text x="64" y="104" font-size="32" font-weight="700">{e(slide["title"])}</text>']
     for i,(x,y) in enumerate(pts):
         x2,y2=pts[(i+1)%len(pts)]; z.append(f'<line x1="{x}" y1="{y}" x2="{x2}" y2="{y2}" stroke="#555" stroke-width="4" marker-end="url(#arrow)"/>')
     for (x,y),it in zip(pts,items):
