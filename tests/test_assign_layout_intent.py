@@ -16,6 +16,13 @@ def plan(slides):
 
 
 class AssignLayoutIntentTests(unittest.TestCase):
+    def test_empty_content_maps_to_section_divider_and_one_paragraph_stays_statement(self):
+        source = b"source"
+        intent = MODULE.build_intent(plan([
+            {"id": "01", "kind": "content", "blocks": []},
+            {"id": "02", "kind": "content", "blocks": [{"type": "paragraph", "text": "x"}]},
+        ]), source)
+        self.assertEqual([s["layout"] for s in intent["slides"]], ["section-divider", "statement"])
     def test_fixed_mapping(self):
         source = json.dumps(plan([
             {"id": "01", "kind": "cover", "blocks": []},

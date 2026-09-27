@@ -15,6 +15,8 @@ def assign_layout(slide: dict) -> str:
     blocks = slide.get("blocks")
     if not isinstance(blocks, list):
         raise ValueError("slide blocks must be a list")
+    if not blocks:
+        return "section-divider"
     has_bullets = False
     paragraph_count = 0
     for block in blocks:

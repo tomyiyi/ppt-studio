@@ -4,6 +4,9 @@ from unittest.mock import patch
 from scripts import materialize_content_project as m
 
 class Tests(unittest.TestCase):
+ def test_cover_and_section_divider_roster(self):
+  with tempfile.TemporaryDirectory() as n:
+   root=Path(n); plan={"schema":"ppt-studio-slide-plan/v1","slides":[{"id":"01","kind":"cover","blocks":[]},{"id":"02","kind":"content","title":"Runtime Architecture","blocks":[]}]}; pp=root/"p.json"; pp.write_text(json.dumps(plan)); it={"schema":"ppt-studio-layout-intent/v1","source_plan_sha256":hashlib.sha256(pp.read_bytes()).hexdigest(),"slides":[{"id":"01","layout":"cover"},{"id":"02","layout":"section-divider"}]}; ip=root/"i.json"; ip.write_text(json.dumps(it)); a,r=m.load(pp); b,_=m.load(ip); self.assertEqual(m.expected_files(a,b,r),["01_cover.svg","02_section_divider.svg"])
  def fixture(self,root):
   plan={"schema":"ppt-studio-slide-plan/v1","slides":[{"id":"01"},{"id":"02"},{"id":"03"},{"id":"04"}]}; pp=root/"p.json"; pp.write_text(json.dumps(plan))
   it={"schema":"ppt-studio-layout-intent/v1","source_plan_sha256":hashlib.sha256(pp.read_bytes()).hexdigest(),"slides":[{"id":"01","layout":"cover"},{"id":"02","layout":"statement-list"},{"id":"03","layout":"statement"},{"id":"04","layout":"statement-split"}]}; ip=root/"i.json"; ip.write_text(json.dumps(it)); return pp,ip
