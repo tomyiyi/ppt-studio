@@ -14,6 +14,51 @@ class ThemeTest(unittest.TestCase):
             got=(out/'01.svg').read_text()
             self.assertIn('#111827',got); self.assertIn('#ABCDEF',got); self.assertIn('文案',got)
             self.assertIn('viewBox="0 0 1 1"',got)
+
+    def test_role_override_beats_global_mapping(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); src=root/'src'; out=root/'out'; src.mkdir()
+            (src/'01.svg').write_text('<svg><text fill="#8E8F9A">plain</text><text data-theme-role="on-image" fill="#8E8F9A">image</text></svg>')
+            theme=root/'theme.json'; theme.write_text(json.dumps({'name':'x','colors':{'#8E8F9A':'#374151'},'role_colors':{'on-image':{'#8E8F9A':'#F8FAFC'}}}))
+            main([str(src),str(out),'--theme',str(theme)])
+            got=(out/'01.svg').read_text()
+            self.assertRegex(got, r'<text fill="#374151">plain')
+            self.assertRegex(got, r'<text data-theme-role="on-image" fill="#F8FAFC">image')
+
+    def test_role_falls_back_to_global_and_supports_color_attributes(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); src=root/'src'; out=root/'out'; src.mkdir()
+            (src/'01.svg').write_text('<svg><g data-theme-role="on-dark-surface" stroke="#8E8F9A"><stop data-theme-role="on-dark-surface" stop-color="#6E7BFF"/><path fill="#4ADE80"/></g></svg>')
+            theme=root/'theme.json'; theme.write_text(json.dumps({'name':'x','colors':{'#8E8F9A':'#374151','#6E7BFF':'#0000AA','#4ADE80':'#16A34A'},'role_colors':{'on-dark-surface':{'#8E8F9A':'#CBD5E1','#6E7BFF':'#93C5FD'}}}))
+            main([str(src),str(out),'--theme',str(theme)])
+            got=(out/'01.svg').read_text()
+            self.assertIn('stroke="#CBD5E1"', got)
+            self.assertIn('stop-color="#93C5FD"', got)
+            self.assertIn('fill="#16A34A"', got)
+
+    def test_same_source_color_can_have_distinct_roles(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); src=root/'src'; out=root/'out'; src.mkdir()
+            (src/'01.svg').write_text('<svg><text data-theme-role="on-image" fill="#8E8F9A"/><text data-theme-role="on-dark-surface" fill="#8E8F9A"/><text fill="#8E8F9A"/></svg>')
+            theme=root/'theme.json'; theme.write_text(json.dumps({'name':'x','colors':{'#8E8F9A':'#374151'},'role_colors':{'on-image':{'#8E8F9A':'#F8FAFC'},'on-dark-surface':{'#8E8F9A':'#CBD5E1'}}}))
+            main([str(src),str(out),'--theme',str(theme)])
+            got=(out/'01.svg').read_text()
+            self.assertIn('data-theme-role="on-image" fill="#F8FAFC"', got)
+            self.assertIn('data-theme-role="on-dark-surface" fill="#CBD5E1"', got)
+            self.assertIn('<text fill="#374151"', got)
+
+    def test_non_color_attributes_and_metadata_are_preserved(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); src=root/'src'; out=root/'out'; src.mkdir()
+            original='<svg viewBox="0 0 10 10"><image href="../images/a.png" x="1" y="2" width="3" height="4"/><text data-theme-role="on-accent" x="5" y="6" font-size="12" transform="scale(1)" fill="#08090C">0</text></svg>'
+            (src/'01.svg').write_text(original)
+            theme=root/'theme.json'; theme.write_text(json.dumps({'name':'x','colors':{'#08090C':'#FFFFFF'},'role_colors':{'on-accent':{'#08090C':'#111827'}}}))
+            main([str(src),str(out),'--theme',str(theme)])
+            got=(out/'01.svg').read_text()
+            self.assertIn('data-theme-role="on-accent"', got)
+            self.assertIn('href="../images/a.png" x="1" y="2" width="3" height="4"', got)
+            self.assertIn('x="5" y="6" font-size="12" transform="scale(1)" fill="#111827"', got)
+            self.assertEqual((src/'01.svg').read_text(), original)
     def test_output_does_not_modify_source(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); src=root/'src'; out=root/'out'; src.mkdir()

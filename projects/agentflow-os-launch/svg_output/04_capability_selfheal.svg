@@ -43,15 +43,15 @@
 
   <g id="terminal">
     <rect x="80" y="478" width="480" height="112" rx="8" fill="#0E0F14" fill-opacity="0.66" stroke="#23242E" stroke-width="1" />
-    <text x="104" y="508" font-family="Consolas, monospace" font-size="16" fill="#8E8F9A">[exec]  步骤 2 失败 · 字段格式不匹配</text>
-    <text x="104" y="538" font-family="Consolas, monospace" font-size="16" fill="#6E7BFF">[heal]  切换容错解析 · 降级继续</text>
-    <text x="104" y="568" font-family="Consolas, monospace" font-size="16" fill="#4ADE80">[done]  4/4 完成 · 人工介入 0 次</text>
+    <text data-theme-role="on-dark-surface" x="104" y="508" font-family="Consolas, monospace" font-size="16" fill="#8E8F9A">[exec]  步骤 2 失败 · 字段格式不匹配</text>
+    <text data-theme-role="on-dark-surface" x="104" y="538" font-family="Consolas, monospace" font-size="16" fill="#6E7BFF">[heal]  切换容错解析 · 降级继续</text>
+    <text data-theme-role="on-dark-surface" x="104" y="568" font-family="Consolas, monospace" font-size="16" fill="#4ADE80">[done]  4/4 完成 · 人工介入 0 次</text>
   </g>
 
   <g id="badge">
     <circle cx="1148" cy="196" r="22" fill="#4ADE80" />
-    <text x="1148" y="204" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="bold" fill="#08090C">0</text>
-    <text x="1148" y="242" text-anchor="middle" font-size="13" fill="#8E8F9A">人工介入次数</text>
+    <text data-theme-role="on-accent" x="1148" y="204" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="bold" fill="#08090C">0</text>
+    <text data-theme-role="on-image" x="1148" y="242" text-anchor="middle" font-size="13" fill="#8E8F9A">人工介入次数</text>
   </g>
 
   <g id="footer">
