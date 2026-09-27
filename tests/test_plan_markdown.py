@@ -71,6 +71,34 @@ class PlanMarkdownTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "mixed metric and plain"):
             MODULE.build_plan("x.md", b"# D\n## K\n- A: 1\n- ordinary bullet")
 
+    def test_faq_contract_and_strict_boundaries(self):
+        for count in (2, 3, 4):
+            pairs = "\n\n".join(f"Q: question {i}\nA: answer {i}" for i in range(count))
+            plan = MODULE.build_plan("x.md", f"# D\n\n## FAQ\n\n{pairs}".encode())
+            block = plan["slides"][1]["blocks"]
+            self.assertEqual(block[0]["type"], "faq")
+            self.assertEqual(len(block[0]["items"]), count)
+        for count in (1, 5):
+            pairs = "\n\n".join(f"Q: question {i}\nA: answer {i}" for i in range(count))
+            with self.assertRaisesRegex(ValueError, "faq block requires 2-4"):
+                MODULE.build_plan("x.md", f"# D\n\n## FAQ\n\n{pairs}".encode())
+        invalid = (
+            "# D\n## FAQ\nQ: q",
+            "# D\n## FAQ\nA: a\nQ: q\nA: a",
+            "# D\n## FAQ\nQ: q\nQ: q2\nA: a2",
+            "# D\n## FAQ\nQ: q\nA: a\nA: a2",
+            "# D\n## FAQ\nQ:\nA: a",
+        )
+        for source in invalid:
+            with self.subTest(source=source):
+                with self.assertRaises(ValueError): MODULE.build_plan("x.md", source.encode())
+
+    def test_faq_markers_are_not_stolen_from_other_structures(self):
+        code = b"# D\n\n## Code\n```python\nQ: q\nA: a\nprint(1)\n```"
+        self.assertEqual(MODULE.build_plan("x.md", code)["slides"][1]["blocks"][0]["type"], "code")
+        prose = MODULE.build_plan("x.md", b"# D\n\n## Text\nq: ordinary\nA question: ordinary")
+        self.assertNotEqual(prose["slides"][1]["blocks"][0]["type"], "faq")
+
 
 if __name__ == "__main__":
     unittest.main()

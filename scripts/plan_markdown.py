@@ -10,6 +10,10 @@ from pathlib import Path, PurePosixPath
 
 _HEADING = re.compile(r"^(#{1,3})[ \t]+(.+?)[ \t]*$")
 _BULLET = re.compile(r"^[ \t]*([-*])[ \t]+(.+?)[ \t]*$")
+_FAQ_Q = re.compile(r"^[ \t]*Q:[ \t]*(.+?)[ \t]*$")
+_FAQ_A = re.compile(r"^[ \t]*A:[ \t]*(.+?)[ \t]*$")
+_FAQ_Q_MARKER = re.compile(r"^[ \t]*Q:[ \t]*$")
+_FAQ_A_MARKER = re.compile(r"^[ \t]*A:[ \t]*$")
 _ORDERED = re.compile(r"^[ \t]*(\d+)[.]\s+(.+?)[ \t]*$")
 _QUOTE = re.compile(r"^>[ \t]+(.+?)[ \t]*$")
 _TABLE = re.compile(r"^\|(.+)\|[ \t]*$")
@@ -235,6 +239,8 @@ def parse_markdown(text: str) -> list[dict]:
             else:
                 current["blocks"].append({"type":"steps","items":items})
             continue
+        if _FAQ_A.match(line) or _FAQ_A_MARKER.match(line):
+            raise ValueError("faq block requires each Q line to be followed by one A line")
         quote = _QUOTE.match(line)
         if quote:
             raw=[]
@@ -253,6 +259,23 @@ def parse_markdown(text: str) -> list[dict]:
             if attribution: block["attribution"]=attribution
             current["blocks"].append(block)
             continue
+        qmatch = _FAQ_Q.match(line)
+        if _FAQ_Q_MARKER.match(line):
+            raise ValueError("faq question and answer must be non-empty")
+        if qmatch:
+            items=[]
+            while i < len(lines):
+                while i < len(lines) and not lines[i].strip(): i += 1
+                if i >= len(lines) or _HEADING.match(lines[i]): break
+                q=_FAQ_Q.match(lines[i])
+                if not q: raise ValueError("faq block requires each Q line to be followed by one A line")
+                i += 1
+                if i >= len(lines) or not _FAQ_A.match(lines[i]): raise ValueError("faq block requires each Q line to be followed by one A line")
+                a=_FAQ_A.match(lines[i]); i += 1
+                if not q.group(1).strip() or not a.group(1).strip(): raise ValueError("faq question and answer must be non-empty")
+                items.append({"question":q.group(1).strip(),"answer":a.group(1).strip()})
+            if not 2 <= len(items) <= 4: raise ValueError("faq block requires 2-4 Q/A pairs in v1")
+            current["blocks"].append({"type":"faq","items":items}); continue
         paragraph = [line.strip()]
         i += 1
         while i < len(lines) and lines[i].strip() and not _HEADING.match(lines[i]) and not _BULLET.match(lines[i]) and not _ORDERED.match(lines[i]) and not _QUOTE.match(lines[i]) and not _IMAGE.match(lines[i]) and not _CODE_OPEN.match(lines[i]):

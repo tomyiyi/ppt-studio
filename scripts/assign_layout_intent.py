@@ -23,6 +23,7 @@ def assign_layout(slide: dict) -> str:
     has_table = False
     has_risk = False
     has_decision = False
+    has_faq = False
     has_image = False
     has_code = False
     code_count = 0
@@ -53,6 +54,9 @@ def assign_layout(slide: dict) -> str:
             continue
         if block.get("type") == "decision-matrix":
             has_decision = True
+            continue
+        if block.get("type") == "faq":
+            has_faq = True
             continue
         if block.get("type") == "image":
             has_image = True
@@ -112,6 +116,10 @@ def assign_layout(slide: dict) -> str:
         if paragraph_count or has_steps or has_quote or has_table or has_image or has_bullets or has_risk:
             raise ValueError("mixed decision-matrix blocks are not supported in v1")
         return "decision-matrix"
+    if has_faq:
+        if paragraph_count or has_steps or has_quote or has_table or has_image or has_bullets or has_risk or has_decision:
+            raise ValueError("mixed faq and other block types are not supported in v1")
+        return "faq"
     if has_image:
         if image_count not in {1, 2} or paragraph_count > 1 or has_bullets or has_steps or has_quote or has_table:
             raise ValueError("mixed image blocks are not supported in v1")
