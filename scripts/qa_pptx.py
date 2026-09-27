@@ -335,73 +335,164 @@ def check_relationships(z: zipfile.ZipFile, slide_names: list[str]) -> tuple[boo
     return True, "全量幻灯片、母版与媒体关联引用无断链"
 
 
-def run_qa_pptx(
-    pptx_path: Path,
-    spec_path: Path | None = None,
+def qa_single_pptx(
+    pptx_path: Path | str,
+    spec_path: Path | str | None = None,
     expected_slides: int | None = None,
     expected_media: int | None = None,
+    verbose: bool = True,
 ) -> bool:
-    print("=" * 60)
-    print(f"🔍 运行 PPT-Studio PPTX 导出物客观回读质检")
-    print(f"   目标: {pptx_path}")
-    print("=" * 60)
+    p = Path(pptx_path).resolve()
+    if verbose:
+        print("=" * 60)
+        print("🔍 运行 PPT-Studio PPTX 导出物客观回读质检")
+        print(f"   目标: {p}")
+        print("=" * 60)
 
-    if not pptx_path.exists():
-        print(f"  [✗] 文件不存在: {pptx_path}")
+    if not p.exists():
+        if verbose:
+            print(f"  [✗] 文件不存在: {p}")
         return False
 
-    if not zipfile.is_zipfile(pptx_path):
-        print(f"  [✗] 目标文件非有效 PPTX/Zip 压缩包: {pptx_path}")
+    if not zipfile.is_zipfile(p):
+        if verbose:
+            print(f"  [✗] 目标文件非有效 PPTX/Zip 压缩包: {p}")
         return False
 
-    ramp, expected_stmt_sz = load_spec_typography(spec_path)
+    spec_p = Path(spec_path).resolve() if spec_path else find_spec_lock(p)
+    ramp, expected_stmt_sz = load_spec_typography(spec_p)
 
-    with zipfile.ZipFile(pptx_path, "r") as z:
+    with zipfile.ZipFile(p, "r") as z:
         # 1. Zip 基础结构
         ok_struct, msg_struct, pres_xml = check_zip_and_structure(z)
-        print(f"  [{'✓' if ok_struct else '✗'}] PPTX 基础结构       : {msg_struct}")
+        if verbose:
+            print(f"  [{'✓' if ok_struct else '✗'}] PPTX 基础结构       : {msg_struct}")
         if not ok_struct:
+            if verbose:
+                print("=" * 60)
+                print("QA FAILED ❌")
             return False
 
         # 2. 画幅与比例
         ok_geom, msg_geom = check_geometry(pres_xml)
-        print(f"  [{'✓' if ok_geom else '✗'}] 画幅与标准比例     : {msg_geom}")
+        if verbose:
+            print(f"  [{'✓' if ok_geom else '✗'}] 画幅与标准比例     : {msg_geom}")
 
         # 3. 媒体资源检验
         has_media = any(f.startswith("ppt/media/") for f in z.namelist())
         ok_media, msg_media = check_media(z, expected_media=expected_media)
-        print(f"  [{'✓' if ok_media else '✗'}] 媒体资源完整性     : {msg_media}")
+        if verbose:
+            print(f"  [{'✓' if ok_media else '✗'}] 媒体资源完整性     : {msg_media}")
 
         # 幻灯片清单
         slide_names = sorted([f for f in z.namelist() if f.startswith("ppt/slides/slide") and f.endswith(".xml")])
         if expected_slides is not None and len(slide_names) != expected_slides:
-            print(f"  [✗] 幻灯片总页数       : 实际 {len(slide_names)} 页，与预期 ({expected_slides} 页) 不符")
+            if verbose:
+                print(f"  [✗] 幻灯片总页数       : 实际 {len(slide_names)} 页，与预期 ({expected_slides} 页) 不符")
+                print("=" * 60)
+                print("QA FAILED ❌")
             return False
 
         # 4. 幻灯片图层结构
         ok_layers, msg_layers = check_slide_layers(z, slide_names, has_media)
-        print(f"  [{'✓' if ok_layers else '✗'}] 幻灯片图元结构     : {msg_layers}")
+        if verbose:
+            print(f"  [{'✓' if ok_layers else '✗'}] 幻灯片图元结构     : {msg_layers}")
 
         # 5. 字号阶梯符合度
         ok_ramp, msg_ramp, text_map = check_font_ramp(z, slide_names, ramp)
-        print(f"  [{'✓' if ok_ramp else '✗'}] 字号阶梯合规性     : {msg_ramp}")
+        if verbose:
+            print(f"  [{'✓' if ok_ramp else '✗'}] 字号阶梯合规性     : {msg_ramp}")
 
         # 6. 跨页主句一致性
         ok_consist, msg_consist = check_role_consistency(text_map, expected_stmt_sz)
-        print(f"  [{'✓' if ok_consist else '✗'}] 跨页主句一致性     : {msg_consist}")
+        if verbose:
+            print(f"  [{'✓' if ok_consist else '✗'}] 跨页主句一致性     : {msg_consist}")
 
         # 7. 引用关系链
         ok_rels, msg_rels = check_relationships(z, slide_names)
-        print(f"  [{'✓' if ok_rels else '✗'}] 引用关系链完整性   : {msg_rels}")
+        if verbose:
+            print(f"  [{'✓' if ok_rels else '✗'}] 引用关系链完整性   : {msg_rels}")
 
     all_passed = all([ok_struct, ok_geom, ok_media, ok_layers, ok_ramp, ok_consist, ok_rels])
-    print("=" * 60)
-    if all_passed:
-        print("ALL CLEAR ✅")
-        return True
+    if verbose:
+        print("=" * 60)
+        if all_passed:
+            print("ALL CLEAR ✅")
+        else:
+            print("QA FAILED ❌")
+    return all_passed
+
+
+def run_qa_pptx(
+    target: Path | str | None = None,
+    spec_path: Path | str | None = None,
+    expected_slides: int | None = None,
+    expected_media: int | None = None,
+    verbose: bool = True,
+) -> bool:
+    """运行 PPT-Studio PPTX 客观质量门禁。
+
+    支持输入单个 PPTX 文件路径、包含 *.pptx 的目录路径，或留空默认自发现。
+    支持 Path、str 或 None 输入。
+    """
+    if target is None:
+        target_path = Path.cwd().resolve()
     else:
-        print("QA FAILED ❌")
+        target_path = Path(target).resolve()
+
+    if not target_path.exists():
+        if verbose:
+            print(f"  [✗] 文件或目录不存在: {target_path}")
         return False
+
+    spec_p = Path(spec_path).resolve() if spec_path else find_spec_lock(target_path)
+
+    if target_path.is_file():
+        if target_path.suffix.lower() != ".pptx":
+            if verbose:
+                print(f"  [✗] 目标文件非有效 PPTX 格式: {target_path}")
+            return False
+        return qa_single_pptx(
+            target_path,
+            spec_path=spec_p,
+            expected_slides=expected_slides,
+            expected_media=expected_media,
+            verbose=verbose,
+        )
+
+    if target_path.is_dir():
+        try:
+            pptx_files = find_pptx_files(target_path)
+        except (FileNotFoundError, ValueError) as err:
+            if verbose:
+                print(f"  [✗] {err}")
+            return False
+
+        if not pptx_files:
+            if verbose:
+                print(f"  [✗] 目录 {target_path} 及其子目录下未找到 .pptx 文件")
+            return False
+
+        all_ok = True
+        for i, p in enumerate(pptx_files):
+            p_spec = spec_p or find_spec_lock(p)
+            ok = qa_single_pptx(
+                p,
+                spec_path=p_spec,
+                expected_slides=expected_slides,
+                expected_media=expected_media,
+                verbose=verbose,
+            )
+            if not ok:
+                all_ok = False
+            if verbose and i < len(pptx_files) - 1:
+                print()
+        return all_ok
+
+    return False
+
+
+qa_pptx = run_qa_pptx
 
 
 def find_spec_lock(target_path: Path | str | None = None) -> Path | None:

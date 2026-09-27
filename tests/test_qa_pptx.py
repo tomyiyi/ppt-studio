@@ -34,7 +34,9 @@ from scripts.qa_pptx import (
     check_relationships,
     find_spec_lock,
     find_pptx_files,
+    qa_single_pptx,
     run_qa_pptx,
+    qa_pptx,
     main,
 )
 
@@ -508,6 +510,86 @@ class TestFindPptxFiles(unittest.TestCase):
             p = create_mock_pptx(p_out / "deck.pptx")
             found = find_pptx_files(base)
             self.assertEqual(found, [p.resolve()])
+
+
+class TestRunQaPptxAPI(unittest.TestCase):
+    """测试 qa_pptx 编程接口及单测场景覆盖。"""
+
+    def test_qa_single_pptx_with_path_and_str(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = create_mock_pptx(Path(td) / "deck.pptx")
+            self.assertTrue(qa_single_pptx(p, verbose=False))
+            self.assertTrue(qa_single_pptx(str(p), verbose=False))
+
+    def test_qa_single_pptx_verbose_false(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = create_mock_pptx(Path(td) / "deck.pptx")
+            buf = io.StringIO()
+            with patch("sys.stdout", buf):
+                res = qa_single_pptx(p, verbose=False)
+            self.assertTrue(res)
+            self.assertEqual(buf.getvalue(), "")
+
+    def test_qa_single_pptx_nonexistent_returns_false(self):
+        with tempfile.TemporaryDirectory() as td:
+            non_exist = Path(td) / "missing.pptx"
+            self.assertFalse(qa_single_pptx(non_exist, verbose=False))
+
+    def test_qa_single_pptx_non_zip_returns_false(self):
+        with tempfile.TemporaryDirectory() as td:
+            bad_file = Path(td) / "corrupt.pptx"
+            bad_file.write_text("not a valid zip", encoding="utf-8")
+            self.assertFalse(qa_single_pptx(bad_file, verbose=False))
+
+    def test_qa_single_pptx_expected_slides_check(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = create_mock_pptx(Path(td) / "deck.pptx", slides_count=3)
+            self.assertTrue(qa_single_pptx(p, expected_slides=3, verbose=False))
+            self.assertFalse(qa_single_pptx(p, expected_slides=5, verbose=False))
+
+    def test_qa_single_pptx_expected_media_check(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = create_mock_pptx(Path(td) / "deck.pptx", has_media=True)
+            self.assertTrue(qa_single_pptx(p, expected_media=1, verbose=False))
+            self.assertFalse(qa_single_pptx(p, expected_media=0, verbose=False))
+
+    def test_run_qa_pptx_file_target(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = create_mock_pptx(Path(td) / "deck.pptx")
+            self.assertTrue(run_qa_pptx(p, verbose=False))
+            self.assertTrue(run_qa_pptx(str(p), verbose=False))
+
+    def test_run_qa_pptx_non_pptx_file_returns_false(self):
+        with tempfile.TemporaryDirectory() as td:
+            txt_file = Path(td) / "note.txt"
+            txt_file.touch()
+            self.assertFalse(run_qa_pptx(txt_file, verbose=False))
+
+    def test_run_qa_pptx_directory_target(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            create_mock_pptx(base / "a.pptx")
+            create_mock_pptx(base / "b.pptx")
+            self.assertTrue(run_qa_pptx(base, verbose=False))
+            self.assertTrue(run_qa_pptx(str(base), verbose=False))
+
+    def test_run_qa_pptx_empty_directory_returns_false(self):
+        with tempfile.TemporaryDirectory() as td:
+            self.assertFalse(run_qa_pptx(Path(td), verbose=False))
+
+    def test_run_qa_pptx_nonexistent_returns_false(self):
+        self.assertFalse(run_qa_pptx("/non_existent_pptx_dir_9999", verbose=False))
+
+    def test_run_qa_pptx_spec_auto_discovery(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            spec_file = base / "spec_lock.md"
+            spec_file.write_text("- sizes: [11, 13, 16, 20, 24, 32, 44, 56, 96]\n", encoding="utf-8")
+            p = create_mock_pptx(base / "deck.pptx")
+            self.assertTrue(run_qa_pptx(p, verbose=False))
+
+    def test_qa_pptx_alias(self):
+        self.assertIs(qa_pptx, run_qa_pptx)
 
 
 class TestMainCli(unittest.TestCase):
