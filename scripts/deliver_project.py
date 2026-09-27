@@ -53,3 +53,67 @@ def deliver_project(
             pass
         raise
     return destination
+
+
+def deliver_artifact_set(
+    attestation_path: str | Path,
+    sources: list[str | Path],
+    destination_dir: str | Path,
+) -> list[Path]:
+    """在 cards QA 通过后事务性交付一组 SVG；失败时保留旧目录。"""
+    attestation = load_valid_attestation(attestation_path)
+    if attestation["stages"]["cards"]["ok"] is not True:
+        raise ValueError("cards QA 未通过，禁止交付卡片集")
+
+    resolved_sources: list[Path] = []
+    seen: set[Path] = set()
+    for raw_source in sources:
+        source = Path(raw_source)
+        resolved = source.resolve()
+        if resolved in seen:
+            raise ValueError(f"卡片源重复: {source}")
+        seen.add(resolved)
+        if source.suffix.lower() != ".svg":
+            raise ValueError(f"卡片集包含非 SVG 文件: {source}")
+        if not source.is_file():
+            raise FileNotFoundError(f"卡片源产物不存在: {source}")
+        resolved_sources.append(source)
+    if not resolved_sources:
+        raise ValueError("卡片集不能为空")
+
+    destination = Path(destination_dir)
+    if destination.exists() and not destination.is_dir():
+        raise NotADirectoryError(f"卡片交付目标不是目录: {destination}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=f".{destination.name}.", dir=destination.parent))
+    backup: Path | None = None
+    try:
+        names: set[str] = set()
+        for source in resolved_sources:
+            if source.name in names:
+                raise ValueError(f"卡片文件名冲突: {source.name}")
+            names.add(source.name)
+            shutil.copy2(source, staging / source.name)
+
+        if destination.exists():
+            backup = Path(tempfile.mkdtemp(prefix=f".{destination.name}.old.", dir=destination.parent))
+            backup.rmdir()
+            os.replace(destination, backup)
+        try:
+            os.replace(staging, destination)
+        except Exception:
+            if backup is not None and not destination.exists():
+                os.replace(backup, destination)
+                backup = None
+            raise
+        staging = None  # type: ignore[assignment]
+        if backup is not None:
+            shutil.rmtree(backup)
+            backup = None
+        return [destination / source.name for source in resolved_sources]
+    except Exception:
+        if staging is not None and staging.exists():
+            shutil.rmtree(staging)
+        if backup is not None and backup.exists() and not destination.exists():
+            os.replace(backup, destination)
+        raise
