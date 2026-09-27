@@ -7,12 +7,14 @@ tests/test_qa_long_card.py
 使用临时目录与标准库 unittest，不引入额外第三方依赖。
 """
 
+import io
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 # 将项目根目录加入 sys.path
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -39,6 +41,7 @@ from scripts.qa_long_card import (
     run_qa_single_long_card,
     run_qa_long_card,
     qa_long_card,
+    qa_single_long_card,
     hex_to_rgb,
     ACCENT_RGB,
     BG_RGB,
@@ -184,6 +187,17 @@ class TestFindLongCards(unittest.TestCase):
 
             found = find_long_cards(base)
             self.assertEqual(found, [proj_img])
+
+    def test_nonexistent_target_raises_filenotfound(self):
+        with self.assertRaises(FileNotFoundError):
+            find_long_cards("/path/does_not_exist_xyz_long_card.png")
+
+    def test_non_png_file_raises_valueerror(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            txt_file = Path(tmp_dir) / "notes.txt"
+            txt_file.write_text("dummy", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                find_long_cards(txt_file)
 
 
 class TestLoadSpecColors(unittest.TestCase):
@@ -367,6 +381,56 @@ class TestQALongCardCLI(unittest.TestCase):
             # 退出码为 1 (文件不存在或无法解码)，但不能报 unrecognized arguments
             self.assertNotIn("unrecognized arguments", res.stderr)
 
+    @patch("scripts.qa_long_card.run_qa_long_card", return_value=True)
+    def test_cli_quiet_flag(self, mock_qa):
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with patch("sys.stdout", buf_out), patch("sys.stderr", buf_err):
+            code = main(["valid_mock.png", "--quiet"])
+        self.assertEqual(code, 0)
+        self.assertEqual(buf_out.getvalue(), "")
+        self.assertEqual(buf_err.getvalue(), "")
+
+        # -q 短参数测试
+        buf_out2 = io.StringIO()
+        buf_err2 = io.StringIO()
+        with patch("sys.stdout", buf_out2), patch("sys.stderr", buf_err2):
+            code2 = main(["valid_mock.png", "-q"])
+        self.assertEqual(code2, 0)
+        self.assertEqual(buf_out2.getvalue(), "")
+        self.assertEqual(buf_err2.getvalue(), "")
+
+    @patch("scripts.qa_long_card.run_qa_long_card", return_value=True)
+    def test_cli_verbose_flag(self, mock_qa):
+        code_v = main(["valid_mock.png", "-v"])
+        self.assertEqual(code_v, 0)
+        code_verbose = main(["valid_mock.png", "--verbose"])
+        self.assertEqual(code_verbose, 0)
+
+    def test_cli_nonexistent_returns_1(self):
+        buf_err = io.StringIO()
+        with patch("sys.stderr", buf_err):
+            code = main(["/path/not_exist_xyz.png"])
+        self.assertEqual(code, 1)
+        self.assertIn("目标路径不存在", buf_err.getvalue())
+
+    def test_cli_quiet_error_silenced(self):
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with patch("sys.stdout", buf_out), patch("sys.stderr", buf_err):
+            code = main(["/path/not_exist_xyz.png", "--quiet"])
+        self.assertEqual(code, 1)
+        self.assertEqual(buf_out.getvalue(), "")
+        self.assertEqual(buf_err.getvalue(), "")
+
+    def test_cli_empty_dir_returns_1(self):
+        with tempfile.TemporaryDirectory() as td:
+            buf_err = io.StringIO()
+            with patch("sys.stderr", buf_err):
+                code = main([td])
+            self.assertEqual(code, 1)
+            self.assertIn("未发现长图 PNG 文件", buf_err.getvalue())
+
 
 class TestCheckFileAndFormat(unittest.TestCase):
     def test_nonexistent_file_returns_false(self):
@@ -444,6 +508,15 @@ class TestProgrammaticAPI(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             res = qa_long_card(Path(tmp_dir), verbose=False)
             self.assertFalse(res)
+
+    def test_qa_single_long_card_alias_callable(self):
+        self.assertEqual(qa_single_long_card, run_qa_single_long_card)
+        res = qa_single_long_card("non_existent_file.png", verbose=False)
+        self.assertFalse(res)
+
+    def test_run_qa_long_card_with_nonexistent_target_returns_false(self):
+        res = run_qa_long_card("/non_existent_long_card_file_12345.png", verbose=False)
+        self.assertFalse(res)
 
     def test_run_qa_long_card_discovers_in_output_dir(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

@@ -474,7 +474,7 @@ def find_long_cards(
 ) -> list[Path]:
     """在目标路径或其子目录中查找长图文件。"""
     base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
-    if target is None:
+    if target is None or str(target).strip() in ("", "."):
         target_path = base
     else:
         target_path = Path(target)
@@ -483,8 +483,13 @@ def find_long_cards(
         else:
             target_path = target_path.resolve()
 
+    if not target_path.exists():
+        raise FileNotFoundError(f"目标路径不存在: {target_path}")
+
     if not target_path.is_dir():
-        return [target_path]
+        if target_path.suffix.lower() == ".png":
+            return [target_path]
+        raise ValueError(f"目标文件不是 PNG 图片: {target_path}")
 
     found: list[Path] = []
     for pattern in ["*长图*.png", "*long_card*.png"]:
@@ -625,7 +630,7 @@ def run_qa_long_card(
     支持 Path、str 或 None 输入。
     """
     base = Path.cwd().resolve()
-    if target_path is not None:
+    if target_path is not None and str(target_path).strip() not in ("", "."):
         target_p = Path(target_path)
         if not target_p.is_absolute():
             target_p = (base / target_p).resolve()
@@ -645,7 +650,13 @@ def run_qa_long_card(
         )
 
     # 目录或自动发现模式
-    files_to_check = find_long_cards(target_p)
+    try:
+        files_to_check = find_long_cards(target_p)
+    except (FileNotFoundError, ValueError) as err:
+        if verbose:
+            print(f"[!] {err}", file=sys.stderr)
+        return False
+
     if not files_to_check:
         if verbose:
             print(f"[!] 在目录 {target_p} 或 output/、projects/*/output/ 下未发现长图 PNG 文件", file=sys.stderr)
@@ -654,7 +665,7 @@ def run_qa_long_card(
     explicit_project = resolve_project_dir(project_dir) if project_dir else None
 
     all_ok = True
-    for f in files_to_check:
+    for i, f in enumerate(files_to_check):
         try:
             proj = explicit_project or resolve_project_dir(None, target_path=f)
         except ValueError as err:
@@ -670,10 +681,13 @@ def run_qa_long_card(
         )
         if not res:
             all_ok = False
+        if verbose and i < len(files_to_check) - 1:
+            print()
     return all_ok
 
 
 qa_long_card = run_qa_long_card
+qa_single_long_card = run_qa_single_long_card
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -682,40 +696,28 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--project", help="项目根目录（用于校验源卡片数量与版式规范）")
     parser.add_argument("--no-header", action="store_true", help="声明长图不包含顶部 Header")
     parser.add_argument("--no-footer", action="store_true", help="声明长图不包含底部 Footer")
+    parser.add_argument("--verbose", "-v", action="store_true", default=True, help="详细日志输出（默认开启）")
+    parser.add_argument("--quiet", "-q", action="store_true", help="静默模式（仅通过退出码返回）")
     args = parser.parse_args(argv)
 
+    verbose = not args.quiet if args.quiet else args.verbose
     explicit_project = None
     if args.project:
         try:
             explicit_project = resolve_project_dir(args.project)
         except FileNotFoundError as err:
-            print(f"[!] {err}", file=sys.stderr)
+            if verbose:
+                print(f"[!] {err}", file=sys.stderr)
             return 1
 
-    target = Path(args.target).resolve()
-    files_to_check = find_long_cards(target)
-    if not files_to_check:
-        print(f"[!] 在目录 {target} 或 output/、projects/*/output/ 下未发现长图 PNG 文件", file=sys.stderr)
-        return 1
-
-    all_ok = True
-    for f in files_to_check:
-        try:
-            proj = explicit_project or resolve_project_dir(None, target_path=f)
-        except ValueError as err:
-            print(f"[!] {err}", file=sys.stderr)
-            return 1
-        res = run_qa_single_long_card(
-            f,
-            proj,
-            require_header=not args.no_header,
-            require_footer=not args.no_footer,
-            verbose=True,
-        )
-        if not res:
-            all_ok = False
-
-    return 0 if all_ok else 1
+    ok = run_qa_long_card(
+        target_path=args.target,
+        project_dir=explicit_project,
+        require_header=not args.no_header,
+        require_footer=not args.no_footer,
+        verbose=verbose,
+    )
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":
