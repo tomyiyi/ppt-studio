@@ -32,6 +32,7 @@ from scripts.crop_panel import (
     cover,
     calculate_crop,
     crop_image,
+    crop_panel,
     resolve_crop_targets,
     main,
 )
@@ -168,6 +169,79 @@ class TestCropImage(unittest.TestCase):
         with Image.open(out_path) as saved:
             self.assertAlmostEqual(saved.width / saved.height, 4.0 / 3.0, delta=0.05)
 
+    def test_crop_image_check_passed(self):
+        img_path = self.tmp_path / "test_check.png"
+        create_test_image(img_path, 400, 300, (100, 100, 100, 80))
+        res = crop_image(img_path, check=True, min_ink=3.0)
+        self.assertTrue(res["check_passed"])
+        self.assertEqual(len(res["issues"]), 0)
+
+    def test_crop_image_check_failed_raises_value_error(self):
+        sparse = self.tmp_path / "sparse.png"
+        arr = np.zeros((400, 500, 3), dtype=np.uint8)
+        arr[100:104, 100:104] = 220
+        arr[100:104, 396:400] = 220
+        arr[296:300, 100:104] = 220
+        arr[296:300, 396:400] = 220
+        Image.fromarray(arr, "RGB").save(sparse)
+
+        with self.assertRaises(ValueError) as ctx:
+            crop_image(sparse, check=True, min_ink=3.0)
+        self.assertIn("门禁未通过", str(ctx.exception))
+
+    def test_crop_image_custom_min_ink(self):
+        img_path = self.tmp_path / "mid.png"
+        create_test_image(img_path, 400, 300, (100, 100, 60, 50))
+        # 当阈值要求极高（如 90%）时应判定不达标
+        res = crop_image(img_path, check=False, min_ink=90.0)
+        self.assertFalse(res["check_passed"])
+        self.assertIn("主体墨量不足", res["issues"][0])
+
+
+class TestCropPanelBatch(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.tmp_path = Path(self.temp_dir.name)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_crop_panel_batch_dry_run(self):
+        img1 = self.tmp_path / "i1.png"
+        img2 = self.tmp_path / "i2.png"
+        create_test_image(img1, 400, 300, (80, 80, 120, 90))
+        create_test_image(img2, 400, 300, (100, 100, 100, 80))
+
+        results = crop_panel([img1, img2], apply=False)
+        self.assertEqual(len(results), 2)
+        self.assertFalse((self.tmp_path / "i1_panel.png").exists())
+        self.assertFalse((self.tmp_path / "i2_panel.png").exists())
+
+    def test_crop_panel_batch_apply_with_out_dir(self):
+        img1 = self.tmp_path / "i1.png"
+        img2 = self.tmp_path / "i2.png"
+        create_test_image(img1, 400, 300, (80, 80, 120, 90))
+        create_test_image(img2, 400, 300, (100, 100, 100, 80))
+
+        out_dir = self.tmp_path / "panels"
+        results = crop_panel([img1, img2], out_dir=out_dir, apply=True, check=True)
+        self.assertEqual(len(results), 2)
+        self.assertTrue((out_dir / "i1_panel.png").exists())
+        self.assertTrue((out_dir / "i2_panel.png").exists())
+
+    def test_crop_panel_check_failure_raises(self):
+        sparse = self.tmp_path / "sparse.png"
+        arr = np.zeros((400, 500, 3), dtype=np.uint8)
+        arr[100:104, 100:104] = 220
+        arr[100:104, 396:400] = 220
+        arr[296:300, 100:104] = 220
+        arr[296:300, 396:400] = 220
+        Image.fromarray(arr, "RGB").save(sparse)
+
+        with self.assertRaises(ValueError) as ctx:
+            crop_panel([sparse], check=True, min_ink=3.0)
+        self.assertIn("裁切客观质量门禁未通过", str(ctx.exception))
+
 
 class TestCropPanelCLI(unittest.TestCase):
     def setUp(self):
@@ -254,6 +328,24 @@ class TestCropPanelCLI(unittest.TestCase):
         Image.fromarray(arr, "RGB").save(sparse)
         ret_sparse = main([str(sparse), "--check"])
         self.assertEqual(ret_sparse, 1)
+
+    def test_cli_min_ink_custom_thresholds(self):
+        good = self.tmp_path / "good.png"
+        create_test_image(good, 500, 400, (100, 100, 200, 150))
+        # 极高阈值 95% 应返回 1 (失败)
+        ret_fail = main([str(good), "--check", "--min-ink", "95.0"])
+        self.assertEqual(ret_fail, 1)
+
+        # 稀疏图在极低阈值 0.05% 时应能通过
+        sparse = self.tmp_path / "sparse_pass.png"
+        arr = np.zeros((400, 500, 3), dtype=np.uint8)
+        arr[100:104, 100:104] = 220
+        arr[100:104, 396:400] = 220
+        arr[296:300, 100:104] = 220
+        arr[296:300, 396:400] = 220
+        Image.fromarray(arr, "RGB").save(sparse)
+        ret_pass = main([str(sparse), "--check", "--min-ink=0.05"])
+        self.assertEqual(ret_pass, 0)
 
 
 class TestResolveCropTargets(unittest.TestCase):

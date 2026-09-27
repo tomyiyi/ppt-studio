@@ -256,6 +256,8 @@ def crop_image(
     pad: float = 1.12,
     apply: bool = False,
     base_dir: str | Path | None = None,
+    check: bool = False,
+    min_ink: float = 3.0,
 ) -> dict:
     """执行裁切计算与可选落盘，返回结果指标字典。"""
     targets = resolve_crop_targets(src_path, base_dir=base_dir)
@@ -289,6 +291,14 @@ def crop_image(
         cropped = Image.fromarray(a[iy:iy + ih, ix:ix + iw].astype(np.uint8))
         cropped.save(final_out)
 
+    check_passed = after >= min_ink
+    issues: list[str] = []
+    if not check_passed:
+        issues.append(f"主体墨量不足 ({after:.2f}% < {min_ink:.2f}%)")
+
+    if check and not check_passed:
+        raise ValueError(f"{src_p.name}: 客观质量门禁未通过: {'; '.join(issues)}")
+
     return {
         "src": str(src_p),
         "name": src_p.name,
@@ -302,7 +312,74 @@ def crop_image(
         "after_cover": after,
         "out": str(final_out),
         "applied": apply,
+        "check_passed": check_passed,
+        "issues": issues,
     }
+
+
+def crop_panel(
+    targets: str | Path | list[str | Path] | None = None,
+    out_dir: str | Path | None = None,
+    aspect: str | float = "580:385",
+    pad: float = 1.12,
+    apply: bool = False,
+    check: bool = False,
+    min_ink: float = 3.0,
+    base_dir: str | Path | None = None,
+    repo_root_override: str | Path | None = None,
+) -> list[dict]:
+    """批量或单张执行主体包围盒面板裁切，支持质量门禁校验与可选写盘。
+
+    :param targets: 目标图片、目录、项目路径或图片列表（默认自发现）
+    :param out_dir: 可选输出目录（缺省时保存在原图片同目录下）
+    :param aspect: 目标宽高比（默认: 580:385）
+    :param pad: 主体包围盒向外扩张系数（默认: 1.12）
+    :param apply: 是否真正写盘（默认 False 仅预演）
+    :param check: 是否在裁切后执行客观质量门禁校验（墨量 >= min_ink）
+    :param min_ink: 质量门禁最低墨量百分比阈值（默认: 3.0%）
+    :param base_dir: 基准目录
+    :param repo_root_override: 仓库根目录覆盖（测试用）
+    :return: 处理结果字典列表
+    """
+    resolved = resolve_crop_targets(
+        targets, base_dir=base_dir, repo_root_override=repo_root_override
+    )
+    if not resolved:
+        raise FileNotFoundError("未找到可处理的待裁切图片")
+
+    results: list[dict] = []
+    gate_failures: list[str] = []
+
+    out_directory = Path(out_dir).resolve() if out_dir else None
+    if out_directory and apply:
+        out_directory.mkdir(parents=True, exist_ok=True)
+
+    for p in resolved:
+        out_path = None
+        if out_directory:
+            out_path = out_directory / f"{p.stem}_panel.png"
+
+        try:
+            res = crop_image(
+                src_path=p,
+                out_path=out_path,
+                aspect=aspect,
+                pad=pad,
+                apply=apply,
+                base_dir=base_dir,
+                check=False,
+                min_ink=min_ink,
+            )
+            results.append(res)
+            if not res["check_passed"]:
+                gate_failures.append(f"{p.name}: {'; '.join(res['issues'])}")
+        except Exception as e:
+            gate_failures.append(f"{p.name}: 裁切失败: {e}")
+
+    if check and gate_failures:
+        raise ValueError("裁切客观质量门禁未通过:\n  " + "\n  ".join(gate_failures))
+
+    return results
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -339,7 +416,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--check",
         action="store_true",
-        help="运行质量门禁判定：若发现主体未检出或裁切后面板墨量 < 3.0%% 则返回退出码 1",
+        help="运行质量门禁判定：若发现主体未检出或裁切后面板墨量不足 (默认 < 3.0%%) 则返回退出码 1",
+    )
+    parser.add_argument(
+        "--min-ink",
+        type=float,
+        default=3.0,
+        help="质量门禁最低墨量百分比阈值（默认: 3.0%%，防面板偏空）",
     )
 
     args = parser.parse_args(argv)
@@ -398,11 +481,11 @@ def main(argv: list[str] | None = None) -> int:
             print("  [提示] 当前为预演模式（未写盘），加 --apply 执行写盘")
 
         if args.check:
-            if after < 3.0:
-                print(f"  [门禁] ⚠️ 主体墨量不足 3.0% (当前 {after:.2f}%)，面板可能偏空", file=sys.stderr)
+            if after < args.min_ink:
+                print(f"  [门禁] ⚠️ 主体墨量不足 {args.min_ink:.1f}% (当前 {after:.2f}%)，面板可能偏空", file=sys.stderr)
                 all_passed = False
             else:
-                print(f"  [门禁] ✓ 墨量达标 ({after:.2f}% ≥ 3.0%)")
+                print(f"  [门禁] ✓ 墨量达标 ({after:.2f}% ≥ {args.min_ink:.1f}%)")
 
         if i < len(targets) - 1:
             print()
