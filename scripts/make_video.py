@@ -53,6 +53,38 @@ def run_cmd(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=check)
 
 
+def commit_video_pair(
+    staged_video: Path,
+    staged_srt: Path,
+    output_video: Path,
+    output_srt: Path,
+) -> None:
+    """同时提交 MP4/SRT；任一替换失败都恢复原有 pair。"""
+    backups: list[tuple[Path, Path]] = []
+    installed: list[Path] = []
+    try:
+        for target in (output_video, output_srt):
+            if target.exists():
+                backup = target.with_name(f".{target.name}.backup")
+                if backup.exists():
+                    backup.unlink()
+                os.replace(target, backup)
+                backups.append((target, backup))
+        for staged, target in ((staged_video, output_video), (staged_srt, output_srt)):
+            os.replace(staged, target)
+            installed.append(target)
+    except Exception:
+        for target in installed:
+            target.unlink(missing_ok=True)
+        for target, backup in reversed(backups):
+            if backup.exists():
+                os.replace(backup, target)
+        raise
+    else:
+        for _, backup in backups:
+            backup.unlink(missing_ok=True)
+
+
 def probe_duration(media_path: Path) -> float:
     cmd = [
         "ffprobe", "-v", "error",
@@ -316,10 +348,12 @@ def make_video(
                 f.write(f"{seconds_to_srt_time(cue['start'])} --> {seconds_to_srt_time(cue['end'])}\n")
                 f.write(f"{cue['text']}\n\n")
 
-        # 复制一份到输出目录备用
+        # 先在事务临时目录中准备字幕；正式目录只在 MP4 和 SRT 都成功后更新。
         out_srt = out_video_path.with_suffix(".srt")
-        shutil.copyfile(srt_file, out_srt)
-        print(f"✓ 统一字幕轨生成: {out_srt}")
+        staged_srt = tmp_dir / out_srt.name
+        shutil.copyfile(srt_file, staged_srt)
+        print(f"✓ 统一字幕轨已准备: {out_srt}")
+        staged_video = tmp_dir / out_video_path.name
 
         print(f"[*] 第 3 步：分镜视频片段渲染与动效合成...")
         segment_files = []
@@ -402,15 +436,15 @@ def make_video(
                 "-vf", f"subtitles='{escaped_srt}':force_style='{style}'",
                 "-c:v", "libx264", "-preset", "medium", "-crf", "18",
                 "-c:a", "copy",
-                str(out_video_path),
+                str(staged_video),
             ]
             run_cmd(burn_cmd)
         else:
             # 直接拷贝
-            shutil.copyfile(merged_raw_mp4, out_video_path)
+            shutil.copyfile(merged_raw_mp4, staged_video)
 
-        final_dur = probe_duration(out_video_path)
-        file_size_mb = out_video_path.stat().st_size / (1024 * 1024)
+        final_dur = probe_duration(staged_video)
+        file_size_mb = staged_video.stat().st_size / (1024 * 1024)
         print(f"==================================================")
         print(f"🎉 视频合成圆满完成！")
         print(f"   产物: {out_video_path}")
@@ -422,13 +456,16 @@ def make_video(
         if check:
             if run_qa_video is not None:
                 srt_arg = out_srt if subtitles_mode != "none" else None
-                ok = run_qa_video(out_video_path, srt_path=srt_arg)
+                srt_arg = staged_srt if subtitles_mode != "none" else None
+                ok = run_qa_video(staged_video, srt_path=srt_arg)
                 if not ok:
                     raise RuntimeError(f"视频客观质量门禁未通过: {out_video_path}")
                 print("  [门禁] ✓ 视频客观质量门禁通过")
             else:
                 print("  [warn] 未导入 run_qa_video，跳过视频门禁检查")
 
+        commit_video_pair(staged_video, staged_srt, out_video_path, out_srt)
+        print(f"✓ MP4/SRT 成对提交完成: {out_video_path} + {out_srt}")
         return out_video_path
 
     finally:

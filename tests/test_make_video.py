@@ -20,7 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.make_video import load_voiceover, make_video, resolve_project_dir, main
+from scripts.make_video import commit_video_pair, load_voiceover, make_video, resolve_project_dir, main
 
 
 def create_minimal_svg(svg_path: Path) -> None:
@@ -260,6 +260,38 @@ class TestMakeVideoQualityGate(unittest.TestCase):
     def tearDown(self):
         self.tmp_dir.cleanup()
 
+    def test_commit_video_pair_replaces_both_files(self):
+        staged_video = self.proj_dir / "staged.mp4"
+        staged_srt = self.proj_dir / "staged.srt"
+        staged_video.write_bytes(b"new-video")
+        staged_srt.write_bytes(b"new-srt")
+        self.out_video.parent.mkdir(parents=True, exist_ok=True)
+        self.out_video.write_bytes(b"old-video")
+        self.out_video.with_suffix(".srt").write_bytes(b"old-srt")
+        commit_video_pair(staged_video, staged_srt, self.out_video, self.out_video.with_suffix(".srt"))
+        self.assertEqual(self.out_video.read_bytes(), b"new-video")
+        self.assertEqual(self.out_video.with_suffix(".srt").read_bytes(), b"new-srt")
+        self.assertFalse(staged_video.exists())
+        self.assertFalse(staged_srt.exists())
+        self.assertFalse((self.out_video.parent / ".test.mp4.backup").exists())
+
+    def test_commit_video_pair_failure_preserves_existing_pair(self):
+        self.out_video.parent.mkdir(parents=True, exist_ok=True)
+        self.out_video.write_bytes(b"old-video")
+        self.out_video.with_suffix(".srt").write_bytes(b"old-srt")
+        staged_video = self.proj_dir / "staged.mp4"
+        staged_video.write_bytes(b"new-video")
+        with self.assertRaises(FileNotFoundError):
+            commit_video_pair(
+                staged_video,
+                self.proj_dir / "missing.srt",
+                self.out_video,
+                self.out_video.with_suffix(".srt"),
+            )
+        self.assertEqual(self.out_video.read_bytes(), b"old-video")
+        self.assertEqual(self.out_video.with_suffix(".srt").read_bytes(), b"old-srt")
+        self.assertFalse(any(self.out_video.parent.glob(".*.backup")))
+
     def _setup_pipeline_mocks(self, mock_ensure_img, mock_tts, mock_probe, mock_cmd):
         def fake_ensure(project_dir, pages, format_ratio, tmp_dir):
             m = {}
@@ -299,8 +331,8 @@ class TestMakeVideoQualityGate(unittest.TestCase):
         self.assertEqual(out, self.out_video)
         mock_qa.assert_called_once()
         call_args, call_kwargs = mock_qa.call_args
-        self.assertEqual(call_args[0], self.out_video)
-        self.assertEqual(call_kwargs.get("srt_path"), self.out_video.with_suffix(".srt"))
+        self.assertTrue(call_args[0].name == self.out_video.name)
+        self.assertTrue(call_kwargs.get("srt_path").name == self.out_video.with_suffix(".srt").name)
 
     @patch("scripts.make_video.run_cmd")
     @patch("scripts.make_video.probe_duration")
@@ -326,7 +358,9 @@ class TestMakeVideoQualityGate(unittest.TestCase):
         mock_qa.return_value = True
 
         make_video(self.proj_dir, out_video_path=self.out_video, subtitles_mode="none", check=True)
-        mock_qa.assert_called_once_with(self.out_video, srt_path=None)
+        call_args, call_kwargs = mock_qa.call_args
+        self.assertTrue(call_args[0].name == self.out_video.name)
+        self.assertIsNone(call_kwargs.get("srt_path"))
 
 
 if __name__ == "__main__":
