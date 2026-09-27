@@ -16,6 +16,7 @@ _TABLE = re.compile(r"^\|(.+)\|[ \t]*$")
 _METRIC = re.compile(r"^([^:：\-][^:：]*?)[ \t]*:[ \t]*(.+)$")
 _MILESTONE = re.compile(r"^(\d{4}(?:-\d{2})?(?:-\d{2})?)[ \t]*:[ \t]*(.+)$")
 _LAYER = re.compile(r"^([^=:\-][^=:\-]*?)[ \t]*=>[ \t]*(.+)$")
+_BAR = re.compile(r"^([^=:\-][^=:\-]*?)[ \t]*=[ \t]*(\d+(?:\.\d{1,2})?)$")
 _IMAGE = re.compile(r"^!\[([^\]]+)\]\(([^)]+)\)[ \t]*$")
 _CODE_OPEN = re.compile(r"^```([A-Za-z0-9_+\-]{0,16})[ \t]*$")
 _CODE_LANGUAGES = {"python", "bash", "json", "typescript", "sql"}
@@ -151,6 +152,17 @@ def parse_markdown(text: str) -> list[dict]:
                 for item in items:
                     m=_LAYER.match(item)
                     if not m:
+                        bar=_BAR.match(item)
+                        if bar:
+                            bar_items=[]
+                            for candidate in items:
+                                bm=_BAR.match(candidate)
+                                if not bm: raise ValueError("mixed structured and plain bullet items are not supported in v1")
+                                value=float(bm.group(2))
+                                if value>9999: raise ValueError("bar value must be between 0 and 9999")
+                                bar_items.append({"label":bm.group(1).strip(),"value":value})
+                            if not 3 <= len(bar_items) <= 5: raise ValueError("bar data requires 3-5 items in v1")
+                            current["blocks"].append({"type":"bar-data","items":bar_items}); layer_items=[]; matches=len(items); break
                         if "=>" in item: raise ValueError("mixed structured and plain bullet items are not supported in v1")
                         layer_items=[]; continue
                     label,description=m.group(1).strip(),m.group(2).strip()
@@ -160,7 +172,7 @@ def parse_markdown(text: str) -> list[dict]:
                 if layer_items:
                     if not 3 <= len(layer_items) <= 5: raise ValueError("layer list requires 3-5 items in v1")
                     current["blocks"].append({"type":"layer-list","items":layer_items})
-                else: current["blocks"].append({"type":"bullets","items":items})
+                elif not any(b.get("type")=="bar-data" for b in current["blocks"]): current["blocks"].append({"type":"bullets","items":items})
             continue
         ordered = _ORDERED.match(line)
         if ordered:
