@@ -400,6 +400,7 @@ def run_manifest(
     manifest_path: Path | str,
     only: list[str] | None = None,
     force: bool = False,
+    retry_failed: bool = False,
     generate_fn: callable = generate,
 ) -> int:
     manifest_path = Path(manifest_path)
@@ -420,7 +421,11 @@ def run_manifest(
     items = mf.get("items") or []
     todo = [
         it for it in items
-        if (force or str(it.get("status", "Pending")).lower() == "pending")
+        if (
+            force
+            or str(it.get("status", "Pending")).lower() == "pending"
+            or (retry_failed and str(it.get("status", "Pending")).lower() == "failed")
+        )
         and (not only or it.get("filename") in only)
     ]
 
@@ -517,6 +522,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--model", help="指定后端模型")
     ap.add_argument("--only", nargs="*", help="只处理这些 filename")
     ap.add_argument("--force", action="store_true", help="连 Generated 的也重跑")
+    ap.add_argument("--retry-failed", action="store_true", help="重试 Pending 与 Failed，但不重跑 Generated")
     args = ap.parse_args(argv)
 
     if args.prompt:
@@ -559,7 +565,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.manifest or args.target:
         try:
             mf_path = resolve_manifest_path(args.manifest or args.target)
-            return run_manifest(mf_path, only=args.only, force=args.force)
+            return run_manifest(
+                mf_path,
+                only=args.only,
+                force=args.force,
+                retry_failed=args.retry_failed,
+            )
         except Exception as e:
             print(f"[err] {e}")
             return 1

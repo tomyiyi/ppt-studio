@@ -14,6 +14,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
@@ -473,6 +474,67 @@ class TestRunManifest(unittest.TestCase):
         self.assertEqual(updated["items"][0]["status"], "Failed")
         self.assertEqual(updated["items"][0]["error"], "upstream timeout")
 
+    def test_run_manifest_retry_failed_includes_pending_and_failed(self):
+        data = {
+            "project": "sample",
+            "items": [
+                {"filename": "pending.png", "status": "Pending", "prompt": "p"},
+                {"filename": "failed.png", "status": "Failed", "prompt": "f", "error": "old"},
+                {"filename": "done.png", "status": "Generated", "prompt": "d"},
+            ],
+        }
+        self.mf_path.write_text(json.dumps(data), encoding="utf-8")
+        called = []
+
+        def fake_generate(prompt, ratio="16:9", model=None):
+            called.append(prompt)
+            return {"ok": True, "bytes": make_png_bytes(100, 100), "via": "agnes", "cost_s": 0.1}
+
+        with redirect_stdout(io.StringIO()):
+            ret = run_manifest(self.mf_path, retry_failed=True, generate_fn=fake_generate)
+
+        self.assertEqual(ret, 0)
+        self.assertEqual(called, ["p", "f"])
+        updated = json.loads(self.mf_path.read_text(encoding="utf-8"))
+        self.assertEqual([it["status"] for it in updated["items"]], ["Generated", "Generated", "Generated"])
+        self.assertNotIn("error", updated["items"][1])
+
+    def test_run_manifest_retry_failed_does_not_process_generated(self):
+        data = {
+            "project": "sample",
+            "items": [{"filename": "done.png", "status": "Generated", "prompt": "done"}],
+        }
+        self.mf_path.write_text(json.dumps(data), encoding="utf-8")
+        called = []
+
+        def fake_generate(prompt, ratio="16:9", model=None):
+            called.append(prompt)
+            return {"ok": True, "bytes": make_png_bytes(100, 100), "via": "agnes", "cost_s": 0.1}
+
+        with redirect_stdout(io.StringIO()):
+            ret = run_manifest(self.mf_path, retry_failed=True, generate_fn=fake_generate)
+
+        self.assertEqual(ret, 0)
+        self.assertEqual(called, [])
+
+    def test_run_manifest_retry_failed_failure_updates_error(self):
+        data = {
+            "project": "sample",
+            "items": [{"filename": "failed.png", "status": "Failed", "prompt": "retry", "error": "old"}],
+        }
+        self.mf_path.write_text(json.dumps(data), encoding="utf-8")
+
+        def fake_generate(prompt, ratio="16:9", model=None):
+            return {"ok": False, "error": "new timeout"}
+
+        with redirect_stdout(io.StringIO()):
+            ret = run_manifest(self.mf_path, retry_failed=True, generate_fn=fake_generate)
+
+        self.assertEqual(ret, 1)
+        updated = json.loads(self.mf_path.read_text(encoding="utf-8"))
+        self.assertEqual(updated["items"][0]["status"], "Failed")
+        self.assertEqual(updated["items"][0]["error"], "new timeout")
+
 
 class TestCLI(unittest.TestCase):
     def test_cli_help(self):
@@ -509,6 +571,19 @@ class TestCLI(unittest.TestCase):
             code = main(["/non_existent_12345/image_prompts.json", "--check"])
         self.assertEqual(code, 1)
         self.assertIn("[err]", buf.getvalue())
+
+    def test_cli_retry_failed_passes_through(self):
+        with mock.patch("scripts.agnes_ppt_bridge.resolve_manifest_path") as resolve, \
+                mock.patch("scripts.agnes_ppt_bridge.run_manifest", return_value=0) as run:
+            resolve.return_value = Path("/tmp/manifest.json")
+            code = main(["/tmp/manifest.json", "--retry-failed", "--only", "failed.png"])
+        self.assertEqual(code, 0)
+        run.assert_called_once_with(
+            Path("/tmp/manifest.json"),
+            only=["failed.png"],
+            force=False,
+            retry_failed=True,
+        )
 
 
 if __name__ == "__main__":
