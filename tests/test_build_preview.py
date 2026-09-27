@@ -430,6 +430,20 @@ class TestQualityGateCheck(unittest.TestCase):
                 build_preview(svg_dir, out_file, title="失败测试", check=True)
             self.assertIn("未通过", str(ctx.exception))
 
+    def test_check_failure_preserves_existing_preview_and_cleans_temp(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            svg_dir = tmp / "svgs"
+            svg_dir.mkdir()
+            (svg_dir / "01.svg").write_text('<svg viewBox="0 0 1280 720"><text>1</text></svg>', encoding="utf-8")
+            (svg_dir / "02.svg").write_text('<svg viewBox="0 0 1080 1350"><text>2</text></svg>', encoding="utf-8")
+            out_file = tmp / "existing_preview.html"
+            out_file.write_text("old-preview", encoding="utf-8")
+            with self.assertRaises(RuntimeError):
+                build_preview(svg_dir, out_file, title="失败测试", check=True)
+            self.assertEqual(out_file.read_text(encoding="utf-8"), "old-preview")
+            self.assertFalse(any(tmp.glob(".existing_preview.html.*")))
+
 
 class TestCLIAdvancedFlags(unittest.TestCase):
     def test_cli_cards_flag(self):

@@ -16,6 +16,7 @@ import mimetypes
 import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 try:
@@ -399,18 +400,32 @@ window.addEventListener('keydown',e=>{{if(e.key==='ArrowRight'||e.key===' '){{e.
 </script></body></html>"""
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(html, encoding="utf-8")
-    print(f"saved: {out_path} {out_path.stat().st_size} bytes, {n} slides")
+    fd, staged_name = tempfile.mkstemp(prefix=f".{out_path.name}.", dir=out_path.parent)
+    os.close(fd)
+    staged_path = Path(staged_name)
+    try:
+        staged_path.write_text(html, encoding="utf-8")
+    except Exception:
+        staged_path.unlink(missing_ok=True)
+        raise
+    print(f"prepared: {out_path} {staged_path.stat().st_size} bytes, {n} slides")
 
     if check:
         if run_qa_slide_preview is not None:
-            ok = run_qa_slide_preview(out_path)
+            ok = run_qa_slide_preview(staged_path)
             if not ok:
+                staged_path.unlink(missing_ok=True)
                 raise RuntimeError(f"翻页预览客观质量门禁未通过: {out_path}")
             print(f"  [门禁] ✓ 翻页预览客观质量门禁通过")
         else:
             print("  [warn] 未导入 run_qa_slide_preview，跳过门禁检查")
 
+    try:
+        os.replace(staged_path, out_path)
+    except Exception:
+        staged_path.unlink(missing_ok=True)
+        raise
+    print(f"saved: {out_path} {out_path.stat().st_size} bytes, {n} slides")
     return out_path
 
 
