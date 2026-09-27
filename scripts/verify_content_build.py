@@ -16,6 +16,11 @@ def require_hash(value: object, label: str) -> str:
     except ValueError as exc: raise ValueError(f"invalid SHA-256: {label}") from exc
     return value
 
+def require_basename(value: object) -> str:
+    if not isinstance(value, str) or not value or Path(value).name != value:
+        raise ValueError("unsafe SVG filename")
+    return value
+
 def verify(root: Path, markdown: Path) -> int:
     receipt_path = root / "build_receipt.json"
     if not root.is_dir() or not receipt_path.is_file():
@@ -38,12 +43,21 @@ def verify(root: Path, markdown: Path) -> int:
         if not path.is_file() or sha256(path) != require_hash(inputs.get(key), key):
             raise ValueError(f"{key} mismatch")
     toolchain = receipt.get("toolchain")
-    if not isinstance(toolchain, dict) or not isinstance(toolchain.get("ppt_master_head"), str):
+    if not isinstance(toolchain, dict) or not isinstance(toolchain.get("ppt_master_head"), str) or len(toolchain["ppt_master_head"]) != 40:
         raise ValueError("missing toolchain HEAD")
+    try: int(toolchain["ppt_master_head"], 16)
+    except ValueError as exc: raise ValueError("invalid toolchain HEAD") from exc
+    plan = json.loads((root / "slide_plan.json").read_text(encoding="utf-8"))
+    if not isinstance(plan.get("slides"), list) or len(plan["slides"]) != slides:
+        raise ValueError("slide plan count mismatch")
     svg_map = artifacts.get("svg")
     if not isinstance(svg_map, dict) or len(svg_map) != slides:
         raise ValueError("SVG receipt does not match slide count")
-    for name in sorted(svg_map):
+    names = {require_basename(name) for name in svg_map}
+    actual_names = {p.name for p in (root / "svg_output").glob("*.svg")}
+    if names != actual_names:
+        raise ValueError("SVG roster mismatch")
+    for name in sorted(names):
         path = root / "svg_output" / name
         if not path.is_file() or sha256(path) != require_hash(svg_map[name], f"svg:{name}"):
             raise ValueError(f"SVG mismatch: {name}")
