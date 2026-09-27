@@ -591,6 +591,34 @@ class TestRunManifest(unittest.TestCase):
         self.assertEqual(ret, 0)
         self.assertIn("done.png", buf.getvalue())
 
+    def test_run_manifest_checkpoints_each_completed_item(self):
+        data = {
+            "project": "sample",
+            "items": [
+                {"filename": "first.png", "status": "Pending", "prompt": "first"},
+                {"filename": "second.png", "status": "Pending", "prompt": "second"},
+            ],
+        }
+        self.mf_path.write_text(json.dumps(data), encoding="utf-8")
+        calls = 0
+
+        def fake_generate(prompt, ratio="16:9", model=None):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise RuntimeError("simulated process interruption")
+            return {"ok": True, "bytes": make_png_bytes(100, 100), "via": "agnes", "cost_s": 0.1}
+
+        with self.assertRaisesRegex(RuntimeError, "simulated process interruption"):
+            with redirect_stdout(io.StringIO()):
+                run_manifest(self.mf_path, generate_fn=fake_generate)
+
+        checkpoint = json.loads(self.mf_path.read_text(encoding="utf-8"))
+        self.assertEqual(checkpoint["items"][0]["status"], "Generated")
+        self.assertEqual(checkpoint["items"][1]["status"], "Pending")
+        self.assertTrue((self.images_dir / "first.png").is_file())
+        self.assertFalse((self.images_dir / "second.png").exists())
+
 
 class TestCLI(unittest.TestCase):
     def test_cli_help(self):

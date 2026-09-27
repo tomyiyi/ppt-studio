@@ -455,6 +455,7 @@ def run_manifest(
             it["status"] = "Failed"
             it["error"] = res.get("error")
             fail += 1
+            manifest_path.write_text(json.dumps(mf, ensure_ascii=False, indent=2), encoding="utf-8")
             print(f"    ✗ {res.get('error')}")
             continue
         out = save_image(res, images_dir / fn)
@@ -464,6 +465,7 @@ def run_manifest(
         it["dimensions"] = f"{w}x{h}" if w else None
         it.pop("error", None)
         ok += 1
+        manifest_path.write_text(json.dumps(mf, ensure_ascii=False, indent=2), encoding="utf-8")
         kb = out.stat().st_size // 1024
         print(f"    ✓ {w}x{h} {kb}KB  via {it['model']}  ({res.get('cost_s', 0)}s)")
 
