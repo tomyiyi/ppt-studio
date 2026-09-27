@@ -74,3 +74,10 @@ class PlanMarkdownTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+def _decision_matrix_regression_test(self):
+    source=b"# D\n\n## Next\n\n| Option | Impact | Effort |\n| --- | --- | --- |\n| A | High | Medium |\n| B | Medium | Low |\n| C | Low | High |"
+    self.assertEqual(MODULE.build_plan("x.md", source)["slides"][1]["blocks"][0]["type"], "decision-matrix")
+    with self.assertRaisesRegex(ValueError, "decision matrix impact"):
+        MODULE.build_plan("x.md", source.replace(b"High | Medium", b"Critical | Medium"))
+PlanMarkdownTests.test_decision_matrix_regression = _decision_matrix_regression_test

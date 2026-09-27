@@ -104,3 +104,8 @@ class AssignLayoutIntentTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+def _decision_matrix_layout_test(self):
+    source=b"{}"; block={"type":"decision-matrix","headers":["Option","Impact","Effort"],"rows":[["A","High","Low"],["B","Low","High"]]}
+    self.assertEqual(MODULE.build_intent(plan([{"id":"01","kind":"content","blocks":[block]}]),source)["slides"][0]["layout"],"decision-matrix")
+AssignLayoutIntentTests.test_decision_matrix_layout = _decision_matrix_layout_test

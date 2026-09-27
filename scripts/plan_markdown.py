@@ -114,6 +114,13 @@ def parse_markdown(text: str) -> list[dict]:
             if len(rows)==1: raise ValueError("unsupported markdown structure: table")
             if len(rows)<3: raise ValueError("comparison table requires header and 2-4 data rows")
             if len(rows[0])==3:
+                if rows[0] == ["Option", "Impact", "Effort"]:
+                    if len(rows[1])!=3 or any(not re.fullmatch(r":?-{3,}:?", x) for x in rows[1]): raise ValueError("decision matrix alignment syntax is not supported")
+                    data=rows[2:]
+                    if not 2<=len(data)<=4 or any(len(x)!=3 for x in data): raise ValueError("decision matrix requires 2-4 data rows")
+                    if any(not r[0] or r[1] not in {"Low","Medium","High"} or r[2] not in {"Low","Medium","High"} for r in data): raise ValueError("decision matrix impact and effort must be Low, Medium, or High")
+                    current["blocks"].append({"type":"decision-matrix","headers":rows[0],"rows":data})
+                    continue
                 if rows[0] != ["Risk", "Severity", "Mitigation"]:
                     raise ValueError("risk-register header mismatch")
                 if len(rows[1])!=3 or any(not re.fullmatch(r":?-{3,}:?", x) for x in rows[1]): raise ValueError("risk-register alignment syntax is not supported")
