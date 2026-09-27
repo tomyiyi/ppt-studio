@@ -27,15 +27,11 @@ def change(before: object, after: object) -> dict:
 
 
 def svg_changes(before: dict, after: dict) -> dict:
-    result = {}
-    for name in sorted(set(before) | set(after)):
-        if name not in before:
-            result[name] = {"status": "added", "after": after[name]}
-        elif name not in after:
-            result[name] = {"status": "removed", "before": before[name]}
-        else:
-            result[name] = {"status": "modified" if before[name] != after[name] else "unchanged", "before": before[name], "after": after[name]}
-    return result
+    return {
+        "added": sorted(set(after) - set(before)),
+        "removed": sorted(set(before) - set(after)),
+        "modified": sorted(name for name in set(before) & set(after) if before[name] != after[name]),
+    }
 
 
 def build_diff(receipt_a: dict, receipt_b: dict) -> dict:
@@ -44,16 +40,14 @@ def build_diff(receipt_a: dict, receipt_b: dict) -> dict:
     art_a, art_b = receipt_a["artifacts"], receipt_b["artifacts"]
     svg_a, svg_b = art_a.get("svg", {}), art_b.get("svg", {})
     artifacts = {key: change(art_a.get(key), art_b.get(key)) for key in ARTIFACT_SCALARS}
-    artifacts["svg"] = {
-        "changed": svg_a != svg_b,
-        "files": svg_changes(svg_a, svg_b),
-    }
+    svg_delta = svg_changes(svg_a, svg_b)
+    artifacts["svg"] = {"changed": bool(any(svg_delta.values())), **svg_delta}
     identity_values = [receipt_a.get("slides") == receipt_b.get("slides")]
     identity_values += [inputs_a.get(k) == inputs_b.get(k) for k in INPUT_KEYS]
     identity_values += [tool_a.get(k) == tool_b.get(k) for k in TOOLCHAIN_KEYS]
     identity_values += [art_a.get(k) == art_b.get(k) for k in ARTIFACT_SCALARS]
     identity_values.append(svg_a == svg_b)
-    return {
+    payload = {
         "schema": SCHEMA,
         "same_release_identity": all(identity_values),
         "changes": {
@@ -63,6 +57,13 @@ def build_diff(receipt_a: dict, receipt_b: dict) -> dict:
             "artifacts": artifacts,
         },
     }
+    leaves = [payload["changes"]["slides"]["changed"]]
+    leaves += [payload["changes"]["inputs"][key]["changed"] for key in INPUT_KEYS]
+    leaves += [payload["changes"]["toolchain"][key]["changed"] for key in TOOLCHAIN_KEYS]
+    leaves += [payload["changes"]["artifacts"][key]["changed"] for key in ARTIFACT_SCALARS]
+    leaves += [len(payload["changes"]["artifacts"]["svg"][key]) > 0 for key in ("added", "removed", "modified")]
+    payload["changes_count"] = sum(leaves)
+    return payload
 
 
 def run(bundle_a: Path, report_a: Path, bundle_b: Path, report_b: Path, output: Path) -> None:
@@ -83,7 +84,7 @@ def run(bundle_a: Path, report_a: Path, bundle_b: Path, report_b: Path, output: 
     except BaseException:
         temporary.unlink(missing_ok=True)
         raise
-    print(f"CONTENT_RELEASE_DIFF_REPORTED same_release_identity={str(payload['same_release_identity']).lower()}")
+    print(f"CONTENT_RELEASE_DIFF changes={payload['changes_count']}")
 
 
 def main(argv=None):

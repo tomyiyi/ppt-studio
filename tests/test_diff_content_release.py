@@ -34,7 +34,7 @@ class DiffReleaseTests(unittest.TestCase):
             data = json.loads(out.read_text())
             self.assertFalse(data["same_release_identity"])
             self.assertTrue(data["changes"]["inputs"]["markdown_sha256"]["changed"])
-            self.assertEqual(data["changes"]["artifacts"]["svg"]["files"]["02.svg"]["status"], "added")
+            self.assertEqual(data["changes"]["artifacts"]["svg"]["added"], ["02.svg"])
 
     def test_verification_failure_does_not_publish(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -48,7 +48,23 @@ class DiffReleaseTests(unittest.TestCase):
         value = receipt()
         data = subject.build_diff(value, json.loads(json.dumps(value)))
         self.assertTrue(data["same_release_identity"])
-        self.assertFalse(data["changes"]["artifacts"]["svg"]["changed"])
+        self.assertEqual(data["changes_count"], 0)
+        self.assertEqual(data["changes"]["artifacts"]["svg"]["added"], [])
+        self.assertEqual(data["changes"]["artifacts"]["svg"]["removed"], [])
+        self.assertEqual(data["changes"]["artifacts"]["svg"]["modified"], [])
+
+    def test_mixed_diff_is_deterministic(self):
+        a = receipt()
+        b = receipt("changed", {"01.svg": "changed", "02.svg": "new"})
+        b["toolchain"]["ppt_studio_head"] = "c" * 40
+        b["artifacts"]["pptx_sha256"] = "changed-pptx"
+        first = subject.build_diff(a, b)
+        second = subject.build_diff(json.loads(json.dumps(a)), json.loads(json.dumps(b)))
+        self.assertEqual(json.dumps(first, ensure_ascii=False, indent=2), json.dumps(second, ensure_ascii=False, indent=2))
+        self.assertFalse(first["same_release_identity"])
+        self.assertEqual(first["changes"]["artifacts"]["svg"]["modified"], ["01.svg"])
+        self.assertEqual(first["changes"]["artifacts"]["svg"]["added"], ["02.svg"])
+        self.assertGreater(first["changes_count"], 0)
 
 
 if __name__ == "__main__":
