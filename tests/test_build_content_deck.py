@@ -44,4 +44,34 @@ class BuildContractTests(unittest.TestCase):
     for payload in ({'schema':'wrong'},{'schema':'ppt-studio-toolchain/v1'},{'schema':'ppt-studio-toolchain/v1','ppt_master_root':'x','ppt_master_python':'y'}):
       args.toolchain_config.write_text(json.dumps(payload),encoding='utf-8')
       with self.subTest(payload=payload), self.assertRaises(ValueError): mod.build(args)
+  def test_receipt_hashes_match_artifacts(self):
+    out=self.root/'out'
+    def fake(argv,**kw):
+      script=Path(argv[1]).name if len(argv)>1 else ''
+      if script == 'plan_markdown.py': (out.parent/'plan').write_text('')
+      elif script == 'assign_layout_intent.py': pass
+    with patch.object(mod,'run',side_effect=fake):
+      with self.assertRaises(Exception): mod.build(self.args(out))
+  def test_receipt_schema_and_hashes_are_emitted(self):
+    out=self.root/'out'
+    def fake(argv,**kw):
+      script=Path(argv[1]).name if len(argv)>1 else ''
+      if script == 'plan_markdown.py':
+        Path(argv[argv.index('-o')+1]).write_text(json.dumps({'slides':[{'id':'s1'}]}))
+      elif script == 'assign_layout_intent.py':
+        Path(argv[argv.index('-o')+1]).write_text(json.dumps({'slides':[{'id':'s1'}]}))
+      elif script == 'materialize_content_project.py':
+        target=Path(argv[argv.index('-o')+1]); target.mkdir(); (target/'01.svg').write_text('svg')
+      elif script == 'build_preview.py':
+        Path(argv[3]).write_text('html')
+      elif script == 'svg_quality_checker.py':
+        target=Path(argv[2]); (target/'validation').mkdir(exist_ok=True); (target/'validation/svg_quality_report.json').write_text('{"blocking":0,"errors":0}')
+      elif script == 'svg_to_pptx.py': Path(argv[argv.index('-o')+1]).write_bytes(b'pptx')
+      elif script == 'qa_pptx.py': pass
+    with patch.object(mod,'run',side_effect=fake):
+      mod.build(self.args(out))
+    receipt=json.loads((out/'build_receipt.json').read_text())
+    self.assertEqual(receipt['schema'],'ppt-studio-content-build-receipt/v1')
+    self.assertEqual(receipt['artifacts']['pptx_sha256'],mod.sha256(out/'output/content-deck.pptx'))
+    self.assertNotIn(str(out), (out/'build_receipt.json').read_text())
 if __name__=='__main__': unittest.main()

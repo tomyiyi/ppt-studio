@@ -6,6 +6,10 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 
+def sha256(path: Path) -> str:
+    import hashlib
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
 def run(argv: list[str], cwd: Path = REPO) -> None:
     subprocess.run(argv, cwd=cwd, check=True)
 
@@ -16,7 +20,7 @@ def validate_tools(root: Path, py: Path) -> None:
         path = root / "skills/ppt-master/scripts" / name
         if not path.is_file(): raise ValueError(f"missing ppt-master tool: {path}")
 
-def resolve_toolchain(args: argparse.Namespace) -> tuple[Path, Path]:
+def resolve_toolchain(args: argparse.Namespace) -> tuple[Path, Path, str | None]:
     if bool(args.toolchain_config) == bool(args.ppt_master_root or args.ppt_master_python):
         raise ValueError("use either --toolchain-config or both explicit ppt-master paths")
     if args.toolchain_config:
@@ -31,11 +35,17 @@ def resolve_toolchain(args: argparse.Namespace) -> tuple[Path, Path]:
         root, py, expected = args.ppt_master_root, args.ppt_master_python, None
     if not root.is_absolute(): root = (Path.cwd() / root).absolute()
     if not py.is_absolute(): py = (Path.cwd() / py).absolute()
+    actual = None
     if expected:
         try: actual = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
         except (OSError, subprocess.CalledProcessError) as exc: raise ValueError(f"cannot read ppt-master HEAD: {exc}")
         if actual != expected: raise ValueError(f"ppt-master HEAD mismatch: expected {expected}, actual {actual}")
-    return root.resolve(), py
+    elif (root / ".git").exists():
+        try:
+            actual = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+        except (OSError, subprocess.CalledProcessError):
+            actual = None
+    return root.resolve(), py, actual
 
 def build(args: argparse.Namespace) -> None:
     output = args.output.resolve()
@@ -47,7 +57,7 @@ def build(args: argparse.Namespace) -> None:
     source = args.source.resolve(); spec = args.spec.resolve()
     if not source.is_file(): raise ValueError(f"missing source: {source}")
     if not spec.is_file(): raise ValueError(f"missing spec: {spec}")
-    master_root, master_py = resolve_toolchain(args)
+    master_root, master_py, master_head = resolve_toolchain(args)
     validate_tools(master_root, master_py)
     with tempfile.TemporaryDirectory(prefix=f".{output.name}.staging-", dir=output.parent) as name:
         stage = Path(name)
@@ -73,6 +83,24 @@ def build(args: argparse.Namespace) -> None:
         required=[stage/"spec_lock.md",plan,intent,stage/"preview/content-deck.html",report,pptx]
         required += sorted((stage/"svg_output").glob("*.svg"))
         if not all(p.is_file() and p.stat().st_size for p in required): raise ValueError("final artifact set incomplete")
+        receipt = {
+            "schema": "ppt-studio-content-build-receipt/v1",
+            "slides": slides,
+            "inputs": {
+                "markdown_sha256": sha256(source),
+                "spec_sha256": sha256(stage / "spec_lock.md"),
+                "slide_plan_sha256": sha256(plan),
+                "layout_intent_sha256": sha256(intent),
+            },
+            "toolchain": {"ppt_master_head": master_head},
+            "artifacts": {
+                "svg": {p.name: sha256(p) for p in sorted((stage / "svg_output").glob("*.svg"))},
+                "html_sha256": sha256(stage / "preview/content-deck.html"),
+                "svg_quality_report_sha256": sha256(report),
+                "pptx_sha256": sha256(pptx),
+            },
+        }
+        (stage / "build_receipt.json").write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         os.replace(stage, output)
     print(f"CONTENT_DECK_BUILT slides={slides} html=1 pptx=1")
 
