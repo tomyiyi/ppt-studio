@@ -34,7 +34,11 @@ from scripts.qa_long_card import (
     parse_colors_from_spec_text,
     check_dimensions_and_mode,
     parse_card_segments,
+    check_file_and_format,
+    check_sharpness_and_health,
+    run_qa_single_long_card,
     run_qa_long_card,
+    qa_long_card,
     hex_to_rgb,
     ACCENT_RGB,
     BG_RGB,
@@ -362,6 +366,94 @@ class TestQALongCardCLI(unittest.TestCase):
             )
             # 退出码为 1 (文件不存在或无法解码)，但不能报 unrecognized arguments
             self.assertNotIn("unrecognized arguments", res.stderr)
+
+
+class TestCheckFileAndFormat(unittest.TestCase):
+    def test_nonexistent_file_returns_false(self):
+        ok, msg, img = check_file_and_format("non_existent_file_98765.png")
+        self.assertFalse(ok)
+        self.assertIn("文件不存在", msg)
+        self.assertIsNone(img)
+
+    def test_undersized_file_returns_false(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tiny_file = Path(tmp_dir) / "tiny.png"
+            tiny_file.write_bytes(b"short")
+            ok, msg, img = check_file_and_format(str(tiny_file))
+            self.assertFalse(ok)
+            self.assertIn("文件体积异常过小", msg)
+            self.assertIsNone(img)
+
+    def test_corrupt_file_returns_false(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            corrupt = Path(tmp_dir) / "corrupt.png"
+            corrupt.write_bytes(b"0" * (120 * 1024))
+            ok, msg, img = check_file_and_format(corrupt)
+            self.assertFalse(ok)
+            self.assertIn("图像无法解码", msg)
+            self.assertIsNone(img)
+
+    def test_valid_file_returns_true(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            valid = Path(tmp_dir) / "valid.png"
+            # 创建超过 100KB 的图像
+            np.random.seed(42)
+            arr = np.random.randint(0, 255, (600, 600, 3), dtype=np.uint8)
+            Image.fromarray(arr).save(valid, format="PNG")
+            self.assertGreaterEqual(valid.stat().st_size, 100 * 1024)
+            ok, msg, img = check_file_and_format(str(valid))
+            self.assertTrue(ok)
+            self.assertIn("图像无损解码成功", msg)
+            self.assertIsNotNone(img)
+            img.close()
+
+
+class TestCheckSharpnessAndHealth(unittest.TestCase):
+    def test_string_path_support(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            dummy = Path(tmp_dir) / "dummy.png"
+            dummy.write_bytes(b"0" * (120 * 1024))
+            np.random.seed(42)
+            arr = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
+            ok, msg = check_sharpness_and_health(str(dummy), arr)
+            self.assertTrue(ok)
+            self.assertIn("拉普拉斯梯度方差", msg)
+
+    def test_low_sharpness_detected(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            dummy = Path(tmp_dir) / "dummy.png"
+            dummy.write_bytes(b"0" * (120 * 1024))
+            flat = np.full((100, 100, 3), 128, dtype=np.uint8)
+            ok, msg = check_sharpness_and_health(dummy, flat)
+            self.assertFalse(ok)
+            self.assertIn("拉普拉斯清晰度过低", msg)
+
+
+class TestProgrammaticAPI(unittest.TestCase):
+    def test_run_qa_single_long_card_with_str_and_quiet(self):
+        res = run_qa_single_long_card("non_existent_file.png", verbose=False)
+        self.assertFalse(res)
+
+    def test_run_qa_long_card_with_empty_directory_returns_false(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            res = run_qa_long_card(tmp_dir, verbose=False)
+            self.assertFalse(res)
+
+    def test_qa_long_card_alias_callable(self):
+        self.assertEqual(qa_long_card, run_qa_long_card)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            res = qa_long_card(Path(tmp_dir), verbose=False)
+            self.assertFalse(res)
+
+    def test_run_qa_long_card_discovers_in_output_dir(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir)
+            out_dir = base / "output"
+            out_dir.mkdir(parents=True)
+            target_png = out_dir / "agentflow_长图.png"
+            target_png.write_bytes(b"invalid")
+            res = run_qa_long_card(base, verbose=False)
+            self.assertFalse(res)
 
 
 if __name__ == "__main__":

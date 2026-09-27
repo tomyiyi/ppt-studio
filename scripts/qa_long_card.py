@@ -155,15 +155,16 @@ def load_spec_colors(project_dir: Path | str | None) -> tuple[tuple[int, int, in
     return accent, bg
 
 
-def check_file_and_format(img_path: Path) -> tuple[bool, str, Image.Image | None]:
+def check_file_and_format(img_path: Path | str) -> tuple[bool, str, Image.Image | None]:
     """检查文件是否存在、格式是否有效及基本完整性。"""
-    if not img_path.exists():
-        return False, f"文件不存在: {img_path}", None
-    if img_path.stat().st_size < 100 * 1024:
-        return False, f"文件体积异常过小 ({img_path.stat().st_size} bytes)", None
+    p = Path(img_path)
+    if not p.exists():
+        return False, f"文件不存在: {p}", None
+    if p.stat().st_size < 100 * 1024:
+        return False, f"文件体积异常过小 ({p.stat().st_size} bytes)", None
 
     try:
-        img = Image.open(img_path)
+        img = Image.open(p)
         img.load()  # 触发完整解码校验
         return True, "图像无损解码成功", img
     except Exception as e:
@@ -359,8 +360,9 @@ def check_overall_contrast(arr: np.ndarray, card_slices: list[tuple[int, int]]) 
     return True, "全图关键文本区域 WCAG 对比度达标 (均 ≥ 4.5:1)"
 
 
-def check_sharpness_and_health(img_path: Path, arr: np.ndarray) -> tuple[bool, str]:
+def check_sharpness_and_health(img_path: Path | str, arr: np.ndarray) -> tuple[bool, str]:
     """检查图像清晰度（拉普拉斯梯度方差）与存储文件健康度。"""
+    p = Path(img_path)
     # 转换为灰度
     gray = np.mean(arr[:, :, :3], axis=-1, dtype=np.float32)
 
@@ -374,7 +376,7 @@ def check_sharpness_and_health(img_path: Path, arr: np.ndarray) -> tuple[bool, s
     )
     var_lap = float(np.var(lap))
 
-    file_kb = img_path.stat().st_size // 1024
+    file_kb = p.stat().st_size // 1024
     if var_lap < 50.0:
         return False, f"拉普拉斯清晰度过低 ({var_lap:.1f} < 50.0)，图像可能存在模糊或降采样"
 
@@ -466,27 +468,40 @@ def resolve_project_dir(
     return None
 
 
-def find_long_cards(target: Path) -> list[Path]:
+def find_long_cards(
+    target: Path | str | None = None,
+    base_dir: Path | str | None = None,
+) -> list[Path]:
     """在目标路径或其子目录中查找长图文件。"""
-    if not target.is_dir():
-        return [target]
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    if target is None:
+        target_path = base
+    else:
+        target_path = Path(target)
+        if not target_path.is_absolute():
+            target_path = (base / target_path).resolve()
+        else:
+            target_path = target_path.resolve()
+
+    if not target_path.is_dir():
+        return [target_path]
 
     found: list[Path] = []
     for pattern in ["*长图*.png", "*long_card*.png"]:
-        found.extend(sorted(target.glob(pattern)))
+        found.extend(sorted(target_path.glob(pattern)))
     if not found:
-        found = [f for f in sorted(target.glob("*.png")) if "卡片" not in f.name and "render" not in f.name]
-    if not found and (target / "output").is_dir():
+        found = [f for f in sorted(target_path.glob("*.png")) if "卡片" not in f.name and "render" not in f.name]
+    if not found and (target_path / "output").is_dir():
         for pattern in ["*长图*.png", "*long_card*.png"]:
-            found.extend(sorted((target / "output").glob(pattern)))
+            found.extend(sorted((target_path / "output").glob(pattern)))
         if not found:
-            found = [f for f in sorted((target / "output").glob("*.png")) if "卡片" not in f.name and "render" not in f.name]
+            found = [f for f in sorted((target_path / "output").glob("*.png")) if "卡片" not in f.name and "render" not in f.name]
     if not found:
         candidate_p_dirs = []
-        if (target / "projects").is_dir():
-            candidate_p_dirs.append(target / "projects")
-        elif target.name == "projects":
-            candidate_p_dirs.append(target)
+        if (target_path / "projects").is_dir():
+            candidate_p_dirs.append(target_path / "projects")
+        elif target_path.name == "projects":
+            candidate_p_dirs.append(target_path)
         for p_dir in candidate_p_dirs:
             for p in sorted(p_dir.iterdir()):
                 if p.is_dir() and (p / "output").is_dir():
@@ -503,39 +518,48 @@ def find_long_cards(target: Path) -> list[Path]:
     return deduped
 
 
-def run_qa_long_card(
-    target_path: Path,
-    project_dir: Path | None = None,
+def run_qa_single_long_card(
+    target_path: Path | str,
+    project_dir: Path | str | None = None,
     require_header: bool = True,
     require_footer: bool = True,
+    verbose: bool = True,
 ) -> bool:
-    print("=" * 60)
-    print("🔍 运行 PPT-Studio 长图导出物客观质量门禁")
-    print(f"   目标: {target_path}")
-    print("=" * 60)
+    """对单张长图执行 7 项客观质量门禁复核。"""
+    target_p = Path(target_path).resolve()
+
+    def _log(msg: str = "") -> None:
+        if verbose:
+            print(msg)
+
+    _log("=" * 60)
+    _log("🔍 运行 PPT-Studio 长图导出物客观质量门禁")
+    _log(f"   目标: {target_p}")
+    _log("=" * 60)
 
     # 1. 解码与文件健全
-    ok, msg, img = check_file_and_format(target_path)
+    ok, msg, img = check_file_and_format(target_p)
     if not ok:
-        print(f"  [✗] 文件解码健全         : {msg}")
-        print("=" * 60)
-        print("FAILED ❌")
+        _log(f"  [✗] 文件解码健全         : {msg}")
+        _log("=" * 60)
+        _log("FAILED ❌")
         return False
 
     arr = np.array(img)
 
     # 自动探测 project_dir
-    if project_dir is None:
+    proj_p = Path(project_dir).resolve() if project_dir else None
+    if proj_p is None:
         try:
-            project_dir = resolve_project_dir(None, target_path=target_path)
+            proj_p = resolve_project_dir(None, target_path=target_p)
         except ValueError:
-            project_dir = None
+            proj_p = None
 
-    accent_rgb, bg_rgb = load_spec_colors(project_dir)
+    accent_rgb, bg_rgb = load_spec_colors(proj_p)
 
     # 2. 画幅与模式
     ok_dim, msg_dim = check_dimensions_and_mode(img, require_header=require_header, require_footer=require_footer)
-    print(f"  [{'✓' if ok_dim else '✗'}] 画幅与结构标准     : {msg_dim}")
+    _log(f"  [{'✓' if ok_dim else '✗'}] 画幅与结构标准     : {msg_dim}")
 
     # 3. Header
     if require_header:
@@ -543,7 +567,7 @@ def run_qa_long_card(
     else:
         ok_header = True
         msg_header = "跳过（已声明不含 Header）"
-    print(f"  [{'✓' if ok_header else '✗'}] 顶部 Header 统摄   : {msg_header}")
+    _log(f"  [{'✓' if ok_header else '✗'}] 顶部 Header 统摄   : {msg_header}")
 
     # 4. Footer
     if require_footer:
@@ -551,41 +575,105 @@ def run_qa_long_card(
     else:
         ok_footer = True
         msg_footer = "跳过（已声明不含 Footer）"
-    print(f"  [{'✓' if ok_footer else '✗'}] 底部 Footer 收尾   : {msg_footer}")
+    _log(f"  [{'✓' if ok_footer else '✗'}] 底部 Footer 收尾   : {msg_footer}")
 
     # 卡片切片解析
     n_cards, gap, slices = parse_card_segments(arr, require_header, require_footer)
 
     expected_count = None
-    if project_dir and (project_dir / "cards").exists():
+    if proj_p and (proj_p / "cards").exists():
         expected_count = len([
-            p for p in (project_dir / "cards").glob("*.svg")
+            p for p in (proj_p / "cards").glob("*.svg")
             if not p.name.startswith("long_card") and not p.name.startswith(".") and "长图" not in p.name
         ])
 
     # 5. 卡片切片与间距
     ok_seg, msg_seg = check_segments_and_seams(arr, slices, gap, expected_count, bg_rgb)
-    print(f"  [{'✓' if ok_seg else '✗'}] 卡片分段与缝合     : {msg_seg}")
+    _log(f"  [{'✓' if ok_seg else '✗'}] 卡片分段与缝合     : {msg_seg}")
 
     # 6. 分段墨量
     ok_ink, msg_ink = check_per_card_ink(arr, slices)
-    print(f"  [{'✓' if ok_ink else '✗'}] 分段墨量与非空     : {msg_ink}")
+    _log(f"  [{'✓' if ok_ink else '✗'}] 分段墨量与非空     : {msg_ink}")
 
     # 7. 文字对比度
     ok_contrast, msg_contrast = check_overall_contrast(arr, slices)
-    print(f"  [{'✓' if ok_contrast else '✗'}] 文字对比度合规     : {msg_contrast}")
+    _log(f"  [{'✓' if ok_contrast else '✗'}] 文字对比度合规     : {msg_contrast}")
 
     # 8. 清晰度与无损健康
-    ok_sharp, msg_sharp = check_sharpness_and_health(target_path, arr)
-    print(f"  [{'✓' if ok_sharp else '✗'}] 高频细节与渲染清晰 : {msg_sharp}")
+    ok_sharp, msg_sharp = check_sharpness_and_health(target_p, arr)
+    _log(f"  [{'✓' if ok_sharp else '✗'}] 高频细节与渲染清晰 : {msg_sharp}")
 
-    print("=" * 60)
+    _log("=" * 60)
     all_passed = all([ok_dim, ok_header, ok_footer, ok_seg, ok_ink, ok_contrast, ok_sharp])
     if all_passed:
-        print("ALL CLEAR ✅\n")
+        _log("ALL CLEAR ✅\n")
     else:
-        print("FAILED ❌\n")
+        _log("FAILED ❌\n")
     return all_passed
+
+
+def run_qa_long_card(
+    target_path: Path | str | None = None,
+    project_dir: Path | str | None = None,
+    require_header: bool = True,
+    require_footer: bool = True,
+    verbose: bool = True,
+) -> bool:
+    """运行 PPT-Studio 长图客观质量门禁。
+
+    支持输入单个长图文件路径、包含长图的目录路径，或留空默认自发现。
+    支持 Path、str 或 None 输入。
+    """
+    base = Path.cwd().resolve()
+    if target_path is not None:
+        target_p = Path(target_path)
+        if not target_p.is_absolute():
+            target_p = (base / target_p).resolve()
+        else:
+            target_p = target_p.resolve()
+    else:
+        target_p = base
+
+    # 若是普通文件，直接单文件质检
+    if target_p.is_file():
+        return run_qa_single_long_card(
+            target_path=target_p,
+            project_dir=project_dir,
+            require_header=require_header,
+            require_footer=require_footer,
+            verbose=verbose,
+        )
+
+    # 目录或自动发现模式
+    files_to_check = find_long_cards(target_p)
+    if not files_to_check:
+        if verbose:
+            print(f"[!] 在目录 {target_p} 或 output/、projects/*/output/ 下未发现长图 PNG 文件", file=sys.stderr)
+        return False
+
+    explicit_project = resolve_project_dir(project_dir) if project_dir else None
+
+    all_ok = True
+    for f in files_to_check:
+        try:
+            proj = explicit_project or resolve_project_dir(None, target_path=f)
+        except ValueError as err:
+            if verbose:
+                print(f"[!] {err}", file=sys.stderr)
+            return False
+        res = run_qa_single_long_card(
+            target_path=f,
+            project_dir=proj,
+            require_header=require_header,
+            require_footer=require_footer,
+            verbose=verbose,
+        )
+        if not res:
+            all_ok = False
+    return all_ok
+
+
+qa_long_card = run_qa_long_card
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -596,8 +684,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-footer", action="store_true", help="声明长图不包含底部 Footer")
     args = parser.parse_args(argv)
 
-    target = Path(args.target).resolve()
-
     explicit_project = None
     if args.project:
         try:
@@ -606,6 +692,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[!] {err}", file=sys.stderr)
             return 1
 
+    target = Path(args.target).resolve()
     files_to_check = find_long_cards(target)
     if not files_to_check:
         print(f"[!] 在目录 {target} 或 output/、projects/*/output/ 下未发现长图 PNG 文件", file=sys.stderr)
@@ -618,11 +705,12 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as err:
             print(f"[!] {err}", file=sys.stderr)
             return 1
-        res = run_qa_long_card(
+        res = run_qa_single_long_card(
             f,
             proj,
             require_header=not args.no_header,
             require_footer=not args.no_footer,
+            verbose=True,
         )
         if not res:
             all_ok = False
