@@ -31,7 +31,7 @@ def validate(plan_path,output_path,plan,raw,intent):
         if slide.get("kind")!="content" or len(images)!=1 or len(paragraphs)>1 or len(blocks)!=len(images)+len(paragraphs): fail("image-callout requires exactly 1 image and 0-1 paragraph")
         block=images[0]; suffix=Path(block.get("path","")).suffix.lower()
         if suffix not in {".png",".jpg",".jpeg"} or not block.get("path"): fail("image-callout requires PNG/JPG/JPEG")
-        asset=output_path.parent/"assets"/f'{slide["id"]}_image_callout{suffix}'
+        asset=output_path/"assets"/f'{slide["id"]}_image_callout{suffix}'
         if asset.is_symlink() or not asset.is_file(): fail(f"materialized image asset missing: {asset.name}")
         if len(slide.get("title",""))>28 or any(len(b.get("text",""))>72 for b in paragraphs): fail("image-callout text exceeds v1 budget")
         out.append({"id":slide["id"],"title":slide.get("title",""),"alt":block["alt"],"path":f"assets/{asset.name}","text":paragraphs[0].get("text","") if paragraphs else ""})
