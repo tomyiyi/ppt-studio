@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif">
   <defs>
     <linearGradient id="heal-scrim-x" x1="0" y1="0" x2="1" y2="0">
-      <stop data-theme-role="image-scrim" offset="0" stop-color="#08090C" stop-opacity="0.92" />
-      <stop data-theme-role="image-scrim" offset="0.45" stop-color="#08090C" stop-opacity="0.80" />
-      <stop data-theme-role="image-scrim" offset="0.62" stop-color="#08090C" stop-opacity="0.30" />
-      <stop data-theme-role="image-scrim" offset="1" stop-color="#08090C" stop-opacity="0.04" />
+      <stop data-theme-role="content-scrim" offset="0" stop-color="#08090C" stop-opacity="0.92" />
+      <stop data-theme-role="content-scrim" offset="0.45" stop-color="#08090C" stop-opacity="0.80" />
+      <stop data-theme-role="content-scrim" offset="0.62" stop-color="#08090C" stop-opacity="0.30" />
+      <stop data-theme-role="content-scrim" offset="1" stop-color="#08090C" stop-opacity="0.04" />
     </linearGradient>
     <linearGradient id="heal-scrim-y" x1="0" y1="0" x2="0" y2="1">
       <stop data-theme-role="image-scrim" offset="0" stop-color="#08090C" stop-opacity="0.12" />
@@ -20,8 +20,15 @@
     <rect width="1280" height="720" fill="url(#heal-scrim-y)" />
   </g>
 
+  <g id="readability-surfaces">
+    <rect data-theme-role="image-scrim" x="68" y="78" width="205" height="38" fill="#08090C" />
+    <rect data-theme-role="readability-surface" x="68" y="322" width="500" height="72" fill="#08090C" />
+    <rect data-theme-role="readability-surface" x="1097" y="219" width="102" height="39" fill="#08090C" />
+    <rect data-theme-role="readability-surface" x="1140" y="625" width="60" height="39" fill="#08090C" />
+  </g>
+
   <g id="page-kicker">
-    <text x="80" y="100" font-size="11" fill="#8E8F9A" letter-spacing="4">CAPABILITY ONE · 04</text>
+    <text data-theme-role="on-image" x="80" y="100" font-size="11" fill="#8E8F9A" letter-spacing="4">CAPABILITY ONE · 04</text>
   </g>
 
   <g id="capability-icon">
@@ -51,11 +58,11 @@
   <g id="badge">
     <circle cx="1148" cy="196" r="22" fill="#4ADE80" />
     <text data-theme-role="on-accent" x="1148" y="204" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="bold" fill="#08090C">0</text>
-    <text data-theme-role="on-image" x="1148" y="242" text-anchor="middle" font-size="13" fill="#8E8F9A">人工介入次数</text>
+    <text data-theme-role="on-light-surface" x="1148" y="242" text-anchor="middle" font-size="13" fill="#8E8F9A">人工介入次数</text>
   </g>
 
   <g id="footer">
     <line x1="80" y1="608" x2="1200" y2="608" stroke="#23242E" stroke-width="1" />
-    <text x="1200" y="648" text-anchor="end" font-size="13" fill="#7F8090">04 / 07</text>
+    <text data-theme-role="on-light-surface" x="1200" y="648" text-anchor="end" font-size="13" fill="#7F8090">04 / 07</text>
   </g>
 </svg>

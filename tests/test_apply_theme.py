@@ -17,11 +17,36 @@ class ThemeTest(unittest.TestCase):
             self.assertIn('data-theme-role="image-scrim" offset="0.45" stop-color="#0F172A" stop-opacity="0.80"', got)
 
     def test_only_allowed_roles_are_used_in_core_slice(self):
-        allowed={'on-image','on-dark-surface','on-accent','image-scrim'}
+        allowed={'on-image','on-dark-surface','on-accent','image-scrim','content-scrim','on-light-surface'}
         text=(Path(__file__).resolve().parents[1]/'projects/agentflow-os-launch/svg_output/04_capability_selfheal.svg').read_text()
         roles=set(re.findall(r'data-theme-role="([^"]+)"', text))
-        self.assertTrue(roles <= allowed)
-        self.assertEqual(roles, {'on-image','on-dark-surface','on-accent','image-scrim'})
+        self.assertTrue(roles <= allowed | {'readability-surface'})
+        self.assertEqual(roles, {'on-image','on-dark-surface','on-accent','image-scrim','content-scrim','on-light-surface','readability-surface'})
+
+    def test_content_and_image_scrim_roles_are_separate(self):
+        text=(Path(__file__).resolve().parents[1]/'projects/agentflow-os-launch/svg_output/04_capability_selfheal.svg').read_text()
+        self.assertEqual(len(re.findall(r'data-theme-role="content-scrim"', text)), 4)
+        self.assertEqual(len(re.findall(r'data-theme-role="image-scrim"', text)), 4)
+
+    def test_light_surface_contract_for_04_labels(self):
+        text=(Path(__file__).resolve().parents[1]/'projects/agentflow-os-launch/svg_output/04_capability_selfheal.svg').read_text()
+        self.assertRegex(text, r'<text data-theme-role="on-image"[^>]*>CAPABILITY ONE · 04</text>')
+        self.assertRegex(text, r'<text data-theme-role="on-light-surface"[^>]*>人工介入次数</text>')
+        self.assertRegex(text, r'<text data-theme-role="on-light-surface"[^>]*>04 / 07</text>')
+
+    def test_readability_surface_geometry_contract_for_04(self):
+        text=(Path(__file__).resolve().parents[1]/'projects/agentflow-os-launch/svg_output/04_capability_selfheal.svg').read_text()
+        surfaces=re.findall(r'<rect data-theme-role="([^"]+)" x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)" fill="#08090C" />', text)
+        self.assertEqual([s for s in surfaces if s[0] == 'readability-surface'], [
+            ('readability-surface','68','322','500','72'),
+            ('readability-surface','1097','219','102','39'),
+            ('readability-surface','1140','625','60','39'),
+        ])
+        self.assertEqual([s for s in surfaces if s[0] == 'image-scrim'], [('image-scrim','68','78','205','38')])
+        terminal=(80,478,480,112)
+        for _, x, y, w, h in surfaces:
+            x,y,w,h=map(int,(x,y,w,h))
+            self.assertFalse(x < terminal[0]+terminal[2] and x+w > terminal[0] and y < terminal[1]+terminal[3] and y+h > terminal[1])
 
     def test_scrim_metadata_does_not_change_non_metadata_source(self):
         import subprocess
@@ -29,7 +54,9 @@ class ThemeTest(unittest.TestCase):
         baseline=subprocess.check_output(['git','show','7b50234:projects/agentflow-os-launch/svg_output/04_capability_selfheal.svg'], text=True)
         current=(Path(__file__).resolve().parents[1]/'projects/agentflow-os-launch/svg_output/04_capability_selfheal.svg').read_text()
         strip=lambda s: re.sub(r'\sdata-theme-role="[^"]+"','',s)
-        self.assertEqual(strip(baseline), strip(current))
+        current = re.sub(r'\n  <g id="readability-surfaces">.*?\n  </g>\n', '\n', current, flags=re.S)
+        normalize=lambda s: re.sub(r'\s+', ' ', strip(s)).strip()
+        self.assertEqual(normalize(baseline), normalize(current))
     def test_only_declared_colors_change(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); src=root/'src'; out=root/'out'; src.mkdir()
