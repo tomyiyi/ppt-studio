@@ -32,6 +32,7 @@ class DeepQAContractTests(unittest.TestCase):
             self.assertTrue(mod.deep_qa(self.bundle, verbose=False))
         self.assertEqual([event[0] for event in events], ["verify", "html", "pptx"])
         self.assertEqual(events[2][2]["expected_slides"], 4)
+        self.assertEqual(events[2][2]["expected_media"], 0)
 
     def test_integrity_failure_blocks_qa(self):
         with patch.object(mod, "run_verify", side_effect=ValueError("integrity failed")):

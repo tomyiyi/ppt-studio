@@ -32,15 +32,18 @@ def deep_qa(bundle: Path, verbose: bool = True) -> bool:
     import qa_pptx
 
     html_ok = qa_preview.run_qa_single_preview(bundle / "preview" / "content-deck.html", verbose=verbose)
+    if not html_ok:
+        raise ValueError("deep QA failed")
     pptx_ok = qa_pptx.run_qa_pptx(
         bundle / "output" / "content-deck.pptx",
         spec_path=bundle / "spec_lock.md",
         expected_slides=slides,
+        expected_media=0,
         verbose=verbose,
     )
     if not html_ok or not pptx_ok:
         raise ValueError("deep QA failed")
-    print(f"CONTENT_BUNDLE_DEEP_QA slides={slides} html=PASS pptx=PASS")
+    print(f"CONTENT_BUNDLE_QA_ALL_CLEAR slides={slides} preview=1 pptx=1")
     return True
 
 
