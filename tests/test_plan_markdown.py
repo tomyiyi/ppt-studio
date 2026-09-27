@@ -127,3 +127,18 @@ def _decision_matrix_regression_test(self):
     with self.assertRaisesRegex(ValueError, "decision matrix impact"):
         MODULE.build_plan("x.md", source.replace(b"High | Medium", b"Critical | Medium"))
 PlanMarkdownTests.test_decision_matrix_regression = _decision_matrix_regression_test
+
+
+def _swimlane_contract(self):
+    source=b"# D\n## Handoffs\n| Stage | Owner | Output |\n| --- | --- | --- |\n| Understand | Agent | Plan |\n| Execute | Tools | Result |\n| Verify | Agent | Accepted |"
+    block=MODULE.build_plan("x.md",source)["slides"][1]["blocks"][0]
+    self.assertEqual(block["type"], "swimlane-handoff")
+    self.assertEqual(block["owners"], ["Agent", "Tools"])
+    for rows in (2,6):
+        data="\n".join(f"| S{i} | Agent | O{i} |" for i in range(rows))
+        source=f"# D\n## H\n| Stage | Owner | Output |\n| --- | --- | --- |\n{data}".encode()
+        with self.assertRaises(ValueError): MODULE.build_plan("x.md",source)
+    source=b"# D\n## H\n| Stage | Owner | Output |\n| --- | --- | --- |\n| S1 | Agent | O1 |\n| S2 | Tools | O2 |\n| S3 | Human | O3 |\n| S4 | Runtime | O4 |"
+    with self.assertRaisesRegex(ValueError, "2-3 distinct owners"):
+        MODULE.build_plan("x.md",source)
+PlanMarkdownTests.test_swimlane_handoff_contract=_swimlane_contract

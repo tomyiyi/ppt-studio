@@ -34,6 +34,7 @@ def assign_layout(slide: dict) -> str:
     has_bars = False
     has_tasks = False
     has_hierarchy = False
+    has_swimlane = False
     image_count = 0
     paragraph_count = 0
     for block in blocks:
@@ -89,6 +90,9 @@ def assign_layout(slide: dict) -> str:
         if block.get("type") == "hierarchy-tree":
             has_hierarchy = True
             continue
+        if block.get("type") == "swimlane-handoff":
+            has_swimlane = True
+            continue
         if block.get("type") != "paragraph":
             raise ValueError("unsupported block type")
         paragraph_count += 1
@@ -123,6 +127,9 @@ def assign_layout(slide: dict) -> str:
     if has_hierarchy:
         if paragraph_count > 1 or len([b for b in blocks if b.get("type")=="hierarchy-tree"]) != 1 or any(b.get("type") not in {"hierarchy-tree","paragraph"} for b in blocks): raise ValueError("mixed hierarchy-tree blocks are not supported in v1")
         return "hierarchy-tree"
+    if has_swimlane:
+        if len([b for b in blocks if b.get("type")=="swimlane-handoff"]) != 1 or any(b.get("type") != "swimlane-handoff" for b in blocks): raise ValueError("mixed swimlane-handoff blocks are not supported in v1")
+        return "swimlane-handoff"
     if has_risk:
         if paragraph_count or has_steps or has_quote or has_table or has_image or has_bullets:
             raise ValueError("mixed risk-register blocks are not supported in v1")
