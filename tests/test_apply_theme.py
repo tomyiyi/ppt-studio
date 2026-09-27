@@ -20,29 +20,29 @@ class ThemeTest(unittest.TestCase):
         allowed={'on-image','on-dark-surface','on-accent','image-scrim','content-scrim','on-light-surface'}
         text=(Path(__file__).resolve().parents[1]/'projects/agentflow-os-launch/svg_output/04_capability_selfheal.svg').read_text()
         roles=set(re.findall(r'data-theme-role="([^"]+)"', text))
-        self.assertTrue(roles <= allowed | {'readability-surface'})
-        self.assertEqual(roles, {'on-image','on-dark-surface','on-accent','image-scrim','content-scrim','on-light-surface','readability-surface'})
+        self.assertTrue(roles <= allowed | {'readability-surface-light','readability-surface-dark'})
+        self.assertEqual(roles, {'on-dark-surface','on-accent','image-scrim','content-scrim','on-light-surface','readability-surface-light','readability-surface-dark'})
 
     def test_content_and_image_scrim_roles_are_separate(self):
         text=(Path(__file__).resolve().parents[1]/'projects/agentflow-os-launch/svg_output/04_capability_selfheal.svg').read_text()
         self.assertEqual(len(re.findall(r'data-theme-role="content-scrim"', text)), 4)
-        self.assertEqual(len(re.findall(r'data-theme-role="image-scrim"', text)), 4)
+        self.assertEqual(len(re.findall(r'data-theme-role="image-scrim"', text)), 3)
 
     def test_light_surface_contract_for_04_labels(self):
         text=(Path(__file__).resolve().parents[1]/'projects/agentflow-os-launch/svg_output/04_capability_selfheal.svg').read_text()
-        self.assertRegex(text, r'<text data-theme-role="on-image"[^>]*>CAPABILITY ONE · 04</text>')
+        self.assertRegex(text, r'<text data-theme-role="on-dark-surface"[^>]*>CAPABILITY ONE · 04</text>')
         self.assertRegex(text, r'<text data-theme-role="on-light-surface"[^>]*>人工介入次数</text>')
         self.assertRegex(text, r'<text data-theme-role="on-light-surface"[^>]*>04 / 07</text>')
 
     def test_readability_surface_geometry_contract_for_04(self):
         text=(Path(__file__).resolve().parents[1]/'projects/agentflow-os-launch/svg_output/04_capability_selfheal.svg').read_text()
         surfaces=re.findall(r'<rect data-theme-role="([^"]+)" x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)" fill="#08090C" />', text)
-        self.assertEqual([s for s in surfaces if s[0] == 'readability-surface'], [
-            ('readability-surface','68','322','500','72'),
-            ('readability-surface','1097','219','102','39'),
-            ('readability-surface','1140','625','60','39'),
+        self.assertEqual(surfaces, [
+            ('readability-surface-dark','68','78','205','38'),
+            ('readability-surface-light','68','320','296','72'),
+            ('readability-surface-light','1097','219','102','39'),
+            ('readability-surface-light','1140','625','60','39'),
         ])
-        self.assertEqual([s for s in surfaces if s[0] == 'image-scrim'], [('image-scrim','68','78','205','38')])
         terminal=(80,478,480,112)
         for _, x, y, w, h in surfaces:
             x,y,w,h=map(int,(x,y,w,h))

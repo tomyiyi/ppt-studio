@@ -21,14 +21,14 @@
   </g>
 
   <g id="readability-surfaces">
-    <rect data-theme-role="image-scrim" x="68" y="78" width="205" height="38" fill="#08090C" />
-    <rect data-theme-role="readability-surface" x="68" y="322" width="500" height="72" fill="#08090C" />
-    <rect data-theme-role="readability-surface" x="1097" y="219" width="102" height="39" fill="#08090C" />
-    <rect data-theme-role="readability-surface" x="1140" y="625" width="60" height="39" fill="#08090C" />
+    <rect data-theme-role="readability-surface-dark" x="68" y="78" width="205" height="38" fill="#08090C" />
+    <rect data-theme-role="readability-surface-light" x="68" y="320" width="296" height="72" fill="#08090C" />
+    <rect data-theme-role="readability-surface-light" x="1097" y="219" width="102" height="39" fill="#08090C" />
+    <rect data-theme-role="readability-surface-light" x="1140" y="625" width="60" height="39" fill="#08090C" />
   </g>
 
   <g id="page-kicker">
-    <text data-theme-role="on-image" x="80" y="100" font-size="11" fill="#8E8F9A" letter-spacing="4">CAPABILITY ONE · 04</text>
+    <text data-theme-role="on-dark-surface" x="80" y="100" font-size="11" fill="#8E8F9A" letter-spacing="4">CAPABILITY ONE · 04</text>
   </g>
 
   <g id="capability-icon">
@@ -41,8 +41,8 @@
     <text x="80" y="258" font-size="56" font-weight="bold" fill="#F7F7F9">失败不用等人来</text>
     <line x1="80" y1="296" x2="200" y2="296" stroke="#23242E" stroke-width="1" />
 
-    <text x="80" y="344" font-size="16" fill="#8E8F9A">任务失败时，它先自己诊断；</text>
-    <text x="80" y="378" font-size="16" fill="#8E8F9A">能降级就降级，实在不行才交回给人。</text>
+    <text data-theme-role="on-light-surface" x="80" y="344" font-size="16" fill="#8E8F9A">任务失败时，它先自己诊断；</text>
+    <text data-theme-role="on-light-surface" x="80" y="378" font-size="16" fill="#8E8F9A">能降级就降级，实在不行才交回给人。</text>
 
     <text x="80" y="424" font-size="20" fill="#F7F7F9">你拿到的不是报错堆栈，</text>
     <text x="80" y="458" font-size="20" fill="#6E7BFF">是已经处理完的结果。</text>
