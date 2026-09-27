@@ -13,6 +13,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 # 将项目根目录加入 sys.path
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -21,6 +22,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from scripts.make_cards import (
     resolve_project_dir,
+    make_cards,
     main,
     parse_colors_from_spec_text,
     load_spec_colors,
@@ -376,6 +378,103 @@ class TestMakeCardsCLI(unittest.TestCase):
             )
             self.assertEqual(res_qa.returncode, 0, msg=f"qa_cards failed: {res_qa.stdout}\n{res_qa.stderr}")
             self.assertIn("ALL CLEAR", res_qa.stdout)
+
+    @patch("scripts.make_cards.run_qa_cards")
+    def test_cli_check_flag_success(self, mock_qa):
+        mock_qa.return_value = True
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "cli_check_proj"
+            create_minimal_svg(proj / "svg_output" / "01_cover.svg")
+            code = main([str(proj), "--check"])
+            self.assertEqual(code, 0)
+            mock_qa.assert_called_once()
+
+    @patch("scripts.make_cards.run_qa_cards")
+    def test_cli_check_flag_failure(self, mock_qa):
+        mock_qa.return_value = False
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "cli_check_fail"
+            create_minimal_svg(proj / "svg_output" / "01_cover.svg")
+            code = main([str(proj), "--check"])
+            self.assertEqual(code, 1)
+
+
+class TestMakeCardsFunction(unittest.TestCase):
+    def test_make_cards_basic(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "func_proj"
+            create_minimal_svg(proj / "svg_output" / "01_cover.svg")
+            create_minimal_svg(proj / "svg_output" / "02_detail.svg")
+
+            out_files = make_cards(proj)
+            self.assertEqual(len(out_files), 2)
+            self.assertTrue(all(f.exists() for f in out_files))
+            self.assertEqual(out_files[0].name, "01_cover.svg")
+            self.assertEqual(out_files[1].name, "02_detail.svg")
+
+    def test_make_cards_only_filter(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "func_proj_only"
+            create_minimal_svg(proj / "svg_output" / "01_cover.svg")
+            create_minimal_svg(proj / "svg_output" / "02_detail.svg")
+
+            out_files = make_cards(proj, only="02_detail")
+            self.assertEqual(len(out_files), 1)
+            self.assertEqual(out_files[0].name, "02_detail.svg")
+
+    def test_make_cards_missing_svg_output_raises(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "no_svg_output"
+            proj.mkdir()
+            with self.assertRaises(FileNotFoundError):
+                make_cards(proj)
+
+    def test_make_cards_empty_svg_output_raises(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "empty_proj"
+            (proj / "svg_output").mkdir(parents=True)
+            with self.assertRaises(FileNotFoundError):
+                make_cards(proj)
+
+    @patch("scripts.make_cards.run_qa_cards")
+    def test_make_cards_check_success(self, mock_qa):
+        mock_qa.return_value = True
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "check_success"
+            create_minimal_svg(proj / "svg_output" / "01_cover.svg")
+            res = make_cards(proj, check=True)
+            self.assertEqual(len(res), 1)
+            mock_qa.assert_called_once_with((proj / "cards").resolve(), spec_path=None)
+
+    @patch("scripts.make_cards.run_qa_cards")
+    def test_make_cards_check_failure_raises(self, mock_qa):
+        mock_qa.return_value = False
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "check_fail"
+            create_minimal_svg(proj / "svg_output" / "01_cover.svg")
+            with self.assertRaises(RuntimeError) as ctx:
+                make_cards(proj, check=True)
+            self.assertIn("卡片客观质量门禁未通过", str(ctx.exception))
+
+    def test_make_cards_real_check_integration(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "real_check"
+            create_minimal_svg(proj / "svg_output" / "01_cover.svg")
+            (proj / "card_spec.md").write_text(
+                """## typography
+- sizes: [28, 36, 44, 56, 72, 96, 132]
+- statement: 72
+- hero: 132
+
+## colors
+- accent: #6E7BFF
+- bg: #0B0C12
+""",
+                encoding="utf-8",
+            )
+            out_files = make_cards(proj, check=True)
+            self.assertEqual(len(out_files), 1)
+            self.assertTrue(out_files[0].exists())
 
 
 if __name__ == "__main__":

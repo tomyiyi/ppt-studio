@@ -32,6 +32,17 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+try:
+    from scripts.qa_cards import run_qa_cards
+except ImportError:
+    repo_root = Path(__file__).resolve().parent.parent
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    try:
+        from scripts.qa_cards import run_qa_cards
+    except ImportError:
+        run_qa_cards = None
+
 # ---------------------------------------------------------------- 画布常量
 MARGIN = 80
 SAFE = 64                      # 硬安全边距，质检按这条查
@@ -770,10 +781,10 @@ def load_deck_title(
 
 def load_focus(project):
     """card_spec.md 的 ## focus 段：页码: 主句（源页没有 statement 档时人工指定）。"""
-    p = os.path.join(project, "card_spec.md")
-    if not os.path.exists(p):
+    p = Path(project) / "card_spec.md"
+    if not p.is_file():
         return {}
-    txt = open(p, encoding="utf-8").read()
+    txt = p.read_text(encoding="utf-8")
     m = re.search(r"^##\s+focus\s*$(.*?)(?=^##\s|\Z)", txt, re.S | re.M)
     if not m:
         return {}
@@ -855,6 +866,72 @@ def resolve_project_dir(
         )
 
 
+def make_cards(
+    project_dir: str | Path | None = None,
+    out_dir_name: str = "cards",
+    ratio: str = "3:4",
+    only: str | None = None,
+    check: bool = False,
+    spec_path: str | Path | None = None,
+) -> list[Path]:
+    """生成竖版传播卡片，支持指定比例、页面过滤与质量门禁校验。"""
+    proj_dir = resolve_project_dir(project_dir)
+    src_dir = proj_dir / "svg_output"
+    out_dir = proj_dir / out_dir_name
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    if not src_dir.is_dir():
+        raise FileNotFoundError(f"项目缺少 svg_output 目录: {src_dir}")
+
+    files = sorted(f for f in src_dir.iterdir() if f.suffix == ".svg")
+    if only:
+        files = [f for f in files if only in f.name]
+    if not files:
+        raise FileNotFoundError(f"未在 {src_dir} 找到任何待处理的 SVG 文件")
+
+    W, H, band_h = ratio_wh(ratio)
+    proj_str = str(proj_dir)
+    focus = load_focus(proj_str)
+    total = len(files)
+
+    spec_target = spec_path if spec_path else proj_str
+    colors = load_spec_colors(spec_target)
+    sizes = load_spec_roles(spec_target)
+    all_src_files = sorted(src_dir.glob("*.svg"))
+    deck_title = load_deck_title(proj_str, all_src_files)
+
+    generated: list[Path] = []
+    for i, fpath in enumerate(files, 1):
+        stem = fpath.stem
+        page_no = stem[:2]
+        texts, bg_img, badge = parse_page(str(fpath))
+        c = pick(texts, badge, focus.get(page_no))
+        if not c["primary"] and not c["metrics"]:
+            print(f"  [skip] {fpath.name} 无可提取内容")
+            continue
+        svg = card_svg(stem, deck_title, c, bg_img, i, total, W, H, colors=colors, sizes=sizes)
+        dst = out_dir / f"{stem}.svg"
+        dst.write_text(svg, encoding="utf-8")
+        print(
+            f"✓ {fpath.name} → {dst}  主句[{c['kind']}] {c['primary']['text'][:24] if c['primary'] else '—'}"
+            f"  指标 {len(c['metrics'])}"
+        )
+        generated.append(dst)
+
+    print(f"完成 {len(generated)}/{len(files)}  ({W}×{H}, 图片带 {band_h}px)")
+
+    if check:
+        if run_qa_cards is not None:
+            ok = run_qa_cards(out_dir, spec_path=spec_path)
+            if not ok:
+                raise RuntimeError(f"卡片客观质量门禁未通过: {out_dir}")
+            print("  [门禁] ✓ 卡片客观质量门禁通过")
+        else:
+            print("  [warn] 未导入 run_qa_cards，跳过门禁检查")
+
+    return generated
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="SVG 画布 → 竖版传播卡片")
     ap.add_argument(
@@ -863,59 +940,30 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="项目根目录，例如 projects/agentflow-os-launch（默认自动发现）",
     )
-    ap.add_argument("--out", default="cards")
-    ap.add_argument("--ratio", default="3:4")
+    ap.add_argument("--out", default="cards", help="输出目录名称（默认: cards）")
+    ap.add_argument("--ratio", default="3:4", help="卡片宽高比（默认: 3:4）")
     ap.add_argument("--only", help="只处理文件名包含该串的页")
+    ap.add_argument("--spec", help="自定义卡片规格文件路径（例如 card_spec.md）")
+    ap.add_argument("--check", action="store_true", help="构建完成后执行卡片客观质量门禁校验 (qa_cards.py)")
     args = ap.parse_args(argv)
 
     try:
-        proj_dir = resolve_project_dir(args.project)
-    except (FileNotFoundError, ValueError) as err:
+        make_cards(
+            project_dir=args.project,
+            out_dir_name=args.out,
+            ratio=args.ratio,
+            only=args.only,
+            check=args.check,
+            spec_path=args.spec,
+        )
+        return 0
+    except (FileNotFoundError, ValueError, RuntimeError) as err:
+        print(f"[err] {err}", file=sys.stderr)
+        return 1
+    except Exception as err:
         print(f"[err] {err}", file=sys.stderr)
         return 1
 
-    proj = str(proj_dir)
-    src_dir = os.path.join(proj, "svg_output")
-    out_dir = os.path.join(proj, args.out)
-    os.makedirs(out_dir, exist_ok=True)
-
-    if not os.path.isdir(src_dir):
-        print(f"[err] 项目缺少 svg_output 目录: {src_dir}", file=sys.stderr)
-        return 2
-
-    files = sorted(f for f in os.listdir(src_dir) if f.endswith(".svg"))
-    if args.only:
-        files = [f for f in files if args.only in f]
-    if not files:
-        print("[err] 没有 SVG")
-        return 2
-
-    W, H, band_h = ratio_wh(args.ratio)
-    focus = load_focus(proj)
-    total = len(files)
-
-    colors = load_spec_colors(proj)
-    sizes = load_spec_roles(proj)
-    all_src_files = [Path(src_dir) / f for f in sorted(os.listdir(src_dir)) if f.endswith(".svg")]
-    deck_title = load_deck_title(proj, all_src_files)
-
-    ok = 0
-    for i, fn in enumerate(files, 1):
-        stem = os.path.splitext(fn)[0]
-        page_no = stem[:2]
-        texts, bg_img, badge = parse_page(os.path.join(src_dir, fn))
-        c = pick(texts, badge, focus.get(page_no))
-        if not c["primary"] and not c["metrics"]:
-            print(f"  [skip] {fn} 无可提取内容")
-            continue
-        svg = card_svg(stem, deck_title, c, bg_img, i, total, W, H, colors=colors, sizes=sizes)
-        dst = os.path.join(out_dir, f"{stem}.svg")
-        open(dst, "w", encoding="utf-8").write(svg)
-        print(f"✓ {fn} → {dst}  主句[{c['kind']}] {c['primary']['text'][:24] if c['primary'] else '—'}"
-              f"  指标 {len(c['metrics'])}")
-        ok += 1
-    print(f"完成 {ok}/{len(files)}  ({W}×{H}, 图片带 {band_h}px)")
-    return 0
 
 if __name__ == "__main__":
     sys.exit(main())
