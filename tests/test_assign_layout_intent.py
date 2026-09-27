@@ -21,6 +21,12 @@ class AssignLayoutIntentTests(unittest.TestCase):
         self.assertEqual(MODULE.build_intent(plan([{"id":"01","kind":"content","blocks":[table]}]),source)["slides"][0]["layout"],"comparison-table")
         with self.assertRaisesRegex(ValueError,"mixed comparison"):
             MODULE.build_intent(plan([{"id":"01","kind":"content","blocks":[{"type":"paragraph","text":"x"},table]}]),source)
+    def test_three_card_and_four_paragraph_reject(self):
+        source=b"{}"
+        paragraphs=[{"type":"paragraph","text":str(i)} for i in range(3)]
+        self.assertEqual(MODULE.build_intent(plan([{"id":"01","kind":"content","blocks":paragraphs}]),source)["slides"][0]["layout"],"three-card")
+        with self.assertRaisesRegex(ValueError,"at most 3"):
+            MODULE.build_intent(plan([{"id":"01","kind":"content","blocks":paragraphs+[{'type':'paragraph','text':'4'}]}]),source)
     def test_quote_layout_and_mixed_rejected(self):
         source=b"{}"; q={"type":"quote","lines":["a"]}
         self.assertEqual(MODULE.build_intent(plan([{"id":"01","kind":"content","blocks":[q]}]),source)["slides"][0]["layout"],"quote-callout")

@@ -54,6 +54,10 @@ def assign_layout(slide: dict) -> str:
     if has_quote:
         if paragraph_count: raise ValueError("mixed paragraph and quote are not supported in v1")
         return "quote-callout"
+    if paragraph_count == 3:
+        return "three-card"
+    if paragraph_count > 3:
+        raise ValueError("content slide supports at most 3 paragraph blocks in v1")
     if paragraph_count == 2:
         return "statement-split"
     return "statement"
