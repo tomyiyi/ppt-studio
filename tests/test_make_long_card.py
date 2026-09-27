@@ -363,12 +363,24 @@ class TestMakeLongCard(unittest.TestCase):
                 check=True,
             )
             self.assertEqual(res, out_img.resolve())
-            mock_qa.assert_called_once_with(
-                out_img.resolve(),
-                project_dir=proj,
-                require_header=True,
-                require_footer=True,
-            )
+            call_args, call_kwargs = mock_qa.call_args
+            self.assertTrue(call_args[0].name.startswith(".long_check.png."))
+            self.assertEqual(call_kwargs["project_dir"], proj)
+            self.assertTrue(out_img.exists())
+
+    @patch("scripts.make_long_card.run_qa_long_card")
+    def test_check_failure_preserves_existing_output(self, mock_qa):
+        mock_qa.return_value = False
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "deck"
+            create_minimal_card_project(proj, count=2, card_size=(200, 300))
+            out_img = proj / "output" / "long_existing.png"
+            out_img.parent.mkdir(parents=True, exist_ok=True)
+            out_img.write_bytes(b"old-long-card")
+            with self.assertRaises(RuntimeError):
+                make_long_card(project_dir=proj, out_path=out_img, check=True)
+            self.assertEqual(out_img.read_bytes(), b"old-long-card")
+            self.assertFalse(any(out_img.parent.glob(".long_existing.png.*")))
 
     @patch("scripts.make_long_card.run_qa_long_card")
     def test_make_long_card_check_failure_raises(self, mock_qa):

@@ -24,6 +24,7 @@ import argparse
 import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 # 确保在未显式激活 .venv 时也能从项目内 .venv 加载依赖
@@ -524,9 +525,15 @@ def make_long_card(
             out_path = project_dir / "output" / f"{project_dir.name}_长图.png"
     out_path = Path(out_path).resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, staged_name = tempfile.mkstemp(prefix=f".{out_path.name}.", dir=out_path.parent)
+    os.close(fd)
+    staged_path = Path(staged_name)
 
     try:
-        long_canvas.save(out_path, format="PNG", optimize=True)
+        long_canvas.save(staged_path, format="PNG", optimize=True)
+    except Exception:
+        staged_path.unlink(missing_ok=True)
+        raise
     finally:
         for c in card_images:
             try:
@@ -538,23 +545,30 @@ def make_long_card(
         except Exception:
             pass
 
-    print(f"✓ 长图导出成功: {out_path} ({out_path.stat().st_size // 1024} KB)")
+    print(f"✓ 长图已准备: {out_path} ({staged_path.stat().st_size // 1024} KB)")
     print(f"[i] 建议质检: python3 scripts/qa_long_card.py {out_path}")
 
     if check:
         if run_qa_long_card is not None:
             ok = run_qa_long_card(
-                out_path,
+                staged_path,
                 project_dir=project_dir,
                 require_header=include_header,
                 require_footer=include_footer,
             )
             if not ok:
+                staged_path.unlink(missing_ok=True)
                 raise RuntimeError(f"长图客观质量门禁未通过: {out_path}")
             print("  [门禁] ✓ 长图客观质量门禁通过")
         else:
             print("  [warn] 未导入 run_qa_long_card，跳过门禁检查")
 
+    try:
+        os.replace(staged_path, out_path)
+    except Exception:
+        staged_path.unlink(missing_ok=True)
+        raise
+    print(f"✓ 长图原子提交完成: {out_path}")
     return out_path
 
 
