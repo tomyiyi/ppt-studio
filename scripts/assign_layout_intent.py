@@ -32,6 +32,10 @@ def build_intent(plan: dict, source_bytes: bytes) -> dict:
     if not isinstance(slides, list) or not slides:
         raise ValueError("slide plan must contain a non-empty slides list")
     output = []
+    expected_ids = [f"{index:02d}" for index in range(1, len(slides) + 1)]
+    actual_ids = [slide.get("id") if isinstance(slide, dict) else None for slide in slides]
+    if actual_ids != expected_ids:
+        raise ValueError("slide ids must be unique and contiguous 01..NN")
     for slide in slides:
         if not isinstance(slide, dict) or not isinstance(slide.get("id"), str):
             raise ValueError("slide must contain a string id")

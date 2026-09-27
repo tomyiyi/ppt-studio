@@ -45,6 +45,15 @@ class AssignLayoutIntentTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             MODULE.build_intent(plan([{"id": "01", "kind": "chart", "blocks": []}]), b"{}")
 
+    def test_duplicate_or_non_contiguous_ids_fail(self):
+        for ids in (("01", "01"), ("01", "03")):
+            with self.subTest(ids=ids):
+                with self.assertRaisesRegex(ValueError, "unique and contiguous"):
+                    MODULE.build_intent(plan([
+                        {"id": ids[0], "kind": "cover", "blocks": []},
+                        {"id": ids[1], "kind": "content", "blocks": []},
+                    ]), b"{}")
+
     def test_invalid_block_fails(self):
         with self.assertRaises(ValueError):
             MODULE.build_intent(plan([{"id": "01", "kind": "content", "blocks": [{"type": "table"}]}]), b"{}")
