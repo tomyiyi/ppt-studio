@@ -40,6 +40,7 @@ from scripts.qa_layout import (
     check_statement_consistency,
     resolve_layout_dirs,
     qa_single_layout,
+    run_qa_single_layout,
     run_qa_layout,
     qa_layout,
     main,
@@ -434,12 +435,78 @@ class TestMainCli(unittest.TestCase):
                 code = main([str(f)])
             self.assertEqual(code, 1)
 
+    def test_cli_quiet_flag(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            svg_dir = Path(tmp_dir) / "svgs"
+            create_test_svg(svg_dir / "01.svg", title_sz=56, body_sz=16)
+            buf_out = io.StringIO()
+            buf_err = io.StringIO()
+            with patch("sys.stdout", buf_out), patch("sys.stderr", buf_err):
+                code = main([str(svg_dir), "--quiet"])
+            self.assertEqual(code, 0)
+            self.assertEqual(buf_out.getvalue(), "")
+            self.assertEqual(buf_err.getvalue(), "")
+
+            # -q 短参数测试
+            buf_out2 = io.StringIO()
+            buf_err2 = io.StringIO()
+            with patch("sys.stdout", buf_out2), patch("sys.stderr", buf_err2):
+                code2 = main([str(svg_dir), "-q"])
+            self.assertEqual(code2, 0)
+            self.assertEqual(buf_out2.getvalue(), "")
+            self.assertEqual(buf_err2.getvalue(), "")
+
+    def test_cli_verbose_flag(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            svg_dir = Path(tmp_dir) / "svgs"
+            create_test_svg(svg_dir / "01.svg", title_sz=56, body_sz=16)
+            buf_out = io.StringIO()
+            with patch("sys.stdout", buf_out):
+                code = main([str(svg_dir), "-v"])
+            self.assertEqual(code, 0)
+            self.assertIn("ALL CLEAR", buf_out.getvalue())
+
+            buf_out2 = io.StringIO()
+            with patch("sys.stdout", buf_out2):
+                code2 = main([str(svg_dir), "--verbose"])
+            self.assertEqual(code2, 0)
+            self.assertIn("ALL CLEAR", buf_out2.getvalue())
+
+    def test_cli_quiet_error_silenced(self):
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with patch("sys.stdout", buf_out), patch("sys.stderr", buf_err):
+            code = main(["/path/not_exist_xyz123", "--quiet"])
+        self.assertEqual(code, 1)
+        self.assertEqual(buf_out.getvalue(), "")
+        self.assertEqual(buf_err.getvalue(), "")
+
+    def test_cli_with_render_dir_nonexistent_target(self):
+        buf_err = io.StringIO()
+        with patch("sys.stderr", buf_err):
+            code = main(["/non_existent_target_123", "some_render_dir"])
+        self.assertEqual(code, 1)
+        self.assertIn("指定的目标路径不存在", buf_err.getvalue())
+
+        # quiet 模式静默
+        buf_err_q = io.StringIO()
+        with patch("sys.stderr", buf_err_q):
+            code_q = main(["/non_existent_target_123", "some_render_dir", "-q"])
+        self.assertEqual(code_q, 1)
+        self.assertEqual(buf_err_q.getvalue(), "")
+
 
 class TestQaLayoutProgrammaticAPI(unittest.TestCase):
     """测试 qa_layout / run_qa_layout / qa_single_layout 可编程接口。"""
 
     def test_alias_equivalence(self):
         self.assertIs(qa_layout, run_qa_layout)
+
+    def test_alias_run_qa_single_layout(self):
+        self.assertIs(run_qa_single_layout, qa_single_layout)
+
+    def test_qa_single_layout_none_returns_false(self):
+        self.assertFalse(qa_single_layout(None, verbose=False))
 
     def test_qa_single_layout_path_and_str(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

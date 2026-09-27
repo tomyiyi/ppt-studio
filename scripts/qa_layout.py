@@ -417,7 +417,7 @@ def check_contrast(img, root):
 
 # ---------------------------------------------------------------- main
 def qa_single_layout(
-    svg_dir_or_file: Path | str,
+    svg_dir_or_file: Path | str | None,
     render_dir: Path | str | None = None,
     spec_path: Path | str | None = None,
     verbose: bool = True,
@@ -426,6 +426,10 @@ def qa_single_layout(
     def _log(msg: str = "", file=sys.stdout) -> None:
         if verbose:
             print(msg, file=file)
+
+    if svg_dir_or_file is None:
+        _log("[!] 未提供有效的目标路径", file=sys.stderr)
+        return False
 
     target = Path(svg_dir_or_file).resolve()
     if not target.exists():
@@ -652,6 +656,7 @@ def run_qa_layout(
 
 
 qa_layout = run_qa_layout
+run_qa_single_layout = qa_single_layout
 
 
 def resolve_layout_dirs(
@@ -781,8 +786,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("target", nargs="?", default=".", help="SVG 目录、项目目录或单文件路径（默认当前目录）")
     parser.add_argument("render_dir", nargs="?", default=None, help="可选渲染图 PNG 目录（缺省时自动查找 render/ 或 qa_render/）")
     parser.add_argument("--spec", help="可选指定 spec_lock.md 路径")
+    parser.add_argument("--verbose", "-v", action="store_true", default=True, help="详细日志输出（默认开启）")
+    parser.add_argument("--quiet", "-q", action="store_true", help="静默模式（仅通过退出码返回）")
     args = parser.parse_args(argv)
 
+    verbose = not args.quiet if args.quiet else args.verbose
     spec_path = Path(args.spec).resolve() if args.spec else None
     render_dir = Path(args.render_dir).resolve() if args.render_dir else None
 
@@ -790,13 +798,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.render_dir:
         t_path = Path(args.target).resolve()
         if not t_path.exists():
-            print(f"[!] 指定的目标路径不存在: {args.target}", file=sys.stderr)
+            if verbose:
+                print(f"[!] 指定的目标路径不存在: {args.target}", file=sys.stderr)
             return 1
         svg_dir = (t_path / "svg_output").resolve() if (t_path / "svg_output").is_dir() else t_path
-        success = qa_single_layout(svg_dir, render_dir, spec_path, verbose=True)
+        success = qa_single_layout(svg_dir, render_dir, spec_path, verbose=verbose)
         return 0 if success else 1
 
-    ok = run_qa_layout(args.target, render_dir=render_dir, spec_path=spec_path, verbose=True)
+    ok = run_qa_layout(args.target, render_dir=render_dir, spec_path=spec_path, verbose=verbose)
     return 0 if ok else 1
 
 
