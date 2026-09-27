@@ -33,6 +33,7 @@ from scripts.qa_video import (
     qa_single_video,
     qa_video,
     run_qa_video,
+    run_qa_single_video,
     main,
 )
 
@@ -489,6 +490,74 @@ class TestQAVideoCLI(unittest.TestCase):
 
     def test_alias_run_qa_video(self):
         self.assertIs(run_qa_video, qa_video)
+
+
+class TestQAVideoProgrammaticAPI(unittest.TestCase):
+    """测试 qa_video / qa_single_video 的可编程 API、静默控制与格式拦截。"""
+
+    def test_alias_run_qa_single_video(self):
+        self.assertIs(run_qa_single_video, qa_single_video)
+
+    def test_qa_single_video_nonexistent_returns_false(self):
+        self.assertFalse(qa_single_video("/non_existent_video_file_99999.mp4", verbose=False))
+
+    def test_qa_single_video_verbose_false_silence(self):
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with patch("sys.stdout", buf_out), patch("sys.stderr", buf_err):
+            res = qa_single_video("/non_existent_video_file_99999.mp4", verbose=False)
+        self.assertFalse(res)
+        self.assertEqual(buf_out.getvalue(), "")
+        self.assertEqual(buf_err.getvalue(), "")
+
+    @patch("scripts.qa_video.probe_streams")
+    @patch("scripts.qa_video.check_streams", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_resolution", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_av_sync", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_audio_loudness", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_black_frames", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_subtitles", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_bitrate_and_fps", return_value=(True, "ok"))
+    def test_qa_single_video_success_verbose_false(self, *mocks):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            v = Path(tmp_dir) / "sample.mp4"
+            v.touch()
+            mocks[-1].return_value = {
+                "streams": [
+                    {"codec_type": "video", "codec_name": "h264"},
+                    {"codec_type": "audio", "codec_name": "aac"},
+                ],
+                "format": {"duration": "10.0"},
+            }
+            buf_out = io.StringIO()
+            with patch("sys.stdout", buf_out):
+                res = qa_single_video(v, verbose=False)
+            self.assertTrue(res)
+            self.assertEqual(buf_out.getvalue(), "")
+
+    def test_qa_video_non_mp4_file_returns_false(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            txt_file = Path(tmp_dir) / "notes.txt"
+            txt_file.touch()
+            buf_out = io.StringIO()
+            with patch("sys.stdout", buf_out):
+                self.assertFalse(qa_video(txt_file, verbose=False))
+            self.assertEqual(buf_out.getvalue(), "")
+
+    def test_qa_video_verbose_false_on_missing_dir(self):
+        buf_out = io.StringIO()
+        with patch("sys.stdout", buf_out):
+            res = qa_video("/non_existent_dir_99999", verbose=False)
+        self.assertFalse(res)
+        self.assertEqual(buf_out.getvalue(), "")
+
+    def test_qa_video_verbose_false_on_empty_dir(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            buf_out = io.StringIO()
+            with patch("sys.stdout", buf_out):
+                res = qa_video(tmp_dir, verbose=False)
+            self.assertFalse(res)
+            self.assertEqual(buf_out.getvalue(), "")
 
 
 if __name__ == "__main__":

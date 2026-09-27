@@ -310,22 +310,31 @@ def find_videos(target: Path | str) -> list[Path]:
     return deduped
 
 
-def qa_single_video(video_path: Path | str, srt_path: Path | str | None = None) -> bool:
+def qa_single_video(
+    video_path: Path | str,
+    srt_path: Path | str | None = None,
+    verbose: bool = True,
+) -> bool:
+    """对单个 MP4 视频执行 7 项客观工业级质量门禁复核。"""
     video_p = Path(video_path).resolve()
     srt_p = Path(srt_path).resolve() if srt_path else None
 
-    print(f"==================================================")
-    print(f"🔍 运行 PPT-Studio 视频质量自动化门禁")
-    print(f"   目标: {video_p}")
-    print(f"==================================================")
+    def _log(msg: str = "") -> None:
+        if verbose:
+            print(msg)
+
+    _log("==================================================")
+    _log("🔍 运行 PPT-Studio 视频质量自动化门禁")
+    _log(f"   目标: {video_p}")
+    _log("==================================================")
 
     if not video_p.exists():
-        print(f"[ERROR] 目标视频文件不存在: {video_p}")
+        _log(f"[ERROR] 目标视频文件不存在: {video_p}")
         return False
 
     meta = probe_streams(video_p)
     if not meta:
-        print(f"[ERROR] 无法通过 ffprobe 解析视频元数据")
+        _log("[ERROR] 无法通过 ffprobe 解析视频元数据")
         return False
 
     v_stream = next((s for s in meta.get("streams", []) if s.get("codec_type") == "video"), None)
@@ -348,47 +357,64 @@ def qa_single_video(video_path: Path | str, srt_path: Path | str | None = None) 
     for name, fn in checks:
         passed, msg = fn()
         status_icon = "✓" if passed else "✗ [FAIL]"
-        print(f"  [{status_icon}] {name:16s} : {msg}")
+        _log(f"  [{status_icon}] {name:16s} : {msg}")
         if not passed:
             all_passed = False
 
-    print("==================================================")
+    _log("==================================================")
     if all_passed:
-        print("ALL CLEAR ✅")
+        _log("ALL CLEAR ✅")
         return True
     else:
-        print("QA GATES FAILED ❌ 请根据上述检查项修正重试！")
+        _log("QA GATES FAILED ❌ 请根据上述检查项修正重试！")
         return False
 
 
-def qa_video(video_path: Path | str | None = None, srt_path: Path | str | None = None) -> bool:
+def qa_video(
+    video_path: Path | str | None = None,
+    srt_path: Path | str | None = None,
+    verbose: bool = True,
+) -> bool:
+    """运行 PPT-Studio 视频质量自动化客观门禁。
+
+    支持输入单个 MP4 视频文件路径、包含 *.mp4 的目录路径，或留空默认自发现。
+    支持 Path、str 或 None 输入。
+    """
     target = Path(video_path).resolve() if video_path else Path.cwd().resolve()
     srt_p = Path(srt_path).resolve() if srt_path else None
 
     if not target.exists():
-        print(f"[ERROR] 目标视频路径不存在: {target}")
+        if verbose:
+            print(f"[ERROR] 目标视频路径不存在: {target}")
         return False
 
     if target.is_file():
-        return qa_single_video(target, srt_p)
+        if target.suffix.lower() != ".mp4":
+            if verbose:
+                print(f"[ERROR] 目标文件非有效 MP4 格式: {target}")
+            return False
+        return qa_single_video(target, srt_p, verbose=verbose)
 
     if target.is_dir():
         mp4s = find_videos(target)
         if not mp4s:
-            print(f"[ERROR] 在 {target} 或 output/、projects/*/output/ 下未找到 mp4 视频")
+            if verbose:
+                print(f"[ERROR] 在 {target} 或 output/、projects/*/output/ 下未找到 mp4 视频")
             return False
         all_passed = True
-        for p in mp4s:
-            ok = qa_single_video(p, srt_p)
-            print()
+        for i, p in enumerate(mp4s):
+            ok = qa_single_video(p, srt_p, verbose=verbose)
             if not ok:
                 all_passed = False
+            if verbose and i < len(mp4s) - 1:
+                print()
         return all_passed
 
     return False
 
 
 run_qa_video = qa_video
+run_qa_single_video = qa_single_video
 
 
 def main(argv: list[str] | None = None) -> int:
