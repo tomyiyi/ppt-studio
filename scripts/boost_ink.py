@@ -384,8 +384,22 @@ def main(argv: list[str] | None = None) -> int:
         default=2.0,
         help="质量门禁最低墨量百分比阈值（默认: 2.0%%，防漏图/空白画布）",
     )
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        default=True,
+        help="详细日志输出（默认开启）",
+    )
+    parser.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        help="静默模式（仅通过退出码返回结果）",
+    )
 
     args = parser.parse_args(argv)
+    verbose = not args.quiet if args.quiet else args.verbose
 
     path_arg = args.path if args.path else None
     try:
@@ -399,31 +413,34 @@ def main(argv: list[str] | None = None) -> int:
             min_ink=args.min_ink,
         )
     except Exception as e:
-        print(f"[err] {e}", file=sys.stderr)
+        if verbose:
+            print(f"[err] {e}", file=sys.stderr)
         return 1
 
     if not results:
-        print("没有可处理的 PNG", file=sys.stderr)
+        if verbose:
+            print("没有可处理的 PNG", file=sys.stderr)
         return 1
 
-    print(f"{'file':16} {'gain':>5} | {'max':>4}→{'max':>4} {'p99.9':>5}→{'p99.9':>5} "
-          f"{'>150%':>6}→{'>150%':>6} {'>200%':>6}→{'>200%':>6}")
-    print("-" * 88)
+    if verbose:
+        print(f"{'file':16} {'gain':>5} | {'max':>4}→{'max':>4} {'p99.9':>5}→{'p99.9':>5} "
+              f"{'>150%':>6}→{'>150%':>6} {'>200%':>6}→{'>200%':>6}")
+        print("-" * 88)
 
-    for res in results:
-        if res["skipped_reason"]:
-            print(f"{res['name']:16} 跳过（{res['skipped_reason']}）")
-            continue
-        before = res["before"]
-        after = res["after"]
-        print(f"{res['name']:16} {res['gain']:5.2f} | "
-              f"{before['max']:4.0f}→{after['max']:4.0f} "
-              f"{before['p999']:5.0f}→{after['p999']:5.0f} "
-              f"{before['gt150']:6.2f}→{after['gt150']:6.2f} "
-              f"{before['gt200']:6.2f}→{after['gt200']:6.2f}")
+        for res in results:
+            if res["skipped_reason"]:
+                print(f"{res['name']:16} 跳过（{res['skipped_reason']}）")
+                continue
+            before = res["before"]
+            after = res["after"]
+            print(f"{res['name']:16} {res['gain']:5.2f} | "
+                  f"{before['max']:4.0f}→{after['max']:4.0f} "
+                  f"{before['p999']:5.0f}→{after['p999']:5.0f} "
+                  f"{before['gt150']:6.2f}→{after['gt150']:6.2f} "
+                  f"{before['gt200']:6.2f}→{after['gt200']:6.2f}")
 
-    print("-" * 88)
-    print("已写盘 ✅" if args.apply else "预演模式（未写盘），加 --apply 执行")
+        print("-" * 88)
+        print("已写盘 ✅" if args.apply else "预演模式（未写盘），加 --apply 执行")
 
     if args.check:
         gate_failures = []
@@ -436,12 +453,14 @@ def main(argv: list[str] | None = None) -> int:
                 gate_failures.append(f"{res['name']}: {', '.join(issues)}")
 
         if gate_failures:
-            print("\n[门禁] ⚠️ 存在未通过客观质量门禁的配图（模糊/接缝/过暗/墨量不足）:", file=sys.stderr)
-            for f in gate_failures:
-                print(f"  ✗ {f}", file=sys.stderr)
+            if verbose:
+                print("\n[门禁] ⚠️ 存在未通过客观质量门禁的配图（模糊/接缝/过暗/墨量不足）:", file=sys.stderr)
+                for f in gate_failures:
+                    print(f"  ✗ {f}", file=sys.stderr)
             return 1
         else:
-            print("  [门禁] ✓ 配图客观质量门禁通过")
+            if verbose:
+                print("  [门禁] ✓ 配图客观质量门禁通过")
 
     return 0
 

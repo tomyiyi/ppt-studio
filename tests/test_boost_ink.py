@@ -6,6 +6,7 @@ tests/test_boost_ink.py
 测试 boost_ink.py 的黑点保持增益算法、透明通道保持、指标计算、目标路径解析、文件备份与 CLI 流程。
 """
 
+import io
 import os
 import shutil
 import sys
@@ -358,6 +359,138 @@ class TestBoostInkProgrammatic(unittest.TestCase):
     def test_boost_ink_nonexistent_raises(self):
         with self.assertRaises(FileNotFoundError):
             boost_ink(self.dir_path / "not_existing.png")
+
+
+class TestBoostInkCLI(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.dir_path = Path(self.temp_dir.name)
+        self.img1 = self.dir_path / "img1.png"
+        self.img2 = self.dir_path / "img2.png"
+        create_test_image(self.img1, stroke_box=(20, 20, 60, 60), stroke_val=150)
+        create_test_image(self.img2, stroke_box=(20, 20, 60, 60), stroke_val=160)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_cli_help(self):
+        with self.assertRaises(SystemExit) as cm:
+            main(["--help"])
+        self.assertEqual(cm.exception.code, 0)
+
+    def test_cli_single_and_multiple_files(self):
+        ret = main([str(self.img1)])
+        self.assertEqual(ret, 0)
+
+        ret2 = main([str(self.img1), str(self.img2)])
+        self.assertEqual(ret2, 0)
+
+    def test_cli_directory_argument(self):
+        ret = main([str(self.dir_path)])
+        self.assertEqual(ret, 0)
+
+    def test_cli_explicit_verbose(self):
+        old_stdout = sys.stdout
+        try:
+            sys.stdout = io.StringIO()
+            ret = main(["-v", str(self.img1)])
+            out = sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_stdout
+
+        self.assertEqual(ret, 0)
+        self.assertIn("img1.png", out)
+        self.assertIn("gain", out)
+
+    def test_cli_quiet_mode_success(self):
+        old_stdout, old_stderr = sys.stdout, sys.stderr
+        try:
+            sys.stdout = io.StringIO()
+            sys.stderr = io.StringIO()
+            ret = main(["-q", str(self.img1)])
+            out = sys.stdout.getvalue()
+            err = sys.stderr.getvalue()
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+
+        self.assertEqual(ret, 0)
+        self.assertEqual(out, "")
+        self.assertEqual(err, "")
+
+    def test_cli_check_pass(self):
+        old_stdout = sys.stdout
+        try:
+            sys.stdout = io.StringIO()
+            ret = main([str(self.img1), "--check", "--min-ink", "1.0"])
+            out = sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_stdout
+
+        self.assertEqual(ret, 0)
+        self.assertIn("配图客观质量门禁通过", out)
+
+    def test_cli_check_fail(self):
+        old_stderr = sys.stderr
+        try:
+            sys.stderr = io.StringIO()
+            ret = main([str(self.img1), "--check", "--min-ink", "99.0"])
+            err = sys.stderr.getvalue()
+        finally:
+            sys.stderr = old_stderr
+
+        self.assertEqual(ret, 1)
+        self.assertIn("存在未通过客观质量门禁的配图", err)
+
+    def test_cli_check_fail_quiet(self):
+        old_stdout, old_stderr = sys.stdout, sys.stderr
+        try:
+            sys.stdout = io.StringIO()
+            sys.stderr = io.StringIO()
+            ret = main(["--quiet", str(self.img1), "--check", "--min-ink", "99.0"])
+            out = sys.stdout.getvalue()
+            err = sys.stderr.getvalue()
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+
+        self.assertEqual(ret, 1)
+        self.assertEqual(out, "")
+        self.assertEqual(err, "")
+
+    def test_cli_missing_file_verbose(self):
+        old_stderr = sys.stderr
+        try:
+            sys.stderr = io.StringIO()
+            ret = main([str(self.dir_path / "not_existing.png")])
+            err = sys.stderr.getvalue()
+        finally:
+            sys.stderr = old_stderr
+
+        self.assertEqual(ret, 1)
+        self.assertIn("[err]", err)
+
+    def test_cli_missing_file_quiet(self):
+        old_stdout, old_stderr = sys.stdout, sys.stderr
+        try:
+            sys.stdout = io.StringIO()
+            sys.stderr = io.StringIO()
+            ret = main(["-q", str(self.dir_path / "not_existing.png")])
+            out = sys.stdout.getvalue()
+            err = sys.stderr.getvalue()
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+
+        self.assertEqual(ret, 1)
+        self.assertEqual(out, "")
+        self.assertEqual(err, "")
+
+    def test_cli_apply_mode(self):
+        ret = main([str(self.img1), "--apply"])
+        self.assertEqual(ret, 0)
+        backup_img = self.dir_path / f"_pre_{self.img1.name}"
+        self.assertTrue(backup_img.exists())
 
 
 if __name__ == "__main__":
