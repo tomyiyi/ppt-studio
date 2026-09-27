@@ -36,4 +36,8 @@ class VerifyBuildTests(unittest.TestCase):
     self.receipt['artifacts']['svg']['../evil.svg']=self.receipt['artifacts']['svg'].pop('01_cover.svg')
     (self.root/'build_receipt.json').write_text(json.dumps(self.receipt))
     with self.assertRaises(ValueError): mod.verify(self.root,self.md)
+  def test_invalid_builder_identity_fails(self):
+    self.receipt['toolchain']['ppt_studio_head']='bad'
+    (self.root/'build_receipt.json').write_text(json.dumps(self.receipt))
+    with self.assertRaises(ValueError): mod.verify(self.root,self.md)
 if __name__=='__main__': unittest.main()

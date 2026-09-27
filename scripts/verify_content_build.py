@@ -55,6 +55,11 @@ def verify(root: Path, markdown: Path) -> int:
         raise ValueError("missing toolchain HEAD")
     try: int(toolchain["ppt_master_head"], 16)
     except ValueError as exc: raise ValueError("invalid toolchain HEAD") from exc
+    if "ppt_studio_head" in toolchain:
+        if not isinstance(toolchain["ppt_studio_head"], str) or len(toolchain["ppt_studio_head"]) != 40:
+            raise ValueError("invalid ppt-studio HEAD")
+        try: int(toolchain["ppt_studio_head"], 16)
+        except ValueError as exc: raise ValueError("invalid ppt-studio HEAD") from exc
     plan = json.loads((root / "slide_plan.json").read_text(encoding="utf-8"))
     if not isinstance(plan.get("slides"), list) or len(plan["slides"]) != slides:
         raise ValueError("slide plan count mismatch")

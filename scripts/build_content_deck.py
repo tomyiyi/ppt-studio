@@ -13,6 +13,14 @@ def sha256(path: Path) -> str:
 def run(argv: list[str], cwd: Path = REPO) -> None:
     subprocess.run(argv, cwd=cwd, check=True)
 
+def builder_identity() -> str:
+    try:
+        subprocess.run(["git", "-C", str(REPO), "diff", "--quiet"], check=True)
+        subprocess.run(["git", "-C", str(REPO), "diff", "--cached", "--quiet"], check=True)
+        return subprocess.run(["git", "-C", str(REPO), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ValueError("ppt-studio tracked worktree is dirty; commit or revert tracked changes before reproducible build") from exc
+
 def validate_tools(root: Path, py: Path) -> None:
     if not py.is_file() or not os.access(py, os.X_OK):
         raise ValueError(f"ppt-master Python is not executable: {py}")
@@ -57,6 +65,7 @@ def build(args: argparse.Namespace) -> None:
     source = args.source.resolve(); spec = args.spec.resolve()
     if not source.is_file(): raise ValueError(f"missing source: {source}")
     if not spec.is_file(): raise ValueError(f"missing spec: {spec}")
+    studio_head = builder_identity()
     master_root, master_py, master_head = resolve_toolchain(args)
     validate_tools(master_root, master_py)
     with tempfile.TemporaryDirectory(prefix=f".{output.name}.staging-", dir=output.parent) as name:
@@ -93,7 +102,7 @@ def build(args: argparse.Namespace) -> None:
                 "slide_plan_sha256": sha256(plan),
                 "layout_intent_sha256": sha256(intent),
             },
-            "toolchain": {"ppt_master_head": master_head},
+            "toolchain": {"ppt_master_head": master_head, "ppt_studio_head": studio_head},
             "artifacts": {
                 "svg": {p.name: sha256(p) for p in sorted((stage / "svg_output").glob("*.svg"))},
                 "html_sha256": sha256(stage / "preview/content-deck.html"),

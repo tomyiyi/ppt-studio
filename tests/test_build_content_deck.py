@@ -1,4 +1,4 @@
-import json, tempfile, unittest
+import json, subprocess, tempfile, unittest
 from pathlib import Path
 from unittest.mock import patch
 import importlib.util
@@ -6,8 +6,9 @@ spec=importlib.util.spec_from_file_location('build', Path(__file__).parents[1]/'
 mod=importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
 class BuildContractTests(unittest.TestCase):
   def setUp(self):
+    self.identity=patch.object(mod,'builder_identity',return_value='a'*40); self.identity.start()
     self.tmp=tempfile.TemporaryDirectory(); self.root=Path(self.tmp.name); self.src=self.root/'in.md'; self.src.write_text('# Deck\n\n## One\n\nText\n',encoding='utf-8'); self.spec=self.root/'spec.md'; self.spec.write_text('spec\n'); self.master=self.root/'master'; (self.master/'skills/ppt-master/scripts').mkdir(parents=True); (self.master/'skills/ppt-master/scripts/svg_quality_checker.py').write_text(''); (self.master/'skills/ppt-master/scripts/svg_to_pptx.py').write_text(''); self.py=self.root/'python'; self.py.write_text(''); self.py.chmod(0o755)
-  def tearDown(self): self.tmp.cleanup()
+  def tearDown(self): self.identity.stop(); self.tmp.cleanup()
   def args(self,out): return type('A',(),dict(source=self.src,spec=self.spec,toolchain_config=None,ppt_master_root=self.master,ppt_master_python=self.py,output=out,title='Deck'))()
   def test_missing_converter_fails_before_stages(self):
     self.master.joinpath('skills/ppt-master/scripts/svg_to_pptx.py').unlink()
@@ -44,6 +45,18 @@ class BuildContractTests(unittest.TestCase):
     for payload in ({'schema':'wrong'},{'schema':'ppt-studio-toolchain/v1'},{'schema':'ppt-studio-toolchain/v1','ppt_master_root':'x','ppt_master_python':'y'}):
       args.toolchain_config.write_text(json.dumps(payload),encoding='utf-8')
       with self.subTest(payload=payload), self.assertRaises(ValueError): mod.build(args)
+
+  def test_builder_identity_is_recorded(self):
+    out=self.root/'out'
+    with patch.object(mod,'run',side_effect=RuntimeError('stop after preflight')):
+      with self.assertRaises(RuntimeError): mod.build(self.args(out))
+    self.assertFalse(out.exists())
+
+  def test_tracked_dirty_fails_before_stages(self):
+    self.identity.stop()
+    with patch.object(mod.subprocess,'run',side_effect=subprocess.CalledProcessError(1,['git'])):
+      with self.assertRaisesRegex(ValueError,'tracked worktree is dirty'):
+        mod.builder_identity()
   def test_receipt_hashes_match_artifacts(self):
     out=self.root/'out'
     def fake(argv,**kw):
@@ -74,6 +87,7 @@ class BuildContractTests(unittest.TestCase):
     self.assertEqual((out/'source.md').read_bytes(), self.src.read_bytes())
     self.assertEqual(mod.sha256(out/'source.md'), receipt['inputs']['markdown_sha256'])
     self.assertEqual(receipt['schema'],'ppt-studio-content-build-receipt/v1')
+    self.assertEqual(receipt['toolchain']['ppt_studio_head'],'a'*40)
     self.assertEqual(receipt['artifacts']['pptx_sha256'],mod.sha256(out/'output/content-deck.pptx'))
     self.assertNotIn(str(out), (out/'build_receipt.json').read_text())
 if __name__=='__main__': unittest.main()
