@@ -33,6 +33,7 @@ from scripts.analyze_image import (
     laplacian_variance,
     subject_sharp,
     ink_map,
+    measure_ink,
     report,
     resolve_image_targets,
     main,
@@ -115,6 +116,33 @@ class TestImageMetrics(unittest.TestCase):
         self.assertEqual(m.shape, (3, 3))
         self.assertEqual(float(m.sum()), 0.0)
 
+    def test_ink_map_blue_quadrant(self):
+        # 验证纯蓝/高饱和笔画 (#6E7BFF 或 RGB 0, 0, 255) 能够正确被识别为高亮区域
+        arr = np.zeros((90, 90, 3), dtype=np.uint8)
+        arr[0:30, 0:30] = [110, 123, 255]  # 左上角高亮蓝色
+        im = Image.fromarray(arr, "RGB")
+        m = ink_map(im)
+        self.assertGreater(m[0, 0], 0.8)
+
+    def test_measure_ink_basics(self):
+        zero_im = Image.new("RGB", (0, 0), (0, 0, 0))
+        self.assertEqual(measure_ink(zero_im), 0.0)
+
+        black_im = Image.new("RGB", (50, 50), (10, 10, 10))
+        self.assertEqual(measure_ink(black_im, thr=35), 0.0)
+
+        white_im = Image.new("RGB", (50, 50), (200, 200, 200))
+        self.assertEqual(measure_ink(white_im, thr=35), 1.0)
+
+    def test_measure_ink_rgb_max_channel(self):
+        # 纯蓝色 (0, 0, 255)，若按传统灰度计算约为 29 (< 35 会被误判为 0 墨量)
+        # 按 max(R,G,B) 则为 255，应正确识别为有效墨量
+        arr = np.zeros((100, 100, 3), dtype=np.uint8)
+        arr[20:40, 20:40] = [0, 0, 255]  # 400 像素，占 4%
+        im = Image.fromarray(arr, "RGB")
+        ink = measure_ink(im, thr=35)
+        self.assertAlmostEqual(ink, 0.04, places=3)
+
 
 class TestReport(unittest.TestCase):
     def setUp(self):
@@ -137,9 +165,12 @@ class TestReport(unittest.TestCase):
         self.assertIn("mean", rep)
         self.assertIn("p99", rep)
         self.assertIn("ink", rep)
+        self.assertIn("ink_ratio", rep)
+        self.assertIn("ink_pct", rep)
         self.assertIn("seam", rep)
         self.assertEqual(rep["colhead"], "左  中  右")
         self.assertGreater(rep["p99"], 100.0)
+        self.assertGreater(rep["ink_pct"], 5.0)
 
     def test_report_missing_file_raises_not_found(self):
         with self.assertRaises(FileNotFoundError):
@@ -245,6 +276,9 @@ class TestAnalyzeImageCLI(unittest.TestCase):
         self.assertIsInstance(parsed, list)
         self.assertEqual(len(parsed), 1)
         self.assertEqual(parsed[0]["name"], "img1.png")
+        self.assertIn("ink_ratio", parsed[0])
+        self.assertIn("ink_pct", parsed[0])
+        self.assertGreater(parsed[0]["ink_pct"], 5.0)
         self.assertIsInstance(parsed[0]["ink"], list)
         self.assertEqual(len(parsed[0]["ink"]), 3)
 
@@ -253,11 +287,25 @@ class TestAnalyzeImageCLI(unittest.TestCase):
         ret_ok = main([str(self.img1), "--check"])
         self.assertEqual(ret_ok, 0)
 
-        # 纯黑图像主体锐为 0，应被 check 拦下
+        # 纯黑图像主体锐为 0 且墨量为 0，应被 check 拦下
         dark_img = self.dir_path / "dark.png"
         create_test_image(dark_img, 90, 90, bg_val=0)
         ret_fail = main([str(dark_img), "--check"])
         self.assertEqual(ret_fail, 1)
+
+    def test_cli_check_low_ink_gate(self):
+        # 创建墨量极低 (< 2.0%) 的图像，应被 check 门禁拦截
+        sparse_img = self.dir_path / "sparse.png"
+        # 90x90 = 8100 像素，画 8x8 = 64 像素，墨量 = 64/8100 = 0.79%
+        create_test_image(sparse_img, 90, 90, box=(40, 40, 8, 8), box_val=220)
+        ret_fail = main([str(sparse_img), "--check"])
+        self.assertEqual(ret_fail, 1)
+
+        # 若放宽 --min-ink 至 0.5%，则应通过墨量门禁（且主体锐度足够）
+        # 需确保主体锐度 >= 40 且 P99 >= 30
+        ret_custom = main([str(sparse_img), "--check", "--min-ink", "0.5"])
+        # 若主体锐度 < 40 仍可能被锐度拦截，测试当 --min-ink 设为更高时 (如 50%) 正常图像 (11.1%) 也应被拦截
+        self.assertEqual(main([str(self.img1), "--check", "--min-ink", "50.0"]), 1)
 
 
 if __name__ == "__main__":

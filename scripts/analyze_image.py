@@ -60,30 +60,52 @@ def subject_sharp(im: Image.Image, pct: float = 99.0) -> float:
 
     全图拉普拉斯方差会被大片纯黑背景拉低（主体只占 10% 时，数值没有可比性），
     所以判断"线条是否锐利"必须框定到主体上再算。
+    寻找主体边界时使用 max(R,G,B)，防范彩色笔画（如 #6E7BFF）被转灰度权重压低。
     """
-    g = np.asarray(im.convert("L"), dtype=np.float64)
-    if g.size == 0 or g.max() == 0:
+    rgb = np.asarray(im.convert("RGB"), dtype=np.float64)
+    if rgb.size == 0 or rgb.max() == 0:
         return 0.0
-    t = float(np.percentile(g, pct))
+    mx = rgb.max(axis=2)
+    t = float(np.percentile(mx, pct))
     if t <= 0.0:
         t = 1.0
-    ys, xs = np.where(g >= t)
+    ys, xs = np.where(mx >= t)
     if ys.size < 50:
         return 0.0
     pad = 24
-    y0, y1 = max(0, ys.min() - pad), min(g.shape[0], ys.max() + pad)
-    x0, x1 = max(0, xs.min() - pad), min(g.shape[1], xs.max() + pad)
-    return _lap_var(g[y0:y1, x0:x1])
+    y0, y1 = max(0, ys.min() - pad), min(rgb.shape[0], ys.max() + pad)
+    x0, x1 = max(0, xs.min() - pad), min(rgb.shape[1], xs.max() + pad)
+
+    g = np.asarray(im.convert("L"), dtype=np.float64)
+    var_g = _lap_var(g[y0:y1, x0:x1])
+    var_mx = _lap_var(mx[y0:y1, x0:x1])
+    return float(max(var_g, var_mx))
+
+
+def measure_ink(im: Image.Image, thr: int = 35) -> float:
+    """计算图像墨量比例（max(R,G,B) >= thr 的像素占比）。
+
+    使用 max(R,G,B) 避免高饱和彩色笔画（如靛蓝 #6E7BFF）被相对亮度权重拉低。
+    """
+    a = np.asarray(im.convert("RGB"), dtype=np.uint8)
+    if a.size == 0:
+        return 0.0
+    mx = a.max(axis=2)
+    return float((mx >= thr).sum()) / float(mx.size)
 
 
 def ink_map(im: Image.Image, thresh_pct: float = 97.0) -> np.ndarray:
-    """亮像素在 3x3 网格中的占比矩阵（行=上中下，列=左中右）。"""
-    g = np.asarray(im.convert("L"), dtype=np.float32)
-    H, W = g.shape
+    """亮像素在 3x3 网格中的占比矩阵（行=上中下，列=左中右）。
+
+    使用 max(R,G,B) 判定高亮像素，确保高饱和彩色笔画（如 #6E7BFF）不被灰度加权压低。
+    """
+    a = np.asarray(im.convert("RGB"), dtype=np.float32)
+    H, W = a.shape[:2]
     if H == 0 or W == 0:
         return np.zeros((3, 3), dtype=np.float32)
-    t = np.percentile(g, thresh_pct)
-    mask = (g >= t).astype(np.float32)
+    mx = a.max(axis=2)
+    t = np.percentile(mx, thresh_pct)
+    mask = (mx >= t).astype(np.float32)
     m = np.zeros((3, 3), dtype=np.float32)
     if H < 3 or W < 3:
         mean_val = float(mask.mean())
@@ -113,6 +135,7 @@ def report(path: Path | str) -> dict:
     im = Image.open(p).convert("RGB")
     g = np.asarray(im.convert("L"), dtype=np.float32)
     m = ink_map(im)
+    ink_ratio = measure_ink(im, thr=35)
     col = "左  中  右"
     return {
         "name": p.name,
@@ -124,6 +147,8 @@ def report(path: Path | str) -> dict:
         "ssharp": subject_sharp(im),
         "mean": float(g.mean()),
         "p99": float(np.percentile(g, 99)),
+        "ink_ratio": round(ink_ratio, 4),
+        "ink_pct": round(ink_ratio * 100.0, 2),
         "ink": m,
         "seam": detect_seam(im),
         "colhead": col,
@@ -232,7 +257,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--check",
         action="store_true",
-        help="运行质量门禁判定：若发现严重模糊 (主体锐 < 40)、存在接缝或整体过暗 (P99 < 30) 则返回退出码 1",
+        help="运行质量门禁判定：若发现严重模糊 (主体锐 < 40)、存在接缝、整体过暗 (P99 < 30) 或墨量不足 (默认 < 2.0%%) 则返回退出码 1",
+    )
+    parser.add_argument(
+        "--min-ink",
+        type=float,
+        default=2.0,
+        help="质量门禁最低墨量百分比阈值（默认: 2.0%%，防漏图/空白画布）",
     )
 
     args = parser.parse_args(argv)
@@ -255,7 +286,12 @@ def main(argv: list[str] | None = None) -> int:
             r = report(p)
             reports.append(r)
             if args.check:
-                if r["ssharp"] < 40.0 or r["seam"] is not None or r["p99"] < 30.0:
+                if (
+                    r["ssharp"] < 40.0
+                    or r["seam"] is not None
+                    or r["p99"] < 30.0
+                    or r["ink_pct"] < args.min_ink
+                ):
                     has_check_failure = True
         except Exception as e:
             print(f"[err] 分析 {p} 失败: {e}", file=sys.stderr)
@@ -271,24 +307,25 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(json_data, ensure_ascii=False, indent=2))
         return 1 if (args.check and has_check_failure) else 0
 
-    print(f"{'文件':<22}{'尺寸':>10}{'全图锐':>8}{'主体锐':>8}{'均亮':>7}{'P99':>7}  "
+    print(f"{'文件':<22}{'尺寸':>10}{'全图锐':>8}{'主体锐':>8}{'均亮':>7}{'P99':>7}{'墨量%':>8}  "
           f"主体分布(上/中/下 × 左/中/右, %)      接缝")
-    print("-" * 128)
+    print("-" * 138)
     for r in reports:
         rows = ["  ".join(f"{r['ink'][i][j]*100:5.1f}" for j in range(3)) for i in range(3)]
         print(f"{r['name']:<22}{r['size']:>10}{r['sharp']:>8.1f}{r['ssharp']:>8.1f}"
-              f"{r['mean']:>7.1f}{r['p99']:>7.1f}  "
+              f"{r['mean']:>7.1f}{r['p99']:>7.1f}{r['ink_pct']:>7.1f}%  "
               f"{rows[0]}  |  {rows[1]}  |  {rows[2]}   {r['seam']}")
 
     print("\n判读：")
     print("  主体锐 —— 只框定最亮 1% 像素区域算的拉普拉斯方差，判断线条是否锐利；<80 判糊")
     print("  全图锐 —— 含大片纯黑，会被稀释，仅作参考")
+    print("  墨量   —— 画面有效笔画像素占比 (max(R,G,B) ≥ 35)；<2.0% 判漏图/空白，≥6.0% 为充盈")
     print("  主体分布 —— 每格 11% 为均匀分布基线；最高格 >=25% 才有明确主体，<15% 视为没画出图形")
     print("  P99 —— 亮部强度，<40 说明整体过暗没高光")
     print("  接缝 —— None 为无；有数值交由 prepare_agnes_image.py --seam 修")
 
     if args.check and has_check_failure:
-        print("\n[门禁] ⚠️ 存在未通过客观质量门禁的配图（模糊/接缝/过暗）", file=sys.stderr)
+        print("\n[门禁] ⚠️ 存在未通过客观质量门禁的配图（模糊/接缝/过暗/墨量不足）", file=sys.stderr)
         return 1
 
     return 0
