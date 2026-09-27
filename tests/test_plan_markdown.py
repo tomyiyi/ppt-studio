@@ -172,3 +172,9 @@ def _composition_contract(self):
     for bad in (b"# D\n## C\n| Segment | Share |\n| --- | --- |\n| A | 20% |\n| B | 20% |", b"# D\n## C\n| Segment | Share |\n| --- | --- |\n| A | 7% |\n| B | 93% |", b"# D\n## C\n| Segment | Share |\n| --- | --- |\n| A | 35 |\n| B | 65 |", b"# D\n## C\n| Segment | Share |\n| --- | --- |\n| A | 35% |\n| A | 65% |"):
         with self.assertRaises(ValueError): MODULE.build_plan("x.md",bad)
 PlanMarkdownTests.test_composition_contract=_composition_contract
+
+def _waterfall_contract(self):
+    plan = MODULE.build_plan("x.md", b"# T\n\n| Driver | Delta |\n| --- | --- |\n| A | +2.5 |\n| B | -1 |\n| C | +3 |")
+    self.assertEqual(plan["slides"][0]["blocks"][0]["type"], "waterfall-data")
+
+PlanMarkdownTests.test_waterfall_contract=_waterfall_contract

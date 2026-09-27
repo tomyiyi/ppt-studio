@@ -57,3 +57,8 @@ class Tests(unittest.TestCase):
  def test_cover_and_funnel_roster(self):
   with tempfile.TemporaryDirectory() as n:
    root=Path(n); plan={"schema":"ppt-studio-slide-plan/v1","slides":[{"id":"01","kind":"cover","blocks":[]},{"id":"02","kind":"content","title":"F","blocks":[{"type":"funnel-stages","items":[{"label":"A","description":"a"},{"label":"B","description":"b"},{"label":"C","description":"c"}]}]}]}; pp=root/"p.json"; pp.write_text(json.dumps(plan)); it={"schema":"ppt-studio-layout-intent/v1","source_plan_sha256":hashlib.sha256(pp.read_bytes()).hexdigest(),"slides":[{"id":"01","layout":"cover"},{"id":"02","layout":"funnel-stages"}]}; ip=root/"i.json"; ip.write_text(json.dumps(it)); a,r=m.load(pp); b,_=m.load(ip); self.assertEqual(m.expected_files(a,b,r),["01_cover.svg","02_funnel_stages.svg"])
+
+def _waterfall_roster(self):
+    self.assertIn("waterfall-change", m.RENDERERS)
+
+Tests.test_waterfall_roster=_waterfall_roster

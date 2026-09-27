@@ -135,3 +135,8 @@ def _composition_layout(self):
     self.assertEqual(MODULE.build_intent(plan([{"id":"01","kind":"content","blocks":[block]}]),source)["slides"][0]["layout"],"composition-bar")
     with self.assertRaises(ValueError): MODULE.build_intent(plan([{"id":"01","kind":"content","blocks":[block,{"type":"paragraph","text":"x"}]}]),source)
 AssignLayoutIntentTests.test_composition_layout=_composition_layout
+
+def _waterfall_layout(self):
+    self.assertEqual(MODULE.assign_layout({"kind":"content","blocks":[{"type":"waterfall-data","items":[]}]}), "waterfall-change")
+
+AssignLayoutIntentTests.test_waterfall_layout=_waterfall_layout

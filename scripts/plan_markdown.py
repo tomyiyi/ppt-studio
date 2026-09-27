@@ -159,6 +159,22 @@ def parse_markdown(text: str) -> list[dict]:
                 if sum(x["share"] for x in items) != 100: raise ValueError("composition shares must sum to 100 in v1")
                 current["blocks"].append({"type":"composition-data","headers":rows[0],"items":items})
                 continue
+            if rows[0] == ["Driver", "Delta"]:
+                if len(rows[1])!=2 or any(not re.fullmatch(r":?-{3,}:?", x) for x in rows[1]): raise ValueError("waterfall change alignment syntax is not supported")
+                data=rows[2:]
+                if not 3<=len(data)<=5 or any(len(x)!=2 or not x[0] or not x[1] for x in data): raise ValueError("waterfall data requires 3-5 non-empty data rows")
+                drivers=[x[0] for x in data]
+                if len(set(drivers)) != len(drivers): raise ValueError("waterfall drivers must be unique in v1")
+                items=[]
+                for row in data:
+                    raw=row[1]
+                    if not raw.startswith(("+", "-")): raise ValueError("waterfall delta must use an explicit + or - sign in v1")
+                    if not re.fullmatch(r"[+-](?:0|[1-9]\d{0,3})(?:\.\d{1,2})?", raw): raise ValueError("waterfall deltas must be signed decimals up to 9999")
+                    value=float(raw)
+                    if value == 0 or abs(value)>9999: raise ValueError("waterfall delta must be non-zero and within 9999")
+                    items.append({"driver":row[0],"delta":value})
+                current["blocks"].append({"type":"waterfall-data","headers":rows[0],"items":items})
+                continue
             if rows[0] == ["Period", "Value"]:
                 if len(rows[1])!=2 or any(not re.fullmatch(r":?-{3,}:?", x) for x in rows[1]): raise ValueError("trend series alignment syntax is not supported")
                 data=rows[2:]
