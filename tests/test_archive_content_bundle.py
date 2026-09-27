@@ -29,6 +29,10 @@ class ArchiveContractTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_verifies_before_publish_and_uses_canonical_roster(self):
+        (self.bundle / "debug.log").write_text("ignore", encoding="utf-8")
+        (self.bundle / ".DS_Store").write_bytes(b"ignore")
+        (self.bundle / "extra").mkdir()
+        (self.bundle / "extra" / "foo.txt").write_text("ignore", encoding="utf-8")
         out = self.root / "bundle.zip"
         with patch.object(mod, "run_verify") as verify:
             mod.archive(self.bundle, out)
@@ -41,6 +45,11 @@ class ArchiveContractTests(unittest.TestCase):
                 "svg_output/01.svg", "svg_output/02.svg",
             })
             self.assertTrue(all(item.date_time == (1980, 1, 1, 0, 0, 0) for item in archive.infolist()))
+        (self.bundle / "source.md").unlink()
+        (self.bundle / "source.md").symlink_to(self.bundle / "spec_lock.md")
+        with self.assertRaises(ValueError):
+            with patch.object(mod, "run_verify"):
+                mod.archive(self.bundle, self.root / "symlink.zip")
 
     def test_same_bundle_produces_identical_zip_and_existing_output_is_rejected(self):
         first, second = self.root / "a.zip", self.root / "b.zip"

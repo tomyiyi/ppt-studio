@@ -49,6 +49,8 @@ def archive(bundle: Path, output: Path) -> None:
         raise ValueError(f"output must be absent: {output}")
     run_verify(bundle)
     files = roster(bundle)
+    if any((bundle / path).is_symlink() for path in files):
+        raise ValueError("canonical bundle file must not be a symlink")
     if any(not (bundle / path).is_file() for path in files):
         raise ValueError("canonical bundle file is missing")
     output.parent.mkdir(parents=True, exist_ok=True)
