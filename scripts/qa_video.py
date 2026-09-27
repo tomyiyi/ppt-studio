@@ -260,9 +260,12 @@ def check_bitrate_and_fps(v_stream: dict | None, format_info: dict) -> tuple[boo
     return True, f"{fps:.1f} fps · {bitrate} kbps"
 
 
-def find_videos(target: Path | str) -> list[Path]:
+def find_videos(target: Path | str | None = None) -> list[Path]:
     """在目标路径或其子目录中查找 mp4 视频文件。"""
-    target_path = Path(target).resolve()
+    if target is None:
+        target_path = Path.cwd().resolve()
+    else:
+        target_path = Path(target).resolve()
     if target_path.is_file():
         return [target_path] if target_path.suffix.lower() == ".mp4" else []
 
@@ -311,17 +314,21 @@ def find_videos(target: Path | str) -> list[Path]:
 
 
 def qa_single_video(
-    video_path: Path | str,
+    video_path: Path | str | None,
     srt_path: Path | str | None = None,
     verbose: bool = True,
 ) -> bool:
     """对单个 MP4 视频执行 7 项客观工业级质量门禁复核。"""
+    def _log(msg: str = "", file=None) -> None:
+        if verbose:
+            print(msg, file=file)
+
+    if video_path is None:
+        _log("[ERROR] 未提供有效的目标视频路径", file=sys.stderr)
+        return False
+
     video_p = Path(video_path).resolve()
     srt_p = Path(srt_path).resolve() if srt_path else None
-
-    def _log(msg: str = "") -> None:
-        if verbose:
-            print(msg)
 
     _log("==================================================")
     _log("🔍 运行 PPT-Studio 视频质量自动化门禁")
@@ -421,30 +428,41 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="PPT-Studio 视频质量自动化门禁")
     parser.add_argument("target", nargs="?", default=".", help="视频文件路径、包含 *.mp4 的目录或项目目录（默认当前目录）")
     parser.add_argument("--srt", help="可选指定 SRT 文件路径")
+    parser.add_argument("--verbose", "-v", action="store_true", default=True, help="详细日志输出（默认开启）")
+    parser.add_argument("--quiet", "-q", action="store_true", help="静默模式（仅通过退出码返回）")
     args = parser.parse_args(argv)
 
-    target_path = Path(args.target).resolve()
+    verbose = not args.quiet if args.quiet else args.verbose
+    target_path = Path(args.target).resolve() if args.target else Path.cwd().resolve()
     srt_p = Path(args.srt).resolve() if args.srt else None
 
+    if not target_path.exists():
+        if verbose:
+            print(f"[ERROR] 路径不存在: {target_path}", file=sys.stderr)
+        return 1
+
     if target_path.is_file():
-        passed = qa_video(target_path, srt_p)
+        passed = qa_video(target_path, srt_p, verbose=verbose)
         return 0 if passed else 2
 
     elif target_path.is_dir():
         mp4s = find_videos(target_path)
         if not mp4s:
-            print(f"[ERROR] 在 {target_path} 或 output/、projects/*/output/ 下未找到 mp4 视频", file=sys.stderr)
+            if verbose:
+                print(f"[ERROR] 在 {target_path} 或 output/、projects/*/output/ 下未找到 mp4 视频", file=sys.stderr)
             return 1
 
         all_ok = True
-        for p in mp4s:
-            ok = qa_video(p, srt_p)
+        for i, p in enumerate(mp4s):
+            ok = qa_video(p, srt_p, verbose=verbose)
             if not ok:
                 all_ok = False
-            print()
+            if verbose and i < len(mp4s) - 1:
+                print()
         return 0 if all_ok else 2
     else:
-        print(f"[ERROR] 路径不存在: {target_path}", file=sys.stderr)
+        if verbose:
+            print(f"[ERROR] 路径不存在: {target_path}", file=sys.stderr)
         return 1
 
 

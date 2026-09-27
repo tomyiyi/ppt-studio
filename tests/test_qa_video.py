@@ -367,6 +367,20 @@ class TestFindVideos(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             self.assertEqual(find_videos(Path(tmp_dir)), [])
 
+    def test_find_videos_none_defaults_to_cwd(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            orig = os.getcwd()
+            try:
+                os.chdir(tmp_dir)
+                f = Path(tmp_dir) / "test.mp4"
+                f.touch()
+                res = find_videos(None)
+                self.assertEqual(res, [f.resolve()])
+                res_no_arg = find_videos()
+                self.assertEqual(res_no_arg, [f.resolve()])
+            finally:
+                os.chdir(orig)
+
 
 class TestQAVideoGateAPI(unittest.TestCase):
     """测试 qa_video / run_qa_video 的可编程 API、类型兼容与目录发现机制。"""
@@ -488,6 +502,62 @@ class TestQAVideoCLI(unittest.TestCase):
             self.assertEqual(exit_code, 2)
             mock_qa.assert_called_once()
 
+    def test_cli_quiet_flag(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            f = Path(tmp_dir) / "sample.mp4"
+            f.touch()
+            with patch("scripts.qa_video.qa_video", return_value=True) as mock_qa:
+                buf_out = io.StringIO()
+                buf_err = io.StringIO()
+                with patch("sys.stdout", buf_out), patch("sys.stderr", buf_err):
+                    code = main([str(f), "--quiet"])
+                self.assertEqual(code, 0)
+                self.assertEqual(buf_out.getvalue(), "")
+                self.assertEqual(buf_err.getvalue(), "")
+                mock_qa.assert_called_once_with(f.resolve(), None, verbose=False)
+
+            with patch("scripts.qa_video.qa_video", return_value=True) as mock_qa:
+                buf_out2 = io.StringIO()
+                buf_err2 = io.StringIO()
+                with patch("sys.stdout", buf_out2), patch("sys.stderr", buf_err2):
+                    code2 = main([str(f), "-q"])
+                self.assertEqual(code2, 0)
+                self.assertEqual(buf_out2.getvalue(), "")
+                self.assertEqual(buf_err2.getvalue(), "")
+                mock_qa.assert_called_once_with(f.resolve(), None, verbose=False)
+
+    def test_cli_verbose_flag(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            f = Path(tmp_dir) / "sample.mp4"
+            f.touch()
+            with patch("scripts.qa_video.qa_video", return_value=True) as mock_qa:
+                code = main([str(f), "-v"])
+                self.assertEqual(code, 0)
+                mock_qa.assert_called_once_with(f.resolve(), None, verbose=True)
+
+            with patch("scripts.qa_video.qa_video", return_value=True) as mock_qa:
+                code2 = main([str(f), "--verbose"])
+                self.assertEqual(code2, 0)
+                mock_qa.assert_called_once_with(f.resolve(), None, verbose=True)
+
+    def test_cli_quiet_error_silenced(self):
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with patch("sys.stdout", buf_out), patch("sys.stderr", buf_err):
+            code = main(["/non_existent_video_path_xyz123", "--quiet"])
+        self.assertEqual(code, 1)
+        self.assertEqual(buf_out.getvalue(), "")
+        self.assertEqual(buf_err.getvalue(), "")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            buf_out2 = io.StringIO()
+            buf_err2 = io.StringIO()
+            with patch("sys.stdout", buf_out2), patch("sys.stderr", buf_err2):
+                code2 = main([tmp_dir, "-q"])
+            self.assertEqual(code2, 1)
+            self.assertEqual(buf_out2.getvalue(), "")
+            self.assertEqual(buf_err2.getvalue(), "")
+
     def test_alias_run_qa_video(self):
         self.assertIs(run_qa_video, qa_video)
 
@@ -497,6 +567,9 @@ class TestQAVideoProgrammaticAPI(unittest.TestCase):
 
     def test_alias_run_qa_single_video(self):
         self.assertIs(run_qa_single_video, qa_single_video)
+
+    def test_qa_single_video_none_returns_false(self):
+        self.assertFalse(qa_single_video(None, verbose=False))
 
     def test_qa_single_video_nonexistent_returns_false(self):
         self.assertFalse(qa_single_video("/non_existent_video_file_99999.mp4", verbose=False))
