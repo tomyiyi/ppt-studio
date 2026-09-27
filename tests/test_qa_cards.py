@@ -7,11 +7,13 @@ tests/test_qa_cards.py
 使用标准库 unittest 与 tempfile，不修改已有生成物。
 """
 
+import io
 import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 # 将项目根目录加入 sys.path
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -25,7 +27,10 @@ from scripts.qa_cards import (
     load_spec_colors,
     check_card_statement_consistency,
     resolve_card_dirs,
+    qa_single_cards,
     run_qa_cards,
+    qa_cards,
+    qa_single_card,
     main,
 )
 
@@ -345,6 +350,88 @@ class TestMainCLI(unittest.TestCase):
             # 在没有指定 target 时传入包含多项目的目录作为 target 选项
             exit_code = main([str(base / "projects")])
             self.assertEqual(exit_code, 1)
+
+
+class TestQaCardsProgrammaticAPI(unittest.TestCase):
+    """测试 qa_cards / run_qa_cards / qa_single_cards 可编程接口。"""
+
+    def test_alias_equivalence(self):
+        self.assertIs(qa_cards, run_qa_cards)
+        self.assertIs(qa_single_card, qa_single_cards)
+
+    def test_qa_single_cards_path_and_str(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            cards_dir = Path(tmp_dir) / "cards"
+            create_minimal_card_svg(cards_dir / "01_cover.svg", font_size=72)
+            self.assertTrue(qa_single_cards(cards_dir, verbose=False))
+            self.assertTrue(qa_single_cards(str(cards_dir), verbose=False))
+
+    def test_qa_single_cards_verbose_false_silence(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            cards_dir = Path(tmp_dir) / "cards"
+            create_minimal_card_svg(cards_dir / "01_cover.svg", font_size=72)
+            buf_out = io.StringIO()
+            buf_err = io.StringIO()
+            with patch("sys.stdout", buf_out), patch("sys.stderr", buf_err):
+                res = qa_single_cards(cards_dir, verbose=False)
+            self.assertTrue(res)
+            self.assertEqual(buf_out.getvalue(), "")
+            self.assertEqual(buf_err.getvalue(), "")
+
+    def test_qa_single_cards_nonexistent_returns_false(self):
+        res = qa_single_cards("/non_existent_cards_dir_99999", verbose=False)
+        self.assertFalse(res)
+
+    def test_qa_single_cards_non_svg_file_returns_false(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            txt_file = Path(tmp_dir) / "test.txt"
+            txt_file.touch()
+            res = qa_single_cards(txt_file, verbose=False)
+            self.assertFalse(res)
+
+    def test_qa_single_cards_single_svg_file(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            svg_file = Path(tmp_dir) / "01_cover.svg"
+            create_minimal_card_svg(svg_file, font_size=72)
+            self.assertTrue(qa_single_cards(svg_file, verbose=False))
+            self.assertTrue(qa_single_cards(str(svg_file), verbose=False))
+
+    def test_qa_single_cards_project_dir_with_cards(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj_dir = Path(tmp_dir) / "my_project"
+            cards_out = proj_dir / "cards"
+            create_minimal_card_svg(cards_out / "01_cover.svg", font_size=72)
+            self.assertTrue(qa_single_cards(proj_dir, verbose=False))
+
+    def test_run_qa_cards_project_directory(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj_dir = Path(tmp_dir) / "my_project"
+            cards_out = proj_dir / "cards"
+            create_minimal_card_svg(cards_out / "01_cover.svg", font_size=72)
+            self.assertTrue(run_qa_cards(proj_dir, verbose=False))
+            self.assertTrue(run_qa_cards(str(proj_dir), verbose=False))
+
+    def test_run_qa_cards_single_file_target(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            svg_file = Path(tmp_dir) / "01_cover.svg"
+            create_minimal_card_svg(svg_file, font_size=72)
+            self.assertTrue(run_qa_cards(svg_file, verbose=False))
+            self.assertTrue(run_qa_cards(str(svg_file), verbose=False))
+
+    def test_run_qa_cards_empty_directory_returns_false(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            self.assertFalse(run_qa_cards(tmp_dir, verbose=False))
+
+    def test_run_qa_cards_nonexistent_returns_false(self):
+        self.assertFalse(run_qa_cards("/non_existent_cards_dir_99999", verbose=False))
+
+    def test_run_qa_cards_with_render_dir_and_explicit_target(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            cards_dir = Path(tmp_dir) / "cards"
+            render_dir = Path(tmp_dir) / "render"
+            create_minimal_card_svg(cards_dir / "01_cover.svg", font_size=72)
+            render_dir.mkdir()
+            self.assertTrue(run_qa_cards(cards_dir, render_dir=render_dir, verbose=False))
 
 
 if __name__ == "__main__":

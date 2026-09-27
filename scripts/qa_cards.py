@@ -56,12 +56,13 @@ except ImportError:
 DEFAULT_RAMP = {28, 36, 44, 56, 72, 96, 132}
 
 # ---------------------------------------------------------------- 字号阶梯与角色
-def load_ramp(spec_path):
+def load_ramp(spec_path, verbose: bool = True):
     if not spec_path:
         return set(DEFAULT_RAMP)
     p = Path(spec_path)
     if not p.exists():
-        print(f"[warn] 找不到 {spec_path}，用默认阶梯")
+        if verbose:
+            print(f"[warn] 找不到 {spec_path}，用默认阶梯")
         return set(DEFAULT_RAMP)
     if p.name == "spec_lock.md":
         # spec_lock.md 专属于 PPT 16:9 画布阶梯，卡片默认继承卡片规范阶梯
@@ -310,21 +311,49 @@ def hex2rgb(h):
     return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
 
 # ---------------------------------------------------------------- 主流程
-def run_qa_cards(
-    card_dir: str | Path,
-    render_dir: str | Path | None = None,
-    spec_path: str | Path | None = None,
+def qa_single_cards(
+    card_dir_or_file: Path | str,
+    render_dir: Path | str | None = None,
+    spec_path: Path | str | None = None,
+    verbose: bool = True,
 ) -> bool:
-    card_path = Path(card_dir).resolve()
-    render_path = Path(render_dir).resolve() if render_dir else None
-    spec_file = Path(spec_path).resolve() if spec_path else None
+    """对单个卡片 SVG 文件或卡片目录执行客观卡片质量门禁复核。"""
+    def _log(msg: str = "", file=sys.stdout) -> None:
+        if verbose:
+            print(msg, file=file)
 
-    # 如果 card_path 包含 cards/ 子目录，优先使用 cards/
-    if not list(card_path.glob("*.svg")) and (card_path / "cards").is_dir():
-        card_path = (card_path / "cards").resolve()
+    target = Path(card_dir_or_file).resolve()
+    if not target.exists():
+        _log(f"[!] 指定的目标路径不存在: {target}", file=sys.stderr)
+        return False
+
+    if target.is_file():
+        if target.suffix.lower() != ".svg":
+            _log(f"[!] 指定文件不是 SVG 文件: {target}", file=sys.stderr)
+            return False
+        svg_files = [target]
+        card_path = target.parent
+    else:
+        # 如果 target 包含 cards/ 子目录且当前目录无 svg，则自动切入 cards/
+        if not list(target.glob("*.svg")) and (target / "cards").is_dir():
+            card_path = (target / "cards").resolve()
+        else:
+            card_path = target
+        svg_files = sorted(card_path.glob("*.svg"))
+
+    if not svg_files:
+        _log(f"[!] 目录 {card_path} 下未找到 SVG 卡片文件", file=sys.stderr)
+        _log("=" * 60)
+        return False
 
     # 自动探测 card_spec.md
-    if not spec_file:
+    if spec_path:
+        spec_file = Path(spec_path).resolve()
+        if not spec_file.exists():
+            _log(f"[warn] 找不到指定的 card_spec.md ({spec_file})，用默认阶梯", file=sys.stderr)
+            spec_file = None
+    else:
+        spec_file = None
         for candidate in [
             card_path / "card_spec.md",
             card_path.parent / "card_spec.md",
@@ -347,6 +376,7 @@ def run_qa_cards(
                     break
 
     # 自动探测 render_cards 目录
+    render_path = Path(render_dir).resolve() if render_dir else None
     if not render_path:
         for candidate in [
             card_path.parent / "render_cards",
@@ -359,44 +389,38 @@ def run_qa_cards(
                 render_path = candidate.resolve()
                 break
 
-    print("=" * 60)
-    print("🔍 运行 PPT-Studio 卡片客观质量门禁")
-    print(f"   卡片目录: {card_path}")
+    _log("=" * 60)
+    _log("🔍 运行 PPT-Studio 卡片客观质量门禁")
+    _log(f"   卡片目录: {card_path}")
     if render_path:
-        print(f"   渲染目录: {render_path}")
-    print("=" * 60)
+        _log(f"   渲染目录: {render_path}")
+    _log("=" * 60)
 
-    ramp = load_ramp(spec_file)
+    ramp = load_ramp(spec_file, verbose=verbose)
     roles = load_spec_roles(spec_file)
     colors = load_spec_colors(spec_file)
     expected_stmt_sz = roles.get("statement", 72)
     expected_accent = colors.get("accent", "#6E7BFF")
     spec_label = spec_file.name if spec_file else "默认阶梯"
-    print(f"卡片字号阶梯（来自 {spec_label}）: {sorted(ramp)}")
+    _log(f"卡片字号阶梯（来自 {spec_label}）: {sorted(ramp)}")
     if "statement" in roles:
-        print(f"跨卡主句预期字号: {expected_stmt_sz}px (来自 {spec_label})")
+        _log(f"跨卡主句预期字号: {expected_stmt_sz}px (来自 {spec_label})")
     if "accent" in colors:
-        print(f"品牌强调色规范: {expected_accent}")
-    print()
+        _log(f"品牌强调色规范: {expected_accent}")
+    _log()
 
     try:
         import numpy as np
         from PIL import Image
     except ImportError:
         np = None
-        print("[warn] 缺 numpy/Pillow，跳过像素级检查（对比/留白/安全区像素校验）")
-
-    svg_files = sorted(card_path.glob("*.svg"))
-    if not svg_files:
-        print(f"[!] 目录 {card_path} 下未找到 SVG 卡片文件")
-        print("=" * 60)
-        return False
+        _log("[warn] 缺 numpy/Pillow，跳过像素级检查（对比/留白/安全区像素校验）")
 
     bad = 0
     card_slides = []
     for svg in svg_files:
         stem = svg.stem
-        print(f"=== {stem} ===")
+        _log(f"=== {stem} ===")
         root = ET.parse(svg).getroot()
         vb = root.get("viewBox", "0 0 1080 1350").split()
         W, H = int(float(vb[2])), int(float(vb[3]))
@@ -414,7 +438,7 @@ def run_qa_cards(
 
         # ---- [字号]
         off = [t for t in texts if round(t["fs"]) not in ramp]
-        print(f"  [字号]  {'OK' if not off else 'WARN'}  {len(texts)} 段文本"
+        _log(f"  [字号]  {'OK' if not off else 'WARN'}  {len(texts)} 段文本"
               + ("" if not off else "  越档: " + ", ".join(f'{t["fs"]:.0f}({t["txt"][:8]})' for t in off)))
         if off:
             bad += 1
@@ -427,9 +451,9 @@ def run_qa_cards(
                 oob.append(t)
             if x0 < -1 or x1 > W + 1 or y0 < -1 or y1 > H + 1:
                 of.append(t)
-        print(f"  [安全区] {'OK' if not oob else 'WARN'}  安全边 {SAFE}px"
+        _log(f"  [安全区] {'OK' if not oob else 'WARN'}  安全边 {SAFE}px"
               + ("" if not oob else "  越界: " + ", ".join(t["txt"][:10] for t in oob)))
-        print(f"  [溢出]   {'OK' if not of else 'WARN'}"
+        _log(f"  [溢出]   {'OK' if not of else 'WARN'}"
               + ("" if not of else "  " + ", ".join(t["txt"][:10] for t in of)))
         if oob or of:
             bad += 1
@@ -447,7 +471,7 @@ def run_qa_cards(
                 oy = min(a[3], b[3]) - max(a[1], b[1])
                 if ox > 8 and oy > 6:
                     coll.append((a[4][:8], b[4][:8], round(oy)))
-        print(f"  [压行]   {'OK' if not coll else 'WARN'}"
+        _log(f"  [压行]   {'OK' if not coll else 'WARN'}"
               + ("" if not coll else "  " + ", ".join(f"{a}×{b}({o}px)" for a, b, o in coll)))
         if coll:
             bad += 1
@@ -474,13 +498,13 @@ def run_qa_cards(
             color_ok = (bar_fill.strip().upper() == expected_accent.strip().upper())
 
         if not ok_bar:
-            print("  [签名竖线] WARN  缺少 6px 主句签名强调竖线")
+            _log("  [签名竖线] WARN  缺少 6px 主句签名强调竖线")
             bad += 1
         elif not color_ok:
-            print(f"  [签名竖线] WARN  6px 强调竖线颜色 ({bar_fill}) 与品牌规范色 ({expected_accent}) 不符")
+            _log(f"  [签名竖线] WARN  6px 强调竖线颜色 ({bar_fill}) 与品牌规范色 ({expected_accent}) 不符")
             bad += 1
         else:
-            print(f"  [签名竖线] OK  6px 强调竖线 (h={bars[0][2]:.0f}, fill={bar_fill})")
+            _log(f"  [签名竖线] OK  6px 强调竖线 (h={bars[0][2]:.0f}, fill={bar_fill})")
 
         # ---- 像素级
         png = None
@@ -515,7 +539,7 @@ def run_qa_cards(
                 r = contrast(fg, bg)
                 if r < 4.5:
                     low.append((t["txt"][:12], round(r, 2)))
-            print(f"  [对比]   {'OK' if not low else 'WARN'}  "
+            _log(f"  [对比]   {'OK' if not low else 'WARN'}  "
                   f"{len([t for t in texts if t['fs'] >= 24])} 块"
                   + ("" if not low else "  不足: " + ", ".join(f"{a}={b}" for a, b in low)))
             if low:
@@ -530,7 +554,7 @@ def run_qa_cards(
             # 2% 而非 3%：稀疏点阵类底图（如封面晶格）本身只有 ~2.9% 像素 >80，
             #    这条检查的用途是抓「图没加载上」（此时墨量 ≈0），不是审美标准。
             ok_img = cov >= 0.40 and bink >= 0.02
-            print(f"  [底图]   {'OK' if ok_img else 'WARN'}  "
+            _log(f"  [底图]   {'OK' if ok_img else 'WARN'}  "
                   f"图片带 {band}/{H} = {cov*100:.1f}%（≥40%）· 墨量 {bink*100:.1f}%（≥2%，防漏图）")
             if not ok_img:
                 bad += 1
@@ -540,7 +564,7 @@ def run_qa_cards(
             mx = panel.max(axis=2)
             ink = float((mx > 150).mean())
             ok = 0.03 <= ink <= 0.35
-            print(f"  [留白]   {'OK' if ok else 'WARN'}  面板墨量 {ink*100:.2f}%"
+            _log(f"  [留白]   {'OK' if ok else 'WARN'}  面板墨量 {ink*100:.2f}%"
                   f"（3%–35%）")
             if not ok:
                 bad += 1
@@ -552,28 +576,80 @@ def run_qa_cards(
                 px0, px1 = xs.min(), xs.max()
                 py1 = ys.max() + band
                 voob = px0 < SAFE - 12 or px1 > W - SAFE + 12 or py1 > H - SAFE + 12
-                print(f"  [安全区·像素] {'OK' if not voob else 'WARN'}  "
+                _log(f"  [安全区·像素] {'OK' if not voob else 'WARN'}  "
                       f"文字实际范围 x[{px0},{px1}] y底 {py1}")
                 if voob:
                     bad += 1
         else:
-            print("  [对比]/[底图]/[留白]  跳过（无渲染图）")
-        print()
+            _log("  [对比]/[底图]/[留白]  跳过（无渲染图）")
+        _log()
 
     # 跨卡主句一致性检查（多卡时执行）
     if len(card_slides) > 1:
-        print("=== 跨卡一致性 ===")
+        _log("=== 跨卡一致性 ===")
         ok_stmt, msg_stmt = check_card_statement_consistency(card_slides, expected_stmt_sz)
         if ok_stmt:
-            print(f"  [主句] OK  {msg_stmt}")
+            _log(f"  [主句] OK  {msg_stmt}")
         else:
             bad += 1
-            print(f"  [主句] ⚠️  {msg_stmt}")
-        print()
+            _log(f"  [主句] ⚠️  {msg_stmt}")
+        _log()
 
-    print("=" * 60)
-    print("ALL CLEAR ✅" if bad == 0 else f"❌ {bad} 项需要处理")
+    _log("=" * 60)
+    _log("ALL CLEAR ✅" if bad == 0 else f"❌ {bad} 项需要处理")
     return bad == 0
+
+
+def run_qa_cards(
+    target: Path | str | None = None,
+    render_dir: Path | str | None = None,
+    spec_path: Path | str | None = None,
+    verbose: bool = True,
+) -> bool:
+    """运行 PPT-Studio 卡片客观质量门禁。
+
+    支持输入单个卡片 SVG 文件路径、卡片目录、包含 cards/ 的项目目录，或留空默认自发现。
+    支持 Path、str 或 None 输入。
+    """
+    if target is not None:
+        t_path = Path(target)
+        if t_path.is_file():
+            return qa_single_cards(t_path, render_dir=render_dir, spec_path=spec_path, verbose=verbose)
+
+    # 如果显式传入两个目录 (target, render_dir) 且 target 存在
+    if render_dir and target is not None:
+        t_path = Path(target).resolve()
+        if not t_path.exists():
+            if verbose:
+                print(f"[!] 指定的目标路径不存在: {target}", file=sys.stderr)
+            return False
+        card_dir = (t_path / "cards").resolve() if (t_path / "cards").is_dir() else t_path
+        return qa_single_cards(card_dir, render_dir=render_dir, spec_path=spec_path, verbose=verbose)
+
+    try:
+        card_dirs = resolve_card_dirs(target)
+    except (FileNotFoundError, ValueError) as err:
+        if verbose:
+            print(f"[!] {err}", file=sys.stderr)
+        return False
+
+    if not card_dirs:
+        if verbose:
+            print("[!] 未找到任何待质检的卡片目标", file=sys.stderr)
+        return False
+
+    all_ok = True
+    for i, cdir in enumerate(card_dirs):
+        ok = qa_single_cards(cdir, render_dir=render_dir, spec_path=spec_path, verbose=verbose)
+        if not ok:
+            all_ok = False
+        if verbose and i < len(card_dirs) - 1:
+            print()
+    return all_ok
+
+
+qa_cards = run_qa_cards
+qa_single_card = qa_single_cards
 
 
 def resolve_card_dirs(
@@ -708,25 +784,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[!] 指定的目标路径不存在: {args.target}", file=sys.stderr)
             return 1
         card_dir = (t_path / "cards").resolve() if (t_path / "cards").is_dir() else t_path
-        success = run_qa_cards(card_dir, render_dir, spec_path)
+        success = qa_single_cards(card_dir, render_dir, spec_path, verbose=True)
         return 0 if success else 1
 
-    try:
-        card_dirs = resolve_card_dirs(args.target)
-    except FileNotFoundError as err:
-        print(f"[!] {err}", file=sys.stderr)
-        return 1
-    except ValueError as err:
-        print(f"[!] {err}", file=sys.stderr)
-        return 1
-
-    all_ok = True
-    for cdir in card_dirs:
-        ok = run_qa_cards(cdir, render_dir, spec_path)
-        if not ok:
-            all_ok = False
-
-    return 0 if all_ok else 1
+    ok = run_qa_cards(args.target, render_dir=render_dir, spec_path=spec_path, verbose=True)
+    return 0 if ok else 1
 
 if __name__ == "__main__":
     sys.exit(main())

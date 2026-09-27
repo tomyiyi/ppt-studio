@@ -33,15 +33,16 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 try:
-    from scripts.qa_cards import run_qa_cards
+    from scripts.qa_cards import run_qa_cards, qa_cards
 except ImportError:
     repo_root = Path(__file__).resolve().parent.parent
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
     try:
-        from scripts.qa_cards import run_qa_cards
+        from scripts.qa_cards import run_qa_cards, qa_cards
     except ImportError:
         run_qa_cards = None
+        qa_cards = None
 
 # ---------------------------------------------------------------- 画布常量
 MARGIN = 80

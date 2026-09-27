@@ -41,8 +41,8 @@ except ImportError:
         sync_playwright = None
 
 try:
-    from scripts.qa_layout import run_qa_layout
-    from scripts.qa_cards import run_qa_cards
+    from scripts.qa_layout import run_qa_layout, qa_layout
+    from scripts.qa_cards import run_qa_cards, qa_cards
 except ImportError:
     repo_root = Path(__file__).resolve().parent.parent
     if str(repo_root) not in sys.path:
@@ -50,15 +50,17 @@ except ImportError:
     if str(repo_root / "scripts") not in sys.path:
         sys.path.insert(0, str(repo_root / "scripts"))
     try:
-        from scripts.qa_layout import run_qa_layout
-        from scripts.qa_cards import run_qa_cards
+        from scripts.qa_layout import run_qa_layout, qa_layout
+        from scripts.qa_cards import run_qa_cards, qa_cards
     except ImportError:
         try:
-            from qa_layout import run_qa_layout
-            from qa_cards import run_qa_cards
+            from qa_layout import run_qa_layout, qa_layout
+            from qa_cards import run_qa_cards, qa_cards
         except ImportError:
             run_qa_layout = None
+            qa_layout = None
             run_qa_cards = None
+            qa_cards = None
 
 CHROME_CANDIDATES = [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
