@@ -35,6 +35,7 @@ from scripts.qa_pptx import (
     find_spec_lock,
     find_pptx_files,
     qa_single_pptx,
+    run_qa_single_pptx,
     run_qa_pptx,
     qa_pptx,
     main,
@@ -511,6 +512,11 @@ class TestFindPptxFiles(unittest.TestCase):
             found = find_pptx_files(base)
             self.assertEqual(found, [p.resolve()])
 
+    def test_find_pptx_files_none_default(self):
+        # find_pptx_files(None) 不应触发 TypeError 且安全回退到当前目录
+        res = find_pptx_files(None)
+        self.assertIsInstance(res, list)
+
 
 class TestRunQaPptxAPI(unittest.TestCase):
     """测试 qa_pptx 编程接口及单测场景覆盖。"""
@@ -591,6 +597,9 @@ class TestRunQaPptxAPI(unittest.TestCase):
     def test_qa_pptx_alias(self):
         self.assertIs(qa_pptx, run_qa_pptx)
 
+    def test_alias_run_qa_single_pptx(self):
+        self.assertIs(run_qa_single_pptx, qa_single_pptx)
+
 
 class TestMainCli(unittest.TestCase):
     """测试 qa_pptx CLI 命令入口。"""
@@ -612,6 +621,42 @@ class TestMainCli(unittest.TestCase):
             with patch("sys.stderr", new_callable=io.StringIO):
                 code = main([td])
             self.assertEqual(code, 1)
+
+    def test_cli_quiet_flag(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = create_mock_pptx(Path(td) / "valid.pptx")
+            buf_out = io.StringIO()
+            buf_err = io.StringIO()
+            with patch("sys.stdout", buf_out), patch("sys.stderr", buf_err):
+                code = main([str(p), "--quiet"])
+            self.assertEqual(code, 0)
+            self.assertEqual(buf_out.getvalue(), "")
+            self.assertEqual(buf_err.getvalue(), "")
+
+            # -q 短参数测试
+            buf_out2 = io.StringIO()
+            with patch("sys.stdout", buf_out2), patch("sys.stderr", buf_err):
+                code2 = main([str(p), "-q"])
+            self.assertEqual(code2, 0)
+            self.assertEqual(buf_out2.getvalue(), "")
+
+    def test_cli_verbose_flag(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = create_mock_pptx(Path(td) / "valid.pptx")
+            buf_out = io.StringIO()
+            with patch("sys.stdout", buf_out):
+                code = main([str(p), "--verbose"])
+            self.assertEqual(code, 0)
+            self.assertIn("ALL CLEAR", buf_out.getvalue())
+
+    def test_cli_quiet_error_silenced(self):
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with patch("sys.stdout", buf_out), patch("sys.stderr", buf_err):
+            code = main(["/path/not_exist_xyz.pptx", "--quiet"])
+        self.assertEqual(code, 1)
+        self.assertEqual(buf_out.getvalue(), "")
+        self.assertEqual(buf_err.getvalue(), "")
 
 
 if __name__ == "__main__":

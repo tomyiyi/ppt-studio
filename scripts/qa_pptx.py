@@ -493,6 +493,7 @@ def run_qa_pptx(
 
 
 qa_pptx = run_qa_pptx
+run_qa_single_pptx = qa_single_pptx
 
 
 def find_spec_lock(target_path: Path | str | None = None) -> Path | None:
@@ -529,10 +530,11 @@ def find_spec_lock(target_path: Path | str | None = None) -> Path | None:
     return None
 
 
-def find_pptx_files(target: Path | str = ".", base_dir: Path | None = None) -> list[Path]:
+def find_pptx_files(target: Path | str | None = None, base_dir: Path | None = None) -> list[Path]:
     """发现并解析待质检的 PPTX 文件列表。"""
     base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
-    target_path = Path(target)
+    target_str_or_path = "." if target is None else target
+    target_path = Path(target_str_or_path)
     if not target_path.is_absolute():
         target_path = (base / target_path).resolve()
 
@@ -587,26 +589,34 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--spec", help="可选指定 spec_lock.md 路径")
     parser.add_argument("--expected-slides", type=int, help="可选预期总页数")
     parser.add_argument("--expected-media", type=int, help="可选预期媒体文件数")
+    parser.add_argument("--verbose", "-v", action="store_true", default=True, help="详细日志输出（默认开启）")
+    parser.add_argument("--quiet", "-q", action="store_true", help="静默模式（仅通过退出码返回）")
     args = parser.parse_args(argv)
+
+    verbose = not args.quiet if args.quiet else args.verbose
 
     try:
         pptx_files = find_pptx_files(args.target)
     except (FileNotFoundError, ValueError) as e:
-        print(f"[!] {e}", file=sys.stderr)
+        if verbose:
+            print(f"[!] {e}", file=sys.stderr)
         return 1
 
     if not pptx_files:
-        print(f"[!] 目录 {args.target} 及其子目录下未找到 .pptx 文件", file=sys.stderr)
+        if verbose:
+            print(f"[!] 目录 {args.target} 及其子目录下未找到 .pptx 文件", file=sys.stderr)
         return 1
 
-    spec_path = Path(args.spec).resolve() if args.spec else find_spec_lock(Path(args.target).resolve())
+    target_resolved = Path(args.target).resolve() if args.target else None
+    spec_path = Path(args.spec).resolve() if args.spec else find_spec_lock(target_resolved)
 
     all_ok = True
-    for p in pptx_files:
-        ok = run_qa_pptx(p, spec_path, args.expected_slides, args.expected_media)
+    for i, p in enumerate(pptx_files):
+        ok = run_qa_pptx(p, spec_path, args.expected_slides, args.expected_media, verbose=verbose)
         if not ok:
             all_ok = False
-        print()
+        if verbose and i < len(pptx_files) - 1:
+            print()
 
     return 0 if all_ok else 1
 
