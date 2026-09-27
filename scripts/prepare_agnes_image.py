@@ -401,95 +401,240 @@ def parse_postprocess_cmd(cmd_str: str) -> dict:
     }
 
 
+class BatchResult(dict):
+    """批量处理或门禁质检结构化结果字典，兼容序列下标与字典字段访问。"""
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return self.get("items", [])[key]
+        return super().__getitem__(key)
+
+
+def _resolve_and_dedup_targets(
+    targets: list[Path | str] | Path | str | None = None,
+    base_dir: str | Path | None = None,
+) -> tuple[list[Path], list[dict]]:
+    """解析并去重目标图片路径。
+    返回 (目标文件列表, 解析阶段直接失败项列表)。
+    保证 check_images 与 prepare_images 具有完全一致的目标列表与去重行为。
+    """
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    target_files: list[Path] = []
+    failures: list[dict] = []
+    seen = set()
+
+    def add_target_path(p: Path):
+        try:
+            rkey = p.resolve()
+        except Exception:
+            rkey = p.absolute()
+        if rkey not in seen:
+            seen.add(rkey)
+            target_files.append(p)
+
+    if targets is None:
+        try:
+            resolved = resolve_image_targets(None, base_dir=base)
+            for p in resolved:
+                add_target_path(p)
+        except Exception as e:
+            failures.append({
+                "file": "",
+                "name": "",
+                "code": "TARGET_RESOLUTION_ERROR",
+                "reason": str(e),
+            })
+        return target_files, failures
+
+    if isinstance(targets, (str, Path)):
+        p = Path(targets)
+        if not p.is_absolute():
+            p = (base / p).resolve()
+        else:
+            p = p.resolve()
+        if p.is_dir():
+            try:
+                resolved = resolve_image_targets(p, base_dir=base)
+                for item in resolved:
+                    add_target_path(item)
+            except Exception as e:
+                failures.append({
+                    "file": str(p),
+                    "name": p.name,
+                    "code": "TARGET_RESOLUTION_ERROR",
+                    "reason": str(e),
+                })
+        else:
+            add_target_path(p)
+        return target_files, failures
+
+    if isinstance(targets, (list, tuple, set)):
+        raw_items = list(targets)
+    else:
+        raw_items = [targets]
+
+    for item in raw_items:
+        if isinstance(item, Path):
+            p = item
+        else:
+            item_str = str(item).strip()
+            if not item_str:
+                continue
+            p = Path(item_str)
+        if not p.is_absolute():
+            p = (base / p).resolve()
+        else:
+            p = p.resolve()
+
+        try:
+            rkey = p.resolve()
+        except Exception:
+            rkey = p.absolute()
+
+        if rkey in seen:
+            continue
+
+        if p.is_dir():
+            seen.add(rkey)
+            try:
+                expanded = resolve_image_targets(p, base_dir=base)
+                for exp in expanded:
+                    add_target_path(exp)
+            except Exception as e:
+                failures.append({
+                    "file": str(p),
+                    "name": p.name,
+                    "code": "TARGET_RESOLUTION_ERROR",
+                    "reason": str(e),
+                })
+        else:
+            add_target_path(p)
+
+    return target_files, failures
+
+
 def check_images(
     targets: list[Path | str] | Path | str | None = None,
     size: tuple[int, int] | None = None,
     verbose: bool = True,
-) -> dict:
+) -> BatchResult:
     """客观质量门禁判定：验证目标图片是否存在未抹平接缝、尺寸或格式损坏。"""
-    if targets is None:
-        try:
-            target_list = resolve_image_targets(None)
-        except Exception as e:
-            if verbose:
-                print(f"[!] 无法解析目标图片路径: {e}", file=sys.stderr)
-            return {
-                "ok": False,
-                "total": 0,
-                "unreadable": [str(e)],
-                "failed_seams": [],
-                "dimension_mismatches": [],
-                "items": [],
-            }
-    elif isinstance(targets, (str, Path)):
-        p_target = Path(targets)
-        if p_target.is_dir():
-            try:
-                target_list = resolve_image_targets(p_target)
-            except Exception as e:
-                if verbose:
-                    print(f"[!] 无法解析目标图片路径: {e}", file=sys.stderr)
-                return {
-                    "ok": False,
-                    "total": 0,
-                    "unreadable": [str(e)],
-                    "failed_seams": [],
-                    "dimension_mismatches": [],
-                    "items": [],
-                }
-        else:
-            target_list = [p_target]
-    elif isinstance(targets, (list, tuple, set)):
-        target_list = [Path(p) for p in targets]
-    else:
-        target_list = [Path(targets)]
+    target_files, failures = _resolve_and_dedup_targets(targets)
 
     results: list[dict] = []
     failed_seams: list[str] = []
     unreadable: list[str] = []
     dimension_mismatches: list[str] = []
 
-    for p in target_list:
-        if not p.is_file() or p.stat().st_size == 0:
+    for f in failures:
+        unreadable.append(f["reason"])
+
+    for p in target_files:
+        if not p.is_file():
+            reason = f"源图片文件不存在: {p}"
             unreadable.append(f"{p.name} (空文件或不存在)")
+            failures.append({
+                "file": str(p),
+                "name": p.name,
+                "code": "FILE_NOT_FOUND",
+                "reason": reason,
+            })
             continue
+
+        if p.stat().st_size == 0:
+            reason = f"空图片文件 (0 字节): {p.name}"
+            unreadable.append(f"{p.name} (空文件或不存在)")
+            failures.append({
+                "file": str(p),
+                "name": p.name,
+                "code": "EMPTY_FILE",
+                "reason": reason,
+            })
+            continue
+
         try:
             with Image.open(p) as src_im:
                 im = src_im.convert("RGB")
-            w, h = im.size
-            seam_x = detect_seam(im)
-            if seam_x is not None:
-                failed_seams.append(f"{p.name} (x={seam_x})")
-            if size is not None:
-                tw, th = size
-                if (w, h) != (tw, th):
-                    dimension_mismatches.append(f"{p.name} ({w}x{h} vs 期望 {tw}x{th})")
+        except Exception as e:
+            reason = f"无法读取或解析图片: {e}"
+            unreadable.append(f"{p.name} ({e})")
+            failures.append({
+                "file": str(p),
+                "name": p.name,
+                "code": "UNREADABLE_IMAGE",
+                "reason": reason,
+            })
+            continue
+
+        w, h = im.size
+        seam_x = detect_seam(im)
+        dim_mismatch = False
+        if size is not None:
+            tw, th = size
+            if (w, h) != (tw, th):
+                dim_mismatch = True
+                dimension_mismatches.append(f"{p.name} ({w}x{h} vs 期望 {tw}x{th})")
+
+        if seam_x is not None:
+            failed_seams.append(f"{p.name} (x={seam_x})")
+
+        if seam_x is not None and dim_mismatch:
+            failures.append({
+                "file": str(p),
+                "name": p.name,
+                "code": "SEAM_AND_DIMENSION_MISMATCH",
+                "reason": f"{p.name} 存在残留接缝 (x={seam_x}) 且尺寸不符合预期 ({w}x{h} vs 期望 {size[0]}x{size[1]})",
+            })
+        elif seam_x is not None:
+            failures.append({
+                "file": str(p),
+                "name": p.name,
+                "code": "SEAM_DETECTED",
+                "reason": f"{p.name} 存在残留接缝 (x={seam_x})",
+            })
+        elif dim_mismatch:
+            failures.append({
+                "file": str(p),
+                "name": p.name,
+                "code": "DIMENSION_MISMATCH",
+                "reason": f"{p.name} 尺寸不匹配: {w}x{h} (期望 {size[0]}x{size[1]})",
+            })
+        else:
             results.append({
                 "file": str(p),
                 "name": p.name,
                 "size": f"{w}x{h}",
                 "seam": seam_x,
             })
-        except Exception as e:
-            unreadable.append(f"{p.name} ({e})")
 
-    ok = (len(target_list) > 0 and not unreadable and not failed_seams and not dimension_mismatches)
-    res = {
+    total_count = len(target_files) if target_files else len(failures)
+    success_count = len(results)
+    failure_count = len(failures)
+    partial_success = (success_count > 0 and failure_count > 0)
+    ok = (total_count > 0 and failure_count == 0)
+
+    res = BatchResult({
         "ok": ok,
-        "total": len(target_list),
+        "total": total_count,
+        "success_count": success_count,
+        "failure_count": failure_count,
+        "partial_success": partial_success,
+        "is_partial_success": partial_success,
+        "failures": failures,
+        "failed_items": failures,
         "unreadable": unreadable,
         "failed_seams": failed_seams,
         "dimension_mismatches": dimension_mismatches,
         "items": results,
-    }
+    })
 
     if verbose:
         print("=" * 60)
         print("🔍 运行 PPT-Studio 配图客观后处理门禁")
-        print(f"   目标数量: {len(target_list)} 张图片")
+        print(f"   目标数量: {total_count} 张图片")
         print("=" * 60)
         if not unreadable:
-            print(f"  [✓] 文件实体与完整性   : {len(target_list)} 张图片均有效且可读取")
+            print(f"  [✓] 文件实体与完整性   : {total_count} 张图片均有效且可读取")
         else:
             print(f"  [✗] 文件实体与完整性   : 发现 {len(unreadable)} 处文件损坏或不可读 ({', '.join(unreadable[:3])})")
 
@@ -546,7 +691,7 @@ def prepare_agnes_images(
     no_backup: bool = False,
     check: bool = False,
     verbose: bool = False,
-) -> list[dict]:
+) -> BatchResult:
     """批量或单张执行 Agnes 配图后处理（裁切、去接缝、亮度调整），支持质量门禁校验与可选写盘。
 
     :param targets: 目标图片文件、图片目录、项目路径或图片列表（默认自发现）
@@ -558,12 +703,14 @@ def prepare_agnes_images(
     :param no_backup: 写盘时是否跳过备份原图
     :param check: 处理后是否执行客观质量门禁校验 (check_images)
     :param verbose: 是否打印处理日志
-    :return: 处理结果字典列表
+    :return: 包含总数、成功数、失败数、定位明细与报告的结构化结果 (BatchResult)
     """
     tw, th = parse_size(size) if isinstance(size, str) else size
-    target_files = resolve_image_targets(targets)
-    if not target_files:
-        raise FileNotFoundError("未找到可处理的待处理图片")
+    target_files, failures = _resolve_and_dedup_targets(targets)
+
+    if not target_files and not failures:
+        # 当既没有目标文件也没有解析错误（例如未指定且未发现），触发标准解析抛出原始异常
+        resolve_image_targets(targets)
 
     out_path = Path(out) if out else None
     single_out = None
@@ -580,6 +727,28 @@ def prepare_agnes_images(
     processed_targets: list[Path] = []
 
     for src_p in target_files:
+        if not src_p.is_file():
+            failures.append({
+                "file": str(src_p),
+                "name": src_p.name,
+                "code": "FILE_NOT_FOUND",
+                "reason": f"源图片文件不存在: {src_p}",
+            })
+            if verbose:
+                print(f"[!] 找不到图片文件: {src_p}", file=sys.stderr)
+            continue
+
+        if src_p.stat().st_size == 0:
+            failures.append({
+                "file": str(src_p),
+                "name": src_p.name,
+                "code": "EMPTY_FILE",
+                "reason": f"空图片文件 (0 字节): {src_p.name}",
+            })
+            if verbose:
+                print(f"[!] 图片文件为空: {src_p}", file=sys.stderr)
+            continue
+
         if single_out:
             dest_p = single_out if apply else None
             record_out = single_out
@@ -598,37 +767,64 @@ def prepare_agnes_images(
             if not bak.exists():
                 shutil.copy2(src_p, bak)
 
-        rep = prepare(src_p, dest_p, size=(tw, th), brightness=brightness, seam=seam)
-        rep["name"] = src_p.name
-        rep["file"] = str(src_p)
-        rep["applied"] = apply
-        rep["out"] = str(record_out)
-        reports.append(rep)
-        processed_targets.append(record_out if apply else src_p)
+        try:
+            rep = prepare(src_p, dest_p, size=(tw, th), brightness=brightness, seam=seam)
+            rep["name"] = src_p.name
+            rep["file"] = str(src_p)
+            rep["applied"] = apply
+            rep["out"] = str(record_out)
+            reports.append(rep)
+            processed_targets.append(record_out if apply else src_p)
 
-        if verbose:
-            seam_msg = (
-                f"接缝@{rep['seam']} ✓已抹平"
-                if (rep.get("seam") and apply)
-                else (f"接缝@{rep['seam']} 需抹平" if rep.get("seam") else "无接缝")
-            )
-            mode_tag = "(已写盘)" if apply else "[预演]"
-            print(f"{mode_tag} {src_p.name}  {rep['src']} → {rep['out']}  {rep['kb']}KB  [{seam_msg}]")
+            if verbose:
+                seam_msg = (
+                    f"接缝@{rep['seam']} ✓已抹平"
+                    if (rep.get("seam") and apply)
+                    else (f"接缝@{rep['seam']} 需抹平" if rep.get("seam") else "无接缝")
+                )
+                mode_tag = "(已写盘)" if apply else "[预演]"
+                print(f"{mode_tag} {src_p.name}  {rep['src']} → {rep['out']}  {rep['kb']}KB  [{seam_msg}]")
+        except Exception as e:
+            failures.append({
+                "file": str(src_p),
+                "name": src_p.name,
+                "code": "PREPARE_ERROR",
+                "reason": f"后处理执行失败: {e}",
+            })
+            if verbose:
+                print(f"[!] 处理图片 {src_p.name} 失败: {e}", file=sys.stderr)
 
     if check:
         chk_targets = processed_targets if apply else target_files
         gate_res = check_images(chk_targets, size=(tw, th), verbose=verbose)
         if not gate_res["ok"]:
             issues_summary = []
-            if gate_res["unreadable"]:
+            if gate_res.get("unreadable"):
                 issues_summary.extend(gate_res["unreadable"])
-            if gate_res["failed_seams"]:
+            if gate_res.get("failed_seams"):
                 issues_summary.extend([f"残留接缝: {s}" for s in gate_res["failed_seams"]])
-            if gate_res["dimension_mismatches"]:
+            if gate_res.get("dimension_mismatches"):
                 issues_summary.extend([f"尺寸偏差: {s}" for s in gate_res["dimension_mismatches"]])
             raise RuntimeError(f"配图客观后处理门禁未通过: {'; '.join(issues_summary)}")
 
-    return reports
+    total_count = len(target_files) if target_files else len(failures)
+    success_count = len(reports)
+    failure_count = len(failures)
+    partial_success = (success_count > 0 and failure_count > 0)
+    ok = (total_count > 0 and failure_count == 0)
+
+    return BatchResult({
+        "ok": ok,
+        "total": total_count,
+        "success_count": success_count,
+        "failure_count": failure_count,
+        "partial_success": partial_success,
+        "is_partial_success": partial_success,
+        "failures": failures,
+        "failed_items": failures,
+        "items": reports,
+        "reports": reports,
+    })
 
 
 prepare_images = prepare_agnes_images

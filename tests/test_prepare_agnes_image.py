@@ -43,6 +43,7 @@ from scripts.prepare_agnes_image import (
     run_qa_single_prepared_image,
     prepare_agnes_images,
     prepare_images,
+    BatchResult,
     main,
 )
 
@@ -521,7 +522,13 @@ class TestPrepareAgnesImagesAPI(unittest.TestCase):
 
     def test_prepare_agnes_images_dry_run(self):
         reports = prepare_agnes_images(self.dir_path, size=(60, 40), apply=False)
-        self.assertEqual(len(reports), 2)
+        self.assertTrue(reports["ok"])
+        self.assertEqual(reports["total"], 2)
+        self.assertEqual(reports["success_count"], 2)
+        self.assertEqual(reports["failure_count"], 0)
+        self.assertFalse(reports["partial_success"])
+        self.assertEqual(len(reports["items"]), 2)
+        self.assertFalse(reports["items"][0]["applied"])
         self.assertFalse(reports[0]["applied"])
         # 原图尺寸不变
         with Image.open(self.img1) as im:
@@ -535,7 +542,13 @@ class TestPrepareAgnesImagesAPI(unittest.TestCase):
             no_backup=False,
             check=True,
         )
-        self.assertEqual(len(reports), 2)
+        self.assertTrue(reports["ok"])
+        self.assertEqual(reports["total"], 2)
+        self.assertEqual(reports["success_count"], 2)
+        self.assertEqual(reports["failure_count"], 0)
+        self.assertFalse(reports["partial_success"])
+        self.assertEqual(len(reports["items"]), 2)
+        self.assertTrue(reports["items"][0]["applied"])
         self.assertTrue(reports[0]["applied"])
         # 验证已裁切
         with Image.open(self.img1) as im:
@@ -552,6 +565,215 @@ class TestPrepareAgnesImagesAPI(unittest.TestCase):
 
     def test_prepare_images_alias(self):
         self.assertIs(prepare_images, prepare_agnes_images)
+
+
+class TestBatchStructuredResultAndFailures(unittest.TestCase):
+    """验证批量结果结构化契约、部分失败可定位性、重复目标去重与计数一致性。"""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.dir_path = Path(self.temp_dir.name)
+        self.img1 = self.dir_path / "img1.png"
+        self.img2 = self.dir_path / "img2.png"
+        create_test_image(self.img1, width=100, height=80)
+        create_test_image(self.img2, width=100, height=80)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_batch_all_success(self):
+        targets = [self.img1, self.img2]
+        res_chk = check_images(targets, verbose=False)
+        res_prep = prepare_images(targets, size=(50, 40), apply=False, verbose=False)
+
+        # check_images 契约
+        self.assertTrue(res_chk["ok"])
+        self.assertEqual(res_chk["total"], 2)
+        self.assertEqual(res_chk["success_count"], 2)
+        self.assertEqual(res_chk["failure_count"], 0)
+        self.assertFalse(res_chk["partial_success"])
+        self.assertFalse(res_chk["is_partial_success"])
+        self.assertEqual(res_chk["failures"], [])
+        self.assertEqual(len(res_chk["items"]), 2)
+
+        # prepare_images 契约
+        self.assertTrue(res_prep["ok"])
+        self.assertEqual(res_prep["total"], 2)
+        self.assertEqual(res_prep["success_count"], 2)
+        self.assertEqual(res_prep["failure_count"], 0)
+        self.assertFalse(res_prep["partial_success"])
+        self.assertFalse(res_prep["is_partial_success"])
+        self.assertEqual(res_prep["failures"], [])
+        self.assertEqual(len(res_prep["items"]), 2)
+
+        # 计数严格一致
+        self.assertEqual(res_chk["total"], res_prep["total"])
+        self.assertEqual(res_chk["success_count"], res_prep["success_count"])
+        self.assertEqual(res_chk["failure_count"], res_prep["failure_count"])
+        self.assertEqual(res_chk["partial_success"], res_prep["partial_success"])
+
+    def test_batch_single_failure(self):
+        missing = self.dir_path / "non_existing.png"
+        res_chk = check_images([missing], verbose=False)
+        res_prep = prepare_images([missing], verbose=False)
+
+        # check_images 契约
+        self.assertFalse(res_chk["ok"])
+        self.assertEqual(res_chk["total"], 1)
+        self.assertEqual(res_chk["success_count"], 0)
+        self.assertEqual(res_chk["failure_count"], 1)
+        self.assertFalse(res_chk["partial_success"])
+        self.assertEqual(len(res_chk["failures"]), 1)
+        self.assertEqual(res_chk["failures"][0]["code"], "FILE_NOT_FOUND")
+        self.assertEqual(res_chk["failures"][0]["name"], "non_existing.png")
+        self.assertIn("non_existing.png", res_chk["failures"][0]["reason"])
+
+        # prepare_images 契约
+        self.assertFalse(res_prep["ok"])
+        self.assertEqual(res_prep["total"], 1)
+        self.assertEqual(res_prep["success_count"], 0)
+        self.assertEqual(res_prep["failure_count"], 1)
+        self.assertFalse(res_prep["partial_success"])
+        self.assertEqual(len(res_prep["failures"]), 1)
+        self.assertEqual(res_prep["failures"][0]["code"], "FILE_NOT_FOUND")
+        self.assertEqual(res_prep["failures"][0]["name"], "non_existing.png")
+        self.assertIn("non_existing.png", res_prep["failures"][0]["reason"])
+
+        # 计数严格一致
+        self.assertEqual(res_chk["total"], res_prep["total"])
+        self.assertEqual(res_chk["success_count"], res_prep["success_count"])
+        self.assertEqual(res_chk["failure_count"], res_prep["failure_count"])
+        self.assertEqual(res_chk["partial_success"], res_prep["partial_success"])
+
+    def test_batch_partial_failure(self):
+        missing = self.dir_path / "not_found.png"
+        targets = [self.img1, missing]
+
+        res_chk = check_images(targets, verbose=False)
+        res_prep = prepare_images(targets, size=(50, 40), apply=False, verbose=False)
+
+        # 验证部分成功标记与可定位性
+        self.assertFalse(res_chk["ok"])
+        self.assertEqual(res_chk["total"], 2)
+        self.assertEqual(res_chk["success_count"], 1)
+        self.assertEqual(res_chk["failure_count"], 1)
+        self.assertTrue(res_chk["partial_success"])
+        self.assertTrue(res_chk["is_partial_success"])
+        self.assertEqual(len(res_chk["failures"]), 1)
+        self.assertEqual(res_chk["failures"][0]["name"], "not_found.png")
+        self.assertEqual(res_chk["failures"][0]["code"], "FILE_NOT_FOUND")
+        self.assertEqual(len(res_chk["items"]), 1)
+
+        self.assertFalse(res_prep["ok"])
+        self.assertEqual(res_prep["total"], 2)
+        self.assertEqual(res_prep["success_count"], 1)
+        self.assertEqual(res_prep["failure_count"], 1)
+        self.assertTrue(res_prep["partial_success"])
+        self.assertTrue(res_prep["is_partial_success"])
+        self.assertEqual(len(res_prep["failures"]), 1)
+        self.assertEqual(res_prep["failures"][0]["name"], "not_found.png")
+        self.assertEqual(res_prep["failures"][0]["code"], "FILE_NOT_FOUND")
+        self.assertEqual(len(res_prep["items"]), 1)
+
+        # 计数严格一致
+        self.assertEqual(res_chk["total"], res_prep["total"])
+        self.assertEqual(res_chk["success_count"], res_prep["success_count"])
+        self.assertEqual(res_chk["failure_count"], res_prep["failure_count"])
+        self.assertEqual(res_chk["partial_success"], res_prep["partial_success"])
+
+    def test_batch_all_failure(self):
+        m1 = self.dir_path / "m1.png"
+        m2 = self.dir_path / "m2.png"
+        targets = [m1, m2]
+
+        res_chk = check_images(targets, verbose=False)
+        res_prep = prepare_images(targets, verbose=False)
+
+        # 全失败断言
+        self.assertFalse(res_chk["ok"])
+        self.assertEqual(res_chk["total"], 2)
+        self.assertEqual(res_chk["success_count"], 0)
+        self.assertEqual(res_chk["failure_count"], 2)
+        self.assertFalse(res_chk["partial_success"])
+        self.assertEqual(len(res_chk["failures"]), 2)
+
+        self.assertFalse(res_prep["ok"])
+        self.assertEqual(res_prep["total"], 2)
+        self.assertEqual(res_prep["success_count"], 0)
+        self.assertEqual(res_prep["failure_count"], 2)
+        self.assertFalse(res_prep["partial_success"])
+        self.assertEqual(len(res_prep["failures"]), 2)
+
+        self.assertEqual(res_chk["total"], res_prep["total"])
+        self.assertEqual(res_chk["success_count"], res_prep["success_count"])
+        self.assertEqual(res_chk["failure_count"], res_prep["failure_count"])
+        self.assertEqual(res_chk["partial_success"], res_prep["partial_success"])
+
+    def test_batch_deduplication(self):
+        # 传递带有重复 Path 及等价字符串的目标列表
+        targets = [self.img1, str(self.img1), self.img2, self.img1]
+
+        res_chk = check_images(targets, verbose=False)
+        res_prep = prepare_images(targets, size=(50, 40), apply=False, verbose=False)
+
+        # 重复项被去重，有效总数应为 2
+        self.assertEqual(res_chk["total"], 2)
+        self.assertEqual(res_chk["success_count"], 2)
+        self.assertEqual(res_chk["failure_count"], 0)
+        self.assertFalse(res_chk["partial_success"])
+
+        self.assertEqual(res_prep["total"], 2)
+        self.assertEqual(res_prep["success_count"], 2)
+        self.assertEqual(res_prep["failure_count"], 0)
+        self.assertFalse(res_prep["partial_success"])
+
+        self.assertEqual(res_chk["total"], res_prep["total"])
+        self.assertEqual(res_chk["success_count"], res_prep["success_count"])
+        self.assertEqual(res_chk["failure_count"], res_prep["failure_count"])
+
+    def test_quiet_verbose_do_not_alter_structured_result(self):
+        targets = [self.img1, self.dir_path / "missing.png"]
+
+        # check_images quiet vs verbose
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with redirect_stdout(buf_out), redirect_stderr(buf_err):
+            res_chk_v = check_images(targets, verbose=True)
+        res_chk_q = check_images(targets, verbose=False)
+        self.assertEqual(res_chk_v, res_chk_q)
+
+        # prepare_images quiet vs verbose
+        buf_out = io.StringIO()
+        buf_err = io.StringIO()
+        with redirect_stdout(buf_out), redirect_stderr(buf_err):
+            res_prep_v = prepare_images(targets, size=(50, 40), apply=False, verbose=True)
+        res_prep_q = prepare_images(targets, size=(50, 40), apply=False, verbose=False)
+        self.assertEqual(res_prep_v, res_prep_q)
+
+    def test_counts_consistency_across_scenarios(self):
+        test_cases = [
+            # 全成功
+            [self.img1, self.img2],
+            # 单失败
+            [self.dir_path / "bad1.png"],
+            # 部分失败
+            [self.img1, self.dir_path / "bad2.png"],
+            # 全失败
+            [self.dir_path / "bad1.png", self.dir_path / "bad2.png"],
+            # 重复目标去重
+            [self.img1, self.img1, self.img2],
+            # 空目标
+            [],
+        ]
+        for idx, tc in enumerate(test_cases):
+            with self.subTest(case_idx=idx):
+                chk = check_images(tc, verbose=False)
+                prep = prepare_images(tc, size=(50, 40), apply=False, verbose=False)
+                self.assertEqual(chk["total"], prep["total"])
+                self.assertEqual(chk["success_count"], prep["success_count"])
+                self.assertEqual(chk["failure_count"], prep["failure_count"])
+                self.assertEqual(chk["partial_success"], prep["partial_success"])
+                self.assertEqual(chk["ok"], prep["ok"])
 
 
 if __name__ == "__main__":
