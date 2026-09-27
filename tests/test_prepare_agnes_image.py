@@ -2454,5 +2454,395 @@ class TestJSONV1IndependentConsumerContract(unittest.TestCase):
             parse_v1_json(12345)
 
 
+
+
+class TestCLIProcessExitContract(unittest.TestCase):
+    """测试并锁定 CLI 进程级退出契约与真实 subprocess 行为。
+
+    严格遵循当前系统稳定语义，禁止凭空设计新退出码：
+    - 进程退出码 0：所有指定目标均处理/检验成功 (ok=True)
+    - 进程退出码 1：合法调用但发生业务/图片失败、门禁不通过或参数值校验失败 (ok=False)
+    - 进程退出码 2：未知命令行参数或 argparse 语法错误 (保持标准语义，不强行 JSON)
+    - 绝不凭空发明冲突参数组合；非法参数配合 --apply 稳定失败且无半执行
+    - quiet/verbose 组合不改变进程退出码分类和 stdout JSON 契约
+    """
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.dir_path = Path(self.temp_dir.name)
+
+        # 1. 正常有效单图与全成功目录
+        self.clean_single = self.dir_path / "clean_single.png"
+        create_test_image(self.clean_single, width=120, height=80)
+
+        self.clean_dir = self.dir_path / "clean_dir"
+        self.clean_dir.mkdir(parents=True, exist_ok=True)
+        self.clean_img1 = self.clean_dir / "clean_1.png"
+        self.clean_img2 = self.clean_dir / "clean_2.png"
+        create_test_image(self.clean_img1, width=120, height=80)
+        create_test_image(self.clean_img2, width=120, height=80)
+
+        # 2. 缺失文件
+        self.missing_file = self.dir_path / "non_existent_image_12345.png"
+
+        # 3. 0 字节空文件与非图片损坏文件
+        self.empty_file = self.dir_path / "empty_0byte.png"
+        self.empty_file.write_bytes(b"")
+
+        self.corrupt_file = self.dir_path / "corrupt_data.png"
+        self.corrupt_file.write_bytes(b"NOT_A_PNG_IMAGE_DATA\x00\x01\x02")
+
+        # 4. 接缝门禁失败图
+        self.seam_file = self.dir_path / "seam_bad.png"
+        create_test_image(self.seam_file, width=120, height=80, left_val=20, right_val=60, seam_x=60)
+
+        # 5. 混合批量目录 (部分失败: 2 成功 + 3 失败)
+        self.mixed_dir = self.dir_path / "mixed_batch"
+        self.mixed_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(self.clean_single, self.mixed_dir / "m_clean1.png")
+        shutil.copy2(self.clean_single, self.mixed_dir / "m_clean2.png")
+        (self.mixed_dir / "m_empty.png").write_bytes(b"")
+        (self.mixed_dir / "m_corrupt.png").write_bytes(b"CORRUPT")
+        create_test_image(self.mixed_dir / "m_seam.png", width=120, height=80, left_val=20, right_val=60, seam_x=60)
+
+        # 6. 全失败批量目录 (2 坏图)
+        self.all_fail_dir = self.dir_path / "all_fail_batch"
+        self.all_fail_dir.mkdir(parents=True, exist_ok=True)
+        (self.all_fail_dir / "f_empty.png").write_bytes(b"")
+        (self.all_fail_dir / "f_corrupt.png").write_bytes(b"CORRUPT")
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def _run_cli(self, args: list[str], env: dict | None = None) -> subprocess.CompletedProcess:
+        full_env = os.environ.copy()
+        full_env["PYTHONPATH"] = str(REPO_ROOT)
+        if env:
+            full_env.update(env)
+        return subprocess.run(
+            [str(PYTHON_BIN), str(SCRIPT_PATH), *args],
+            capture_output=True,
+            text=True,
+            env=full_env,
+        )
+
+    def test_normal_check_json_success_exit_code_zero_and_clean_stdout_stderr(self):
+        """1) 覆盖正常 --check --json 成功时：rc=0、stdout 可解析为合法 JSON v1、stderr 严格不污染。"""
+        # A. 单张正常有效图片 --check --json
+        p_single = self._run_cli([str(self.clean_single), "--check", "--json"])
+        self.assertEqual(p_single.returncode, 0, f"单图成功门禁返回码应为 0，实际为 {p_single.returncode}")
+        self.assertEqual(p_single.stderr, "", f"成功退出时 stderr 必须严格为空，实际有输出: {p_single.stderr}")
+        res_single = parse_v1_json(p_single.stdout)
+        self.assertEqual(res_single.schema_version, 1)
+        self.assertTrue(res_single.ok)
+        self.assertEqual(res_single.total, 1)
+        self.assertEqual(res_single.success_count, 1)
+        self.assertEqual(res_single.failure_count, 0)
+        self.assertEqual(res_single.failures, [])
+        self.assertEqual(len(res_single.items), 1)
+
+        # stdout 纯净无人类日志杂质
+        for marker in ["[预演]", "✓", "ALL CLEAR", "❌", "🔍", "[!]", "[提示]"]:
+            self.assertNotIn(marker, p_single.stdout)
+
+        # B. 目录批量有效图片 --check --json
+        p_dir = self._run_cli([str(self.clean_dir), "--check", "--json"])
+        self.assertEqual(p_dir.returncode, 0, f"目录成功门禁返回码应为 0，实际为 {p_dir.returncode}")
+        self.assertEqual(p_dir.stderr, "", f"成功退出时 stderr 必须严格为空，实际有输出: {p_dir.stderr}")
+        res_dir = parse_v1_json(p_dir.stdout)
+        self.assertEqual(res_dir.schema_version, 1)
+        self.assertTrue(res_dir.ok)
+        self.assertEqual(res_dir.total, 2)
+        self.assertEqual(res_dir.success_count, 2)
+        self.assertEqual(res_dir.failure_count, 0)
+        self.assertEqual(res_dir.failures, [])
+
+        # C. 常规 prepare --json 成功路径作为对照
+        p_prep = self._run_cli([str(self.clean_single), "--json"])
+        self.assertEqual(p_prep.returncode, 0)
+        self.assertEqual(p_prep.stderr, "")
+        res_prep = parse_v1_json(p_prep.stdout)
+        self.assertTrue(res_prep.ok)
+
+    def test_real_10_images_check_json_success_contract(self):
+        """1) 覆盖项目中真实 10 图资产运行 --check --json 的进程级退出码与 stdout/stderr 契约。"""
+        real_img_dir = REPO_ROOT / "projects" / "agentflow-os-launch" / "images"
+        if not real_img_dir.is_dir():
+            self.skipTest(f"真实图片目录不存在: {real_img_dir}")
+
+        p = self._run_cli([str(real_img_dir), "--check", "--json"])
+        self.assertEqual(p.returncode, 0, f"10 图门禁返回码必须为 0，实际为 {p.returncode}")
+        self.assertEqual(p.stderr, "", f"10 图门禁 stderr 不得有污染输出，实际为: {p.stderr}")
+        res = parse_v1_json(p.stdout)
+        self.assertEqual(res.schema_version, 1)
+        self.assertTrue(res.ok)
+        self.assertEqual(res.total, 10)
+        self.assertEqual(res.success_count, 10)
+        self.assertEqual(res.failure_count, 0)
+        self.assertEqual(len(res.failures), 0)
+        self.assertEqual(len(res.items), 10)
+
+    def test_legal_invocation_business_failure_exit_code_one_and_json_v1(self):
+        """2) 覆盖合法调用但业务/图片失败时：rc=1、stdout 可解析为合规 JSON v1、stderr 不污染。"""
+        # A. 缺失文件 --check --json
+        p_c_missing = self._run_cli([str(self.missing_file), "--check", "--json"])
+        self.assertEqual(p_c_missing.returncode, 1, "缺失文件时 rc 必须稳定为 1 (禁止凭空发明退出码)")
+        self.assertEqual(p_c_missing.stderr, "", "--json 模式下 stderr 不受人类日志污染")
+        res_c_missing = parse_v1_json(p_c_missing.stdout)
+        self.assertFalse(res_c_missing.ok)
+        self.assertEqual(res_c_missing.failure_count, 1)
+        self.assertEqual(res_c_missing.failures[0].code, "FILE_NOT_FOUND")
+
+        # B. 缺失文件 prepare --json
+        p_p_missing = self._run_cli([str(self.missing_file), "--json"])
+        self.assertEqual(p_p_missing.returncode, 1)
+        self.assertEqual(p_p_missing.stderr, "")
+        res_p_missing = parse_v1_json(p_p_missing.stdout)
+        self.assertFalse(res_p_missing.ok)
+        self.assertEqual(res_p_missing.failure_count, 1)
+        self.assertEqual(res_p_missing.failures[0].code, "FILE_NOT_FOUND")
+
+        # C. 0 字节空文件 --check --json
+        p_c_empty = self._run_cli([str(self.empty_file), "--check", "--json"])
+        self.assertEqual(p_c_empty.returncode, 1)
+        self.assertEqual(p_c_empty.stderr, "")
+        res_c_empty = parse_v1_json(p_c_empty.stdout)
+        self.assertFalse(res_c_empty.ok)
+        self.assertEqual(res_c_empty.failures[0].code, "EMPTY_FILE")
+
+        # D. 损坏非图片文件 --check --json
+        p_c_corrupt = self._run_cli([str(self.corrupt_file), "--check", "--json"])
+        self.assertEqual(p_c_corrupt.returncode, 1)
+        self.assertEqual(p_c_corrupt.stderr, "")
+        res_c_corrupt = parse_v1_json(p_c_corrupt.stdout)
+        self.assertFalse(res_c_corrupt.ok)
+        self.assertEqual(res_c_corrupt.failures[0].code, "UNREADABLE_IMAGE")
+
+        # E. 存在残留接缝 --check --json
+        p_c_seam = self._run_cli([str(self.seam_file), "--check", "--json"])
+        self.assertEqual(p_c_seam.returncode, 1)
+        self.assertEqual(p_c_seam.stderr, "")
+        res_c_seam = parse_v1_json(p_c_seam.stdout)
+        self.assertFalse(res_c_seam.ok)
+        self.assertEqual(res_c_seam.failures[0].code, "SEAM_DETECTED")
+
+        # F. 尺寸不符合门禁要求 --check --json --size 999x999
+        p_c_size = self._run_cli([str(self.clean_single), "--check", "--json", "--size", "999x999"])
+        self.assertEqual(p_c_size.returncode, 1)
+        self.assertEqual(p_c_size.stderr, "")
+        res_c_size = parse_v1_json(p_c_size.stdout)
+        self.assertFalse(res_c_size.ok)
+        self.assertEqual(res_c_size.failures[0].code, "DIMENSION_MISMATCH")
+
+        # G. 批量部分失败目录 --check --json
+        p_c_mixed = self._run_cli([str(self.mixed_dir), "--check", "--json"])
+        self.assertEqual(p_c_mixed.returncode, 1)
+        self.assertEqual(p_c_mixed.stderr, "")
+        res_c_mixed = parse_v1_json(p_c_mixed.stdout)
+        self.assertFalse(res_c_mixed.ok)
+        self.assertEqual(res_c_mixed.total, 5)
+        self.assertEqual(res_c_mixed.success_count, 2)
+        self.assertEqual(res_c_mixed.failure_count, 3)
+        self.assertTrue(res_c_mixed["partial_success"])
+
+        # H. 批量全失败目录 --check --json
+        p_c_all_fail = self._run_cli([str(self.all_fail_dir), "--check", "--json"])
+        self.assertEqual(p_c_all_fail.returncode, 1)
+        self.assertEqual(p_c_all_fail.stderr, "")
+        res_c_all_fail = parse_v1_json(p_c_all_fail.stdout)
+        self.assertFalse(res_c_all_fail.ok)
+        self.assertEqual(res_c_all_fail.total, 2)
+        self.assertEqual(res_c_all_fail.success_count, 0)
+        self.assertEqual(res_c_all_fail.failure_count, 2)
+
+    def test_unknown_arguments_argparse_usage_error_semantics(self):
+        """3) 覆盖未知参数/argparse usage-error：保持当前稳定语义 (rc=2)，stderr 输出用法，绝不强行 JSON。"""
+        # A. 独立未知参数
+        p_unknown = self._run_cli(["--unknown-parameter-flag-98765"])
+        self.assertEqual(p_unknown.returncode, 2, "argparse 未知参数错误返回码必须稳定为 2")
+        self.assertEqual(p_unknown.stdout, "", "未知参数下 stdout 必须为空，严禁强行输出 JSON")
+        self.assertIn("usage: prepare_agnes_image.py", p_unknown.stderr)
+        self.assertIn("unrecognized arguments", p_unknown.stderr)
+
+        # B. 未知参数配合 --json 选项：仍应保持 argparse 错误契约，不得强行输出 JSON
+        p_unknown_json = self._run_cli(["--unknown-parameter-flag-98765", "--json"])
+        self.assertEqual(p_unknown_json.returncode, 2)
+        self.assertEqual(p_unknown_json.stdout, "", "即使指定了 --json，未知参数仍必须保持 stdout 为空")
+        self.assertIn("usage: prepare_agnes_image.py", p_unknown_json.stderr)
+
+        # C. 未知短参数
+        p_unknown_short = self._run_cli(["-z"])
+        self.assertEqual(p_unknown_short.returncode, 2)
+        self.assertEqual(p_unknown_short.stdout, "")
+        self.assertIn("usage: prepare_agnes_image.py", p_unknown_short.stderr)
+
+        # D. --check --json 配合未知参数
+        p_check_unknown = self._run_cli(["--check", "--json", "--bad-flag-xyz"])
+        self.assertEqual(p_check_unknown.returncode, 2)
+        self.assertEqual(p_check_unknown.stdout, "")
+        self.assertIn("usage: prepare_agnes_image.py", p_check_unknown.stderr)
+
+        # E. 未知参数配合 --quiet 与 -q：argparse 在参数解析阶段退出，usage 诊断正常输出至 stderr
+        p_unknown_quiet = self._run_cli(["--unknown-flag-quiet", "--quiet"])
+        self.assertEqual(p_unknown_quiet.returncode, 2)
+        self.assertEqual(p_unknown_quiet.stdout, "")
+        self.assertIn("usage: prepare_agnes_image.py", p_unknown_quiet.stderr)
+
+        p_unknown_q = self._run_cli(["--unknown-flag-q", "-q"])
+        self.assertEqual(p_unknown_q.returncode, 2)
+        self.assertEqual(p_unknown_q.stdout, "")
+        self.assertIn("usage: prepare_agnes_image.py", p_unknown_q.stderr)
+
+    def test_no_invented_conflicts_and_validation_error_prevents_partial_execution(self):
+        """4) 覆盖 CLI 参数冲突契约：不凭空发明冲突组合；非法参数配合 --apply 稳定失败且零半执行。"""
+        # A. 确认当前 CLI 不存在凭空编造的互斥组合：正交合法参数可和谐共存
+        # 例如 --check 与合法 --size、合法 raw 路径、--verbose/--quiet 正常共存
+        p_valid_coexist = self._run_cli([str(self.clean_single), "--check", "--size", "120x80", "--verbose"])
+        self.assertEqual(p_valid_coexist.returncode, 0)
+
+        # B. 验证非法参数组合/校验失败时：稳定失败 (rc=1 或 rc=2) 且绝不发生半执行 (无文件篡改、无备份生成)
+        original_bytes = b"ORIGINAL_ATOMIC_PROTECTED_DATA"
+        atomic_file = self.dir_path / "atomic_target.png"
+        atomic_file.write_bytes(original_bytes)
+
+        # Case 1: 非法 --size 配合 --apply 写盘模式
+        p_bad_size = self._run_cli([str(atomic_file), "--apply", "--size", "invalid_size_format"])
+        self.assertEqual(p_bad_size.returncode, 1)
+        self.assertEqual(p_bad_size.stdout, "")
+        self.assertIn("尺寸格式无效", p_bad_size.stderr)
+        # 目标文件字节严格未动
+        self.assertEqual(atomic_file.read_bytes(), original_bytes)
+        # 绝不产生 _pre_* 备份半执行产物
+        pre_backups = list(self.dir_path.glob("_pre_*"))
+        self.assertEqual(pre_backups, [], f"非法参数时不得创建任何 _pre_* 备份: {pre_backups}")
+
+        # Case 2: 非法 --brightness 配合 --apply 写盘模式
+        p_bad_bright = self._run_cli([str(atomic_file), "--apply", "--brightness", "-2.0"])
+        self.assertEqual(p_bad_bright.returncode, 1)
+        self.assertEqual(p_bad_bright.stdout, "")
+        self.assertIn("亮度系数必须 >= 0", p_bad_bright.stderr)
+        self.assertEqual(atomic_file.read_bytes(), original_bytes)
+        self.assertEqual(list(self.dir_path.glob("_pre_*")), [])
+
+        # Case 3: 非法 --seam 配合 --apply 写盘模式
+        p_bad_seam = self._run_cli([str(atomic_file), "--apply", "--seam", "bad_col_token"])
+        self.assertEqual(p_bad_seam.returncode, 1)
+        self.assertEqual(p_bad_seam.stdout, "")
+        self.assertIn("无效的接缝列号", p_bad_seam.stderr)
+        self.assertEqual(atomic_file.read_bytes(), original_bytes)
+        self.assertEqual(list(self.dir_path.glob("_pre_*")), [])
+
+        # Case 4: 不存在的 --manifest 配合 --apply 写盘模式
+        p_bad_mf = self._run_cli([str(atomic_file), "--apply", "--manifest", "non_existing_manifest_file.json"])
+        self.assertEqual(p_bad_mf.returncode, 1)
+        self.assertEqual(p_bad_mf.stdout, "")
+        self.assertIn("指定的清单路径不存在", p_bad_mf.stderr)
+        self.assertEqual(atomic_file.read_bytes(), original_bytes)
+        self.assertEqual(list(self.dir_path.glob("_pre_*")), [])
+
+        # Case 5: 未知参数配合 --apply
+        p_bad_arg_apply = self._run_cli([str(atomic_file), "--apply", "--unknown-flag-no-exec"])
+        self.assertEqual(p_bad_arg_apply.returncode, 2)
+        self.assertEqual(p_bad_arg_apply.stdout, "")
+        self.assertEqual(atomic_file.read_bytes(), original_bytes)
+        self.assertEqual(list(self.dir_path.glob("_pre_*")), [])
+
+    def test_quiet_and_verbose_preserve_exit_classification_and_json_contract(self):
+        """5) 覆盖 quiet/verbose 组合不改变退出分类和 stdout JSON 契约。"""
+        flag_combinations = [
+            [],
+            ["--verbose"],
+            ["-v"],
+            ["--quiet"],
+            ["-q"],
+            ["--verbose", "--quiet"],
+            ["-v", "-q"],
+        ]
+
+        # A. 正常成功场景：所有 quiet/verbose 组合退出码均为 0，stdout 解析出的 JSON v1 语义一致，stderr 为空
+        p_success_base = self._run_cli([str(self.clean_single), "--check", "--json"])
+        self.assertEqual(p_success_base.returncode, 0)
+        res_success_base = parse_v1_json(p_success_base.stdout)
+
+        for flags in flag_combinations:
+            p = self._run_cli([str(self.clean_single), "--check", "--json", *flags])
+            self.assertEqual(p.returncode, 0, f"flags={flags} 时退出码必须为 0")
+            self.assertEqual(p.stderr, "", f"flags={flags} 时 stderr 必须为空")
+            res = parse_v1_json(p.stdout)
+            self.assertEqual(res.ok, res_success_base.ok)
+            self.assertEqual(res.total, res_success_base.total)
+            self.assertEqual(res.success_count, res_success_base.success_count)
+            self.assertEqual(res.failure_count, res_success_base.failure_count)
+            self.assertEqual(len(res.failures), len(res_success_base.failures))
+
+        # B. 业务失败场景 (缺失文件)：所有 quiet/verbose 组合退出码均为 1，stdout 解析出的 JSON v1 语义一致，stderr 为空
+        p_fail_base = self._run_cli([str(self.missing_file), "--check", "--json"])
+        self.assertEqual(p_fail_base.returncode, 1)
+        res_fail_base = parse_v1_json(p_fail_base.stdout)
+
+        for flags in flag_combinations:
+            p = self._run_cli([str(self.missing_file), "--check", "--json", *flags])
+            self.assertEqual(p.returncode, 1, f"flags={flags} 时失败退出码必须为 1")
+            self.assertEqual(p.stderr, "", f"flags={flags} 时 --json 失败 stderr 必须为空")
+            res = parse_v1_json(p.stdout)
+            self.assertEqual(res.ok, res_fail_base.ok)
+            self.assertEqual(res.total, res_fail_base.total)
+            self.assertEqual(res.failure_count, res_fail_base.failure_count)
+            self.assertEqual(res.failures[0].code, res_fail_base.failures[0].code)
+
+        # C. 批量部分失败场景：所有 quiet/verbose 组合退出码均为 1，stdout 解析出的 JSON v1 语义一致，stderr 为空
+        p_mixed_base = self._run_cli([str(self.mixed_dir), "--check", "--json"])
+        self.assertEqual(p_mixed_base.returncode, 1)
+        res_mixed_base = parse_v1_json(p_mixed_base.stdout)
+
+        for flags in flag_combinations:
+            p = self._run_cli([str(self.mixed_dir), "--check", "--json", *flags])
+            self.assertEqual(p.returncode, 1)
+            self.assertEqual(p.stderr, "")
+            res = parse_v1_json(p.stdout)
+            self.assertEqual(res.total, res_mixed_base.total)
+            self.assertEqual(res.success_count, res_mixed_base.success_count)
+            self.assertEqual(res.failure_count, res_mixed_base.failure_count)
+            self.assertEqual(res.raw["partial_success"], res_mixed_base.raw["partial_success"])
+
+        # D. 常规 prepare --json 业务失败场景
+        p_prep_fail_base = self._run_cli([str(self.missing_file), "--json"])
+        self.assertEqual(p_prep_fail_base.returncode, 1)
+        res_prep_fail_base = parse_v1_json(p_prep_fail_base.stdout)
+
+        for flags in flag_combinations:
+            p = self._run_cli([str(self.missing_file), "--json", *flags])
+            self.assertEqual(p.returncode, 1)
+            self.assertEqual(p.stderr, "")
+            res = parse_v1_json(p.stdout)
+            self.assertEqual(res.failure_count, res_prep_fail_base.failure_count)
+
+    def test_quiet_suppresses_stderr_on_validation_failure_without_changing_exit_code(self):
+        """5b) 验证非法参数在无 --json 时：quiet 模式抑制 stderr，但不改变 rc=1 退出码分类。"""
+        # 默认模式：rc=1，stderr 有报错
+        p_def = self._run_cli([str(self.clean_single), "--size", "invalid_size"])
+        self.assertEqual(p_def.returncode, 1)
+        self.assertEqual(p_def.stdout, "")
+        self.assertIn("尺寸格式无效", p_def.stderr)
+
+        # verbose 模式：rc=1，stderr 有报错
+        p_verb = self._run_cli([str(self.clean_single), "--size", "invalid_size", "--verbose"])
+        self.assertEqual(p_verb.returncode, 1)
+        self.assertEqual(p_verb.stdout, "")
+        self.assertIn("尺寸格式无效", p_verb.stderr)
+
+        # quiet 模式：rc=1 保持不变，stderr 被抑制
+        p_quiet = self._run_cli([str(self.clean_single), "--size", "invalid_size", "--quiet"])
+        self.assertEqual(p_quiet.returncode, 1, "quiet 模式下退出码必须保持为 1")
+        self.assertEqual(p_quiet.stdout, "")
+        self.assertEqual(p_quiet.stderr, "", "quiet 模式下 stderr 必须被抑制")
+
+        p_q = self._run_cli([str(self.clean_single), "--size", "invalid_size", "-q"])
+        self.assertEqual(p_q.returncode, 1)
+        self.assertEqual(p_q.stdout, "")
+        self.assertEqual(p_q.stderr, "")
+
+
 if __name__ == "__main__":
     unittest.main()
+
