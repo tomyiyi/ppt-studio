@@ -535,6 +535,62 @@ class TestRunManifest(unittest.TestCase):
         self.assertEqual(updated["items"][0]["status"], "Failed")
         self.assertEqual(updated["items"][0]["error"], "new timeout")
 
+    def test_run_manifest_dry_run_selects_pending_only_without_side_effects(self):
+        data = {
+            "project": "sample",
+            "items": [
+                {"filename": "pending.png", "status": "Pending", "prompt": "p"},
+                {"filename": "failed.png", "status": "Failed", "prompt": "f"},
+                {"filename": "done.png", "status": "Generated", "prompt": "d"},
+            ],
+        }
+        self.mf_path.write_text(json.dumps(data), encoding="utf-8")
+        before = self.mf_path.stat().st_mtime_ns
+        called = []
+
+        def fake_generate(prompt, ratio="16:9", model=None):
+            called.append(prompt)
+            return {"ok": True, "bytes": make_png_bytes(100, 100), "via": "agnes", "cost_s": 0.1}
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            ret = run_manifest(self.mf_path, dry_run=True, generate_fn=fake_generate)
+
+        self.assertEqual(ret, 0)
+        self.assertEqual(called, [])
+        self.assertEqual(self.mf_path.read_text(encoding="utf-8"), json.dumps(data))
+        self.assertEqual(self.mf_path.stat().st_mtime_ns, before)
+        self.assertIn("pending.png", buf.getvalue())
+        self.assertNotIn("failed.png", buf.getvalue())
+        self.assertNotIn("done.png", buf.getvalue())
+
+    def test_run_manifest_dry_run_retry_failed_and_only_intersection(self):
+        data = {
+            "project": "sample",
+            "items": [
+                {"filename": "pending.png", "status": "Pending"},
+                {"filename": "failed.png", "status": "Failed"},
+                {"filename": "done.png", "status": "Generated"},
+            ],
+        }
+        self.mf_path.write_text(json.dumps(data), encoding="utf-8")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            ret = run_manifest(self.mf_path, only=["failed.png"], retry_failed=True, dry_run=True)
+        self.assertEqual(ret, 0)
+        self.assertIn("failed.png", buf.getvalue())
+        self.assertNotIn("pending.png", buf.getvalue())
+        self.assertNotIn("done.png", buf.getvalue())
+
+    def test_run_manifest_dry_run_force_selects_generated(self):
+        data = {"project": "sample", "items": [{"filename": "done.png", "status": "Generated"}]}
+        self.mf_path.write_text(json.dumps(data), encoding="utf-8")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            ret = run_manifest(self.mf_path, force=True, dry_run=True)
+        self.assertEqual(ret, 0)
+        self.assertIn("done.png", buf.getvalue())
+
 
 class TestCLI(unittest.TestCase):
     def test_cli_help(self):
@@ -583,7 +639,15 @@ class TestCLI(unittest.TestCase):
             only=["failed.png"],
             force=False,
             retry_failed=True,
+            dry_run=False,
         )
+
+    def test_cli_dry_run_rejects_check_conflict(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = main(["--dry-run", "--check"])
+        self.assertEqual(code, 2)
+        self.assertIn("--dry-run 只能与", buf.getvalue())
 
 
 if __name__ == "__main__":

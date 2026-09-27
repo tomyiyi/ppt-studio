@@ -401,6 +401,7 @@ def run_manifest(
     only: list[str] | None = None,
     force: bool = False,
     retry_failed: bool = False,
+    dry_run: bool = False,
     generate_fn: callable = generate,
 ) -> int:
     manifest_path = Path(manifest_path)
@@ -428,6 +429,16 @@ def run_manifest(
         )
         and (not only or it.get("filename") in only)
     ]
+
+    if dry_run:
+        print(f"· dry-run: 将处理 {len(todo)} 项")
+        for it in todo:
+            print(
+                f"  - {it.get('filename', '[未命名]')}"
+                f"  status={it.get('status', 'Pending')}"
+                f"  aspect_ratio={it.get('aspect_ratio', '16:9')}"
+            )
+        return 0
 
     print(f"· manifest {manifest_path.name}: 共 {len(items)} 项，待生 {len(todo)} 项")
     ok = fail = 0
@@ -523,7 +534,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--only", nargs="*", help="只处理这些 filename")
     ap.add_argument("--force", action="store_true", help="连 Generated 的也重跑")
     ap.add_argument("--retry-failed", action="store_true", help="重试 Pending 与 Failed，但不重跑 Generated")
+    ap.add_argument("--dry-run", action="store_true", help="只显示本次将处理的任务，不调用生图或修改文件")
     args = ap.parse_args(argv)
+
+    if args.dry_run and (args.prompt or args.render_md is not None or args.status or args.check):
+        print("[err] --dry-run 只能与 manifest/target、--only、--force、--retry-failed 配合")
+        return 2
 
     if args.prompt:
         if not (args.filename and args.project):
@@ -570,6 +586,7 @@ def main(argv: list[str] | None = None) -> int:
                 only=args.only,
                 force=args.force,
                 retry_failed=args.retry_failed,
+                dry_run=args.dry_run,
             )
         except Exception as e:
             print(f"[err] {e}")
