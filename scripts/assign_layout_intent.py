@@ -47,9 +47,12 @@ def assign_layout(slide: dict) -> str:
             raise ValueError("unsupported block type")
         paragraph_count += 1
     if has_image:
-        if image_count != 1 or paragraph_count > 1 or has_bullets or has_steps or has_quote or has_table:
+        if image_count not in {1, 2} or paragraph_count > 1 or has_bullets or has_steps or has_quote or has_table:
             raise ValueError("mixed image blocks are not supported in v1")
-        return "image-callout"
+        paths = [block.get("path") for block in blocks if block.get("type") == "image"]
+        if image_count == 2 and (not all(isinstance(path, str) and path for path in paths) or len(set(paths)) != 2):
+            raise ValueError("image paths must be distinct in v1")
+        return "image-comparison" if image_count == 2 else "image-callout"
     if has_bullets:
         if has_steps: raise ValueError("mixed bullets and ordered steps are not supported in v1")
         if has_quote: raise ValueError("mixed quote and bullets are not supported in v1")
