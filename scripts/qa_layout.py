@@ -385,8 +385,8 @@ def spec_polarity(spec_path):
     return "light" if lum(rgb) >= 0.5 else "dark"
 
 
-def check_contrast(img, root, polarity="dark"):
-    """对每段文本，取渲染图中文字包围盒：背景=20分位亮度，笔画=99.5分位亮度"""
+def check_contrast_detailed(img, root, polarity="dark"):
+    """返回对比度结果及文本 bbox，供既有门禁和可视化报告共同使用。"""
     rgb = np.asarray(img.convert("RGB"), dtype=np.float64)
     g = rgb.mean(axis=2)
     rows = []
@@ -435,8 +435,21 @@ def check_contrast(img, root, polarity="dark"):
         if L1 < L2:
             L1, L2 = L2, L1
         ratio = (L1 + 0.05) / (L2 + 0.05)
-        rows.append((ratio, txt, size))
+        rows.append({
+            "ratio": ratio,
+            "text": txt,
+            "size": size,
+            "bbox": (x0, y0, x1, y1),
+        })
     return rows
+
+
+def check_contrast(img, root, polarity="dark"):
+    """保持旧 API：只返回 (ratio, text, size) 三元组。"""
+    return [
+        (row["ratio"], row["text"], row["size"])
+        for row in check_contrast_detailed(img, root, polarity)
+    ]
 
 # ---------------------------------------------------------------- main
 def qa_single_layout(
