@@ -62,3 +62,7 @@ def _waterfall_roster(self):
     self.assertIn("waterfall-change", m.RENDERERS)
 
 Tests.test_waterfall_roster=_waterfall_roster
+
+def _grouped_roster(self):
+    self.assertIn("grouped-bar-comparison", m.RENDERERS)
+Tests.test_grouped_roster=_grouped_roster

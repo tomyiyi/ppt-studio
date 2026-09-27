@@ -178,3 +178,8 @@ def _waterfall_contract(self):
     self.assertEqual(plan["slides"][0]["blocks"][0]["type"], "waterfall-data")
 
 PlanMarkdownTests.test_waterfall_contract=_waterfall_contract
+
+def _grouped_contract(self):
+    plan=MODULE.build_plan("x.md", b"# T\n\n| Category | Before | After |\n| --- | --- | --- |\n| A | 1 | 2 |\n| B | 3 | 4 |\n| C | 5 | 6 |")
+    self.assertEqual(plan["slides"][0]["blocks"][0]["type"], "grouped-bar-data")
+PlanMarkdownTests.test_grouped_contract=_grouped_contract

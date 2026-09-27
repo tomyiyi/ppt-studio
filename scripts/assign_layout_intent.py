@@ -38,6 +38,7 @@ def assign_layout(slide: dict) -> str:
     has_trend = False
     has_composition = False
     has_waterfall = False
+    has_grouped_bar = False
     image_count = 0
     paragraph_count = 0
     for block in blocks:
@@ -105,6 +106,9 @@ def assign_layout(slide: dict) -> str:
         if block.get("type") == "waterfall-data":
             has_waterfall = True
             continue
+        if block.get("type") == "grouped-bar-data":
+            has_grouped_bar = True
+            continue
         if block.get("type") != "paragraph":
             raise ValueError("unsupported block type")
         paragraph_count += 1
@@ -148,6 +152,10 @@ def assign_layout(slide: dict) -> str:
     if has_composition:
         if len([b for b in blocks if b.get("type")=="composition-data"]) != 1 or any(b.get("type") != "composition-data" for b in blocks): raise ValueError("mixed composition-bar blocks are not supported in v1")
         return "composition-bar"
+    if has_grouped_bar:
+        if len([b for b in blocks if b.get("type")=="grouped-bar-data"]) != 1 or any(b.get("type") not in {"grouped-bar-data","paragraph"} for b in blocks) or paragraph_count > 1:
+            raise ValueError("mixed grouped-bar-comparison blocks are not supported in v1")
+        return "grouped-bar-comparison"
     if has_waterfall:
         if len([b for b in blocks if b.get("type")=="waterfall-data"]) != 1 or any(b.get("type") not in {"waterfall-data","paragraph"} for b in blocks) or paragraph_count > 1: raise ValueError("mixed waterfall-change blocks are not supported in v1")
         return "waterfall-change"

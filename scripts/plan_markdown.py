@@ -128,6 +128,21 @@ def parse_markdown(text: str) -> list[dict]:
                     if any(not r[0] or r[1] not in {"Low","Medium","High"} or r[2] not in {"Low","Medium","High"} for r in data): raise ValueError("decision matrix impact and effort must be Low, Medium, or High")
                     current["blocks"].append({"type":"decision-matrix","headers":rows[0],"rows":data})
                     continue
+                if rows[0] == ["Category", "Before", "After"]:
+                    if len(rows[1])!=3 or any(not re.fullmatch(r":?-{3,}:?", x) for x in rows[1]): raise ValueError("grouped bar alignment syntax is not supported")
+                    data=rows[2:]
+                    if not 3<=len(data)<=5 or any(len(x)!=3 or any(not cell for cell in x) for x in data): raise ValueError("grouped bar data requires 3-5 non-empty data rows")
+                    categories=[x[0] for x in data]
+                    if len(set(categories)) != len(categories): raise ValueError("grouped bar categories must be unique in v1")
+                    items=[]
+                    for row in data:
+                        values=[]
+                        for raw in row[1:]:
+                            if not re.fullmatch(r"(?:0|[1-9]\d{0,3})(?:\.\d{1,2})?", raw): raise ValueError("grouped bar values must be non-negative decimals up to 9999")
+                            values.append(float(raw))
+                        items.append({"category":row[0],"values":values})
+                    current["blocks"].append({"type":"grouped-bar-data","headers":rows[0],"series":["Before","After"],"items":items})
+                    continue
                 if rows[0] == ["Stage", "Owner", "Output"]:
                     if len(rows[1])!=3 or any(not re.fullmatch(r":?-{3,}:?", x) for x in rows[1]): raise ValueError("swimlane handoff alignment syntax is not supported")
                     data=rows[2:]

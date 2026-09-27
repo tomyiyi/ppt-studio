@@ -140,3 +140,7 @@ def _waterfall_layout(self):
     self.assertEqual(MODULE.assign_layout({"kind":"content","blocks":[{"type":"waterfall-data","items":[]}]}), "waterfall-change")
 
 AssignLayoutIntentTests.test_waterfall_layout=_waterfall_layout
+
+def _grouped_layout(self):
+    self.assertEqual(MODULE.assign_layout({"kind":"content","blocks":[{"type":"grouped-bar-data","items":[]}] }), "grouped-bar-comparison")
+AssignLayoutIntentTests.test_grouped_layout=_grouped_layout
