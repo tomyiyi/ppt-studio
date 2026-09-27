@@ -14,6 +14,8 @@ _ORDERED = re.compile(r"^[ \t]*(\d+)[.]\s+(.+?)[ \t]*$")
 _QUOTE = re.compile(r"^>[ \t]+(.+?)[ \t]*$")
 _TABLE = re.compile(r"^\|(.+)\|[ \t]*$")
 _IMAGE = re.compile(r"^!\[([^\]]+)\]\(([^)]+)\)[ \t]*$")
+_CODE_OPEN = re.compile(r"^```([A-Za-z0-9_+\-]{0,16})[ \t]*$")
+_CODE_LANGUAGES = {"python", "bash", "json", "typescript", "sql"}
 
 
 def _parse_image(line: str) -> dict | None:
@@ -43,11 +45,29 @@ def parse_markdown(text: str) -> list[dict]:
     current: dict | None = None
     i = 0
     h1_count = 0
-    in_fence = False
     while i < len(lines):
         line = lines[i]
+        code_open = _CODE_OPEN.match(line)
+        if code_open:
+            language = code_open.group(1).lower()
+            if language and language not in _CODE_LANGUAGES:
+                raise ValueError(f"unsupported code language: {language}")
+            i += 1
+            code_lines = []
+            while i < len(lines) and not re.fullmatch(r"```[ \t]*", lines[i]):
+                if lines[i].startswith("```"):
+                    raise ValueError("nested fenced code block is not supported")
+                if lines[i].strip():
+                    code_lines.append(lines[i])
+                i += 1
+            if i >= len(lines):
+                raise ValueError("unclosed fenced code block")
+            if not 2 <= len(code_lines) <= 8:
+                raise ValueError("code block requires 2-8 non-empty code lines")
+            current["blocks"].append({"type": "code", "language": language, "lines": code_lines})
+            i += 1
+            continue
         if line.strip().startswith("```"):
-            in_fence = not in_fence
             raise ValueError("unsupported markdown structure: fenced code block")
         if not line.strip():
             i += 1
@@ -140,7 +160,7 @@ def parse_markdown(text: str) -> list[dict]:
             continue
         paragraph = [line.strip()]
         i += 1
-        while i < len(lines) and lines[i].strip() and not _HEADING.match(lines[i]) and not _BULLET.match(lines[i]) and not _ORDERED.match(lines[i]) and not _QUOTE.match(lines[i]) and not _IMAGE.match(lines[i]):
+        while i < len(lines) and lines[i].strip() and not _HEADING.match(lines[i]) and not _BULLET.match(lines[i]) and not _ORDERED.match(lines[i]) and not _QUOTE.match(lines[i]) and not _IMAGE.match(lines[i]) and not _CODE_OPEN.match(lines[i]):
             if lines[i].lstrip().startswith("|"):
                 raise ValueError("unsupported markdown structure: table")
             paragraph.append(lines[i].strip())
