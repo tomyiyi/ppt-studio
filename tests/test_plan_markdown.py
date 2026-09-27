@@ -12,6 +12,9 @@ SPEC.loader.exec_module(MODULE)
 
 
 class PlanMarkdownTests(unittest.TestCase):
+    def test_quote_block_and_attribution(self):
+        plan=MODULE.build_plan("x.md", "# D\n\n## Principle\n> First line\n> Second line\n> — AgentFlow".encode())
+        self.assertEqual(plan["slides"][1]["blocks"],[{"type":"quote","lines":["First line","Second line"],"attribution":"AgentFlow"}])
     def test_basic_slide_plan(self):
         plan = MODULE.build_plan("article.md", b"# Deck\nIntro\n\n## One\nBody\n\n## Two\nMore")
         self.assertEqual([slide["kind"] for slide in plan["slides"]], ["cover", "content", "content"])

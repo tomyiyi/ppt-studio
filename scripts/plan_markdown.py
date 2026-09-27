@@ -11,6 +11,7 @@ from pathlib import Path
 _HEADING = re.compile(r"^(#{1,3})[ \t]+(.+?)[ \t]*$")
 _BULLET = re.compile(r"^[ \t]*([-*])[ \t]+(.+?)[ \t]*$")
 _ORDERED = re.compile(r"^[ \t]*(\d+)[.]\s+(.+?)[ \t]*$")
+_QUOTE = re.compile(r"^>[ \t]+(.+?)[ \t]*$")
 
 
 def _normalise_lines(text: str) -> list[str]:
@@ -82,9 +83,27 @@ def parse_markdown(text: str) -> list[dict]:
                 i += 1
             current["blocks"].append({"type": "steps", "items": items})
             continue
+        quote = _QUOTE.match(line)
+        if quote:
+            raw=[]
+            while i < len(lines):
+                item=_QUOTE.match(lines[i])
+                if not item: break
+                raw.append(item.group(1).strip()); i += 1
+            if not raw or any(not x for x in raw): raise ValueError("empty quote content is not supported")
+            attribution=None
+            if raw[-1].startswith("—"):
+                attribution=raw.pop()[1:].strip()
+                if not attribution: raise ValueError("empty quote attribution is not supported")
+            if any(x.startswith("—") for x in raw): raise ValueError("quote attribution must be the final blockquote line")
+            if not 1 <= len(raw) <= 2: raise ValueError("quote block supports 1-2 quote lines in v1")
+            block={"type":"quote","lines":raw}
+            if attribution: block["attribution"]=attribution
+            current["blocks"].append(block)
+            continue
         paragraph = [line.strip()]
         i += 1
-        while i < len(lines) and lines[i].strip() and not _HEADING.match(lines[i]) and not _BULLET.match(lines[i]) and not _ORDERED.match(lines[i]):
+        while i < len(lines) and lines[i].strip() and not _HEADING.match(lines[i]) and not _BULLET.match(lines[i]) and not _ORDERED.match(lines[i]) and not _QUOTE.match(lines[i]):
             if lines[i].lstrip().startswith("|"):
                 raise ValueError("unsupported markdown structure: table")
             paragraph.append(lines[i].strip())

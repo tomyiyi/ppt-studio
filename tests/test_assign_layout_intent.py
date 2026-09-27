@@ -16,6 +16,11 @@ def plan(slides):
 
 
 class AssignLayoutIntentTests(unittest.TestCase):
+    def test_quote_layout_and_mixed_rejected(self):
+        source=b"{}"; q={"type":"quote","lines":["a"]}
+        self.assertEqual(MODULE.build_intent(plan([{"id":"01","kind":"content","blocks":[q]}]),source)["slides"][0]["layout"],"quote-callout")
+        with self.assertRaisesRegex(ValueError,"mixed paragraph"):
+            MODULE.build_intent(plan([{"id":"01","kind":"content","blocks":[{"type":"paragraph","text":"x"},q]}]),source)
     def test_empty_content_maps_to_section_divider_and_one_paragraph_stays_statement(self):
         source = b"source"
         intent = MODULE.build_intent(plan([

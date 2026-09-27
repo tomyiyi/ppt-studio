@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse, hashlib, json, shutil, subprocess, sys, tempfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parent
-RENDERERS={"cover":ROOT/"render_cover_svg.py","section-divider":ROOT/"render_section_divider_svg.py","statement":ROOT/"render_statement_svg.py","statement-split":ROOT/"render_split_statement_svg.py","statement-list":ROOT/"render_statement_list_svg.py","process-steps":ROOT/"render_process_steps_svg.py"}
+RENDERERS={"cover":ROOT/"render_cover_svg.py","section-divider":ROOT/"render_section_divider_svg.py","statement":ROOT/"render_statement_svg.py","statement-split":ROOT/"render_split_statement_svg.py","statement-list":ROOT/"render_statement_list_svg.py","process-steps":ROOT/"render_process_steps_svg.py","quote-callout":ROOT/"render_quote_callout_svg.py"}
 def fail(message): raise ValueError(message)
 def load(path):
     raw=path.read_bytes(); value=json.loads(raw)
@@ -20,7 +20,7 @@ def expected_files(plan,intent,raw):
     for slide,item in zip(slides,intents):
         layout=item.get("layout")
         if layout not in RENDERERS: fail(f"unsupported layout: {layout}")
-        names={"section-divider":"section_divider","statement-list":"statement_list","statement-split":"statement_split","process-steps":"process_steps"}
+        names={"section-divider":"section_divider","statement-list":"statement_list","statement-split":"statement_split","process-steps":"process_steps","quote-callout":"quote_callout"}
         result.append(f"{slide.get('id')}_{names.get(layout,layout)}.svg")
     return result
 def run_renderer(renderer,plan,intent,spec,output): subprocess.run([sys.executable,str(renderer),str(plan),str(intent),"--spec",str(spec),"-o",str(output)],check=True)
@@ -38,7 +38,7 @@ def main(argv=None):
         a.output.mkdir(parents=True,exist_ok=True)
         for x in staging.glob("*.svg"): shutil.move(str(x),a.output/x.name)
     counts={layout:sum(item.get("layout")==layout for item in intent["slides"]) for layout in RENDERERS}
-    print(f"CONTENT_PROJECT_MATERIALIZED slides={len(expected)} cover={counts['cover']} section-divider={counts['section-divider']} statement-list={counts['statement-list']} statement={counts['statement']} statement-split={counts['statement-split']} process-steps={counts['process-steps']}")
+    print(f"CONTENT_PROJECT_MATERIALIZED slides={len(expected)} cover={counts['cover']} section-divider={counts['section-divider']} statement-list={counts['statement-list']} statement={counts['statement']} statement-split={counts['statement-split']} process-steps={counts['process-steps']} quote-callout={counts['quote-callout']}")
     return 0
 if __name__=="__main__":
     try: raise SystemExit(main())
