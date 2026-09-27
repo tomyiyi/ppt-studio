@@ -40,6 +40,7 @@ def assign_layout(slide: dict) -> str:
     has_waterfall = False
     has_grouped_bar = False
     has_cycle = False
+    has_scatter = False
     image_count = 0
     paragraph_count = 0
     for block in blocks:
@@ -113,6 +114,9 @@ def assign_layout(slide: dict) -> str:
         if block.get("type") == "cycle-stages":
             has_cycle = True
             continue
+        if block.get("type") == "scatter-data":
+            has_scatter = True
+            continue
         if block.get("type") != "paragraph":
             raise ValueError("unsupported block type")
         paragraph_count += 1
@@ -166,6 +170,10 @@ def assign_layout(slide: dict) -> str:
     if has_cycle:
         if len([b for b in blocks if b.get("type")=="cycle-stages"]) != 1 or any(b.get("type") not in {"cycle-stages","paragraph"} for b in blocks) or paragraph_count > 1: raise ValueError("mixed cycle-loop blocks are not supported in v1")
         return "cycle-loop"
+    if has_scatter:
+        if len([b for b in blocks if b.get("type")=="scatter-data"]) != 1 or any(b.get("type") not in {"scatter-data","paragraph"} for b in blocks) or paragraph_count > 1:
+            raise ValueError("mixed scatter-plot blocks are not supported in v1")
+        return "scatter-plot"
     if has_risk:
         if paragraph_count or has_steps or has_quote or has_table or has_image or has_bullets:
             raise ValueError("mixed risk-register blocks are not supported in v1")
