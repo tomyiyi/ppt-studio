@@ -62,7 +62,7 @@ def package(bundle: Path, report: Path, output: Path) -> None:
                 info.external_attr = 0o100644 << 16
                 outer.writestr(info, (staging / name).read_bytes())
         os.replace(temporary, output)
-        print(f"CONTENT_RELEASE_PACKAGED slides={manifest['slides']} entries=3")
+        print(f"CONTENT_RELEASE_PACKAGED slides={manifest['slides']} files=3")
     except BaseException:
         temporary.unlink(missing_ok=True)
         raise
