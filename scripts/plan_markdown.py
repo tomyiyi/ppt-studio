@@ -190,6 +190,15 @@ def parse_markdown(text: str) -> list[dict]:
                     items.append({"driver":row[0],"delta":value})
                 current["blocks"].append({"type":"waterfall-data","headers":rows[0],"items":items})
                 continue
+            if rows[0] == ["Stage", "Detail"]:
+                if len(rows[1])!=2 or any(not re.fullmatch(r":?-{3,}:?", x) for x in rows[1]): raise ValueError("cycle stage alignment syntax is not supported")
+                data=rows[2:]
+                if not 3<=len(data)<=5 or any(len(x)!=2 or not x[0] or not x[1] for x in data): raise ValueError("cycle stages require 3-5 non-empty data rows")
+                stages=[x[0] for x in data]
+                if len(set(stages)) != len(stages): raise ValueError("cycle stages must be unique in v1")
+                if any(len(x[0])>16 or len(x[1])>24 for x in data): raise ValueError("cycle stage exceeds budget")
+                current["blocks"].append({"type":"cycle-stages","headers":rows[0],"items":[{"stage":x[0],"detail":x[1]} for x in data]})
+                continue
             if rows[0] == ["Period", "Value"]:
                 if len(rows[1])!=2 or any(not re.fullmatch(r":?-{3,}:?", x) for x in rows[1]): raise ValueError("trend series alignment syntax is not supported")
                 data=rows[2:]
