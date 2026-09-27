@@ -19,7 +19,14 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.build_preview import build_preview, resolve_src_dir, inline_images, extract_aspect, main
+from scripts.build_preview import (
+    build_preview,
+    resolve_src_dir,
+    resolve_project_meta,
+    inline_images,
+    extract_aspect,
+    main,
+)
 
 
 def create_minimal_svg(svg_path: Path, title: str = "智流 OS 测试") -> None:
@@ -277,6 +284,205 @@ class TestInlineImagesAndExtractAspect(unittest.TestCase):
 
             missing = '<image href="not_exists.png" />'
             self.assertEqual(inline_images(missing, tmp), missing)
+
+
+    def test_inline_images_with_query_params(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            img_file = tmp / "diagram.png"
+            img_file.write_bytes(b"\x89PNG\r\n\x1a\ndata")
+            svg_snippet = '<svg><image href="diagram.png?version=1.2#crop" width="10" height="10" /></svg>'
+            inlined = inline_images(svg_snippet, tmp)
+            self.assertIn("data:image/png;base64,", inlined)
+
+
+class TestCardsResolution(unittest.TestCase):
+    def test_explicit_project_with_cards_flag(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "deck"
+            create_minimal_svg(proj / "svg_output" / "01.svg")
+            create_minimal_svg(proj / "cards" / "01.svg")
+
+            res_slides = resolve_src_dir(str(proj), cards=False)
+            self.assertEqual(res_slides, (proj / "svg_output").resolve())
+
+            res_cards = resolve_src_dir(str(proj), cards=True)
+            self.assertEqual(res_cards, (proj / "cards").resolve())
+
+    def test_fallback_to_cards_when_no_svg_output(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "cards_only"
+            create_minimal_svg(proj / "cards" / "01.svg")
+
+            res = resolve_src_dir(str(proj), cards=False)
+            self.assertEqual(res, (proj / "cards").resolve())
+
+    def test_auto_discovery_cards_mode(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir)
+            proj = base / "projects" / "my_cards"
+            create_minimal_svg(proj / "cards" / "01.svg")
+
+            res = resolve_src_dir(None, base_dir=base, cards=True)
+            self.assertEqual(res, (proj / "cards").resolve())
+
+
+class TestResolveProjectMeta(unittest.TestCase):
+    def test_meta_from_spec_lock(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "agent_proj"
+            svg_dir = proj / "svg_output"
+            svg_dir.mkdir(parents=True)
+            spec_lock = proj / "spec_lock.md"
+            spec_lock.write_text(
+                "## communication\n- objective: 发布智流 Agent\n\n"
+                "## colors\n- accent: #10B981\n- background: #0A0A0E\n- surface: #16171E\n",
+                encoding="utf-8",
+            )
+            create_minimal_svg(svg_dir / "01_cover.svg")
+
+            meta = resolve_project_meta(svg_dir)
+            self.assertEqual(meta["title"], "智流 Agent")
+            self.assertEqual(meta["accent"], "#10B981")
+            self.assertEqual(meta["background"], "#0A0A0E")
+            self.assertEqual(meta["surface"], "#16171E")
+
+    def test_meta_from_card_spec(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "card_proj"
+            cards_dir = proj / "cards"
+            cards_dir.mkdir(parents=True)
+            card_spec = proj / "card_spec.md"
+            card_spec.write_text(
+                "# 卡片契约\ntitle: 灵动矩阵\n\n## colors\naccent #F59E0B\nbg #050505\n",
+                encoding="utf-8",
+            )
+            create_minimal_svg(cards_dir / "01_cover.svg")
+
+            meta = resolve_project_meta(cards_dir)
+            self.assertEqual(meta["title"], "灵动矩阵")
+            self.assertEqual(meta["accent"], "#F59E0B")
+            self.assertEqual(meta["background"], "#050505")
+
+    def test_meta_from_cover_svg(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            svg_dir = Path(tmp_dir) / "custom_svgs"
+            svg_dir.mkdir()
+            svg_path = svg_dir / "01_cover.svg"
+            svg_path.write_text(
+                '<svg viewBox="0 0 1280 720"><text font-size="96">星火飞跃</text></svg>',
+                encoding="utf-8",
+            )
+            meta = resolve_project_meta(svg_dir)
+            self.assertEqual(meta["title"], "星火飞跃")
+
+    def test_meta_fallback_project_dir_name(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "quantum-nexus-deck"
+            svg_dir = proj / "svg_output"
+            svg_dir.mkdir(parents=True)
+            create_minimal_svg(svg_dir / "slide.svg", "内容")
+
+            meta = resolve_project_meta(svg_dir)
+            self.assertEqual(meta["title"], "Quantum Nexus Deck")
+
+
+    def test_meta_ignores_numeric_typography_title(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "numeric_title_proj"
+            svg_dir = proj / "svg_output"
+            svg_dir.mkdir(parents=True)
+            spec_lock = proj / "spec_lock.md"
+            spec_lock.write_text(
+                "## communication\n- objective: 发布量子跃迁引擎\n\n## typography\n- title: 32\n",
+                encoding="utf-8",
+            )
+            create_minimal_svg(svg_dir / "01_cover.svg")
+
+            meta = resolve_project_meta(svg_dir)
+            self.assertEqual(meta["title"], "量子跃迁引擎")
+
+
+class TestQualityGateCheck(unittest.TestCase):
+    def test_build_preview_with_check_success(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            svg_dir = tmp / "svgs"
+            create_minimal_svg(svg_dir / "01_cover.svg", "第一页")
+            create_minimal_svg(svg_dir / "02_detail.svg", "第二页")
+            out_file = tmp / "checked_preview.html"
+
+            res = build_preview(svg_dir, out_file, title="测试质检通过", check=True)
+            self.assertEqual(res, out_file)
+            self.assertTrue(out_file.exists())
+
+    def test_build_preview_check_failure(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            svg_dir = tmp / "svgs"
+            svg_dir.mkdir()
+            # 写入比例严重不一致的两个 SVG，触发 qa_preview 门禁失败
+            (svg_dir / "01.svg").write_text('<svg viewBox="0 0 1280 720"><text>1</text></svg>', encoding="utf-8")
+            (svg_dir / "02.svg").write_text('<svg viewBox="0 0 1080 1350"><text>2</text></svg>', encoding="utf-8")
+            out_file = tmp / "fail_preview.html"
+
+            with self.assertRaises(RuntimeError) as ctx:
+                build_preview(svg_dir, out_file, title="失败测试", check=True)
+            self.assertIn("未通过", str(ctx.exception))
+
+
+class TestCLIAdvancedFlags(unittest.TestCase):
+    def test_cli_cards_flag(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "deck"
+            create_minimal_svg(proj / "svg_output" / "01.svg")
+            card_file = proj / "cards" / "01_card.svg"
+            create_minimal_svg(card_file, "卡片首屏")
+            out_file = proj / "out_cards.html"
+
+            script = REPO_ROOT / "scripts" / "build_preview.py"
+            res = subprocess.run(
+                [sys.executable, str(script), str(proj), str(out_file), "--cards"],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(res.returncode, 0, msg=f"CLI failed: {res.stderr}")
+            self.assertTrue(out_file.exists())
+            html = out_file.read_text(encoding="utf-8")
+            self.assertIn("卡片首屏", html)
+
+    def test_cli_check_flag(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "deck"
+            create_minimal_svg(proj / "svg_output" / "01.svg", "页1")
+            create_minimal_svg(proj / "svg_output" / "02.svg", "页2")
+            out_file = proj / "out_checked.html"
+
+            script = REPO_ROOT / "scripts" / "build_preview.py"
+            res = subprocess.run(
+                [sys.executable, str(script), str(proj / "svg_output"), str(out_file), "门禁测试", "--check"],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(res.returncode, 0, msg=f"CLI failed: {res.stderr}")
+            self.assertTrue(out_file.exists())
+            self.assertIn("客观质量门禁通过", res.stdout)
+
+    def test_cli_title_override_flag(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "deck"
+            create_minimal_svg(proj / "svg_output" / "01.svg")
+            out_file = proj / "out_title.html"
+
+            script = REPO_ROOT / "scripts" / "build_preview.py"
+            res = subprocess.run(
+                [sys.executable, str(script), str(proj / "svg_output"), str(out_file), "--title-override", "覆盖标题"],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(res.returncode, 0, msg=f"CLI failed: {res.stderr}")
+            html = out_file.read_text(encoding="utf-8")
+            self.assertIn("<title>覆盖标题</title>", html)
 
 
 if __name__ == "__main__":

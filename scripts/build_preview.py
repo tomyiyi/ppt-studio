@@ -18,6 +18,17 @@ import re
 import sys
 from pathlib import Path
 
+try:
+    from scripts.qa_preview import run_qa_slide_preview
+except ImportError:
+    repo_root = Path(__file__).resolve().parent.parent
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    try:
+        from scripts.qa_preview import run_qa_slide_preview
+    except ImportError:
+        run_qa_slide_preview = None
+
 # 支持标准 href 与 xlink:href，支持双引号与单引号，支持属性前后空格与大小写
 IMAGE_RE = re.compile(
     r'(<image\b[^>]*?\b(?:href|xlink:href)\s*=\s*["\'])([^"\']+)(["\'])',
@@ -33,7 +44,9 @@ def inline_images(t: str, svg_dir: str | Path) -> str:
         href = m.group(2).strip()
         if href.startswith("data:"):
             return m.group(0)
-        p = Path(href)
+        # 兼容 URL query 或 fragment (如 photo.png?v=1)
+        clean_href = href.split("?")[0].split("#")[0]
+        p = Path(clean_href)
         if not p.is_absolute():
             p = (svg_dir_path / p).resolve()
         else:
@@ -46,6 +59,88 @@ def inline_images(t: str, svg_dir: str | Path) -> str:
         return f"{m.group(1)}data:{mime};base64,{b64}{m.group(3)}"
 
     return IMAGE_RE.sub(repl, t)
+
+
+def resolve_project_meta(src_dir: Path) -> dict:
+    """从 spec_lock.md、card_spec.md 或封面 SVG 中提取品牌色板与项目大标题。"""
+    meta = {
+        "title": "智流 OS",
+        "accent": "#6E7BFF",
+        "background": "#08090C",
+        "surface": "#12131A",
+        "divider": "#23242E",
+        "primary_text": "#F7F7F9",
+        "tertiary_text": "#7F8090",
+    }
+    proj_dir = src_dir.parent if src_dir.name in ("svg_output", "cards") else src_dir
+
+    found_spec_title = False
+    for spec_name in ("spec_lock.md", "card_spec.md"):
+        spec_path = proj_dir / spec_name
+        if spec_path.is_file():
+            try:
+                content = spec_path.read_text(encoding="utf-8")
+                # 提取色彩配置
+                m_acc = re.search(r"[-*]?\s*accent\s*[:=\s]\s*(#[0-9a-fA-F]{3,8})", content)
+                if m_acc:
+                    meta["accent"] = m_acc.group(1).upper()
+                m_bg = re.search(r"[-*]?\s*background\s*[:=\s]\s*(#[0-9a-fA-F]{3,8})", content)
+                if not m_bg:
+                    m_bg = re.search(r"[-*]?\s*bg\s*[:=\s]\s*(#[0-9a-fA-F]{3,8})", content)
+                if m_bg:
+                    meta["background"] = m_bg.group(1).upper()
+                m_surf = re.search(r"[-*]?\s*surface\s*[:=\s]\s*(#[0-9a-fA-F]{3,8})", content)
+                if m_surf:
+                    meta["surface"] = m_surf.group(1).upper()
+                m_div = re.search(r"[-*]?\s*(?:divider|rule)\s*[:=\s]\s*(#[0-9a-fA-F]{3,8})", content)
+                if m_div:
+                    meta["divider"] = m_div.group(1).upper()
+
+                # 提取标题
+                if not found_spec_title:
+                    m_title = re.search(r"^[-*]?\s*title\s*[:=]\s*(.+)", content, re.M)
+                    if m_title:
+                        cand = m_title.group(1).split("#")[0].strip().strip('"\'')
+                        # 排除 typography 中的字号定义（如 title: 32）
+                        if cand and not cand.isdigit() and len(cand) <= 40:
+                            meta["title"] = cand
+                            found_spec_title = True
+                    if not found_spec_title:
+                        m_obj = re.search(r"^[-*]?\s*objective\s*[:=]\s*(.+)", content, re.M)
+                        if m_obj:
+                            cand_obj = m_obj.group(1).split("#")[0].strip().strip('"\'')
+                            m_launch = re.search(r"发布(.+?)(?:[，,。]|$)", cand_obj)
+                            if m_launch:
+                                meta["title"] = m_launch.group(1).strip()
+                                found_spec_title = True
+            except Exception:
+                pass
+
+    if not found_spec_title and src_dir.is_dir():
+        svg_cands = sorted(src_dir.glob("*.svg"))
+        if svg_cands:
+            cover_svg = next(
+                (f for f in svg_cands if "cover" in f.name.lower() or f.name.startswith("01")),
+                svg_cands[0],
+            )
+            try:
+                svg_txt = cover_svg.read_text(encoding="utf-8")
+                m_text = re.search(
+                    r'<text\b[^>]*\bfont-size=["\'](?:9[0-9]|1[0-9]{2})["\'][^>]*>(?:<tspan[^>]*>)?([^<]+)',
+                    svg_txt,
+                )
+                if m_text:
+                    cand_title = m_text.group(1).strip()
+                    if cand_title:
+                        meta["title"] = cand_title
+                        found_spec_title = True
+            except Exception:
+                pass
+
+    if not found_spec_title and proj_dir.name not in ("", ".", "ppt-studio", "svg_output", "cards"):
+        meta["title"] = proj_dir.name.replace("-", " ").title()
+
+    return meta
 
 
 def extract_aspect(svg_text: str) -> tuple[float, float]:
@@ -75,24 +170,18 @@ def extract_aspect(svg_text: str) -> tuple[float, float]:
 def resolve_src_dir(
     src_arg: str | Path | None = None,
     base_dir: str | Path | None = None,
+    cards: bool = False,
 ) -> Path:
     """自适应探测包含 SVG 画布的源目录。
 
-    保留显式 src 参数行为；
-    未传时从当前目录或 projects/ 下安全自动发现唯一有效项目的 svg_output。
+    1. 保留显式 src 参数行为：
+       - 若是目录且直接包含 *.svg，直接返回（若指定 cards 且 cards/ 存在则优先 cards/）；
+       - 若是项目目录：
+         - cards=True 时优先查找 cards/*.svg，次选 svg_output/*.svg；
+         - cards=False 时优先查找 svg_output/*.svg，次选 cards/*.svg；
+       - 路径不存在则抛出 FileNotFoundError。
+    2. 未传时从当前目录或 projects/ 下安全自动发现唯一有效项目。
     """
-    if src_arg is not None and str(src_arg).strip() not in ("", "-"):
-        p = Path(src_arg)
-        if not p.is_absolute() and base_dir is not None:
-            p = (Path(base_dir) / p).resolve()
-        else:
-            p = p.resolve()
-        if not p.exists():
-            raise FileNotFoundError(f"指定的源目录不存在: {src_arg}")
-        if p.is_dir() and not any(p.glob("*.svg")) and (p / "svg_output").is_dir() and any((p / "svg_output").glob("*.svg")):
-            return (p / "svg_output").resolve()
-        return p
-
     base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
 
     def has_svg_files(p: Path) -> bool:
@@ -101,15 +190,51 @@ def resolve_src_dir(
     def has_svg_output(p: Path) -> bool:
         return has_svg_files(p / "svg_output")
 
-    # 1. 当前工作目录本身是 svg_output 且包含 svg 文件
-    if base.name == "svg_output" and has_svg_files(base):
-        return base
+    def has_cards(p: Path) -> bool:
+        return has_svg_files(p / "cards")
 
-    # 2. 当前目录直接包含有效 svg_output（且不是包含 projects/ 的工作区根目录）
-    if not (base / "projects").is_dir() and has_svg_output(base):
-        return (base / "svg_output").resolve()
+    if src_arg is not None and str(src_arg).strip() not in ("", "-"):
+        p = Path(src_arg)
+        if not p.is_absolute() and base_dir is not None:
+            p = (Path(base_dir) / p).resolve()
+        else:
+            p = p.resolve()
+        if not p.exists():
+            raise FileNotFoundError(f"指定的源目录不存在: {src_arg}")
 
-    # 3. 从 projects/ 目录下安全发现
+        if cards:
+            if has_cards(p):
+                return (p / "cards").resolve()
+            if has_svg_files(p):
+                return p
+            if has_svg_output(p):
+                return (p / "svg_output").resolve()
+            return p
+
+        # cards == False
+        if not any(p.glob("*.svg")):
+            if has_svg_output(p):
+                return (p / "svg_output").resolve()
+            if has_cards(p):
+                return (p / "cards").resolve()
+        return p
+
+    # 未指定 src_arg 时自动发现
+    if cards:
+        if base.name == "cards" and has_svg_files(base):
+            return base
+        if not (base / "projects").is_dir() and has_cards(base):
+            return (base / "cards").resolve()
+    else:
+        if base.name == "svg_output" and has_svg_files(base):
+            return base
+        if base.name == "cards" and has_svg_files(base):
+            return base
+        if not (base / "projects").is_dir() and has_svg_output(base):
+            return (base / "svg_output").resolve()
+        if not (base / "projects").is_dir() and has_cards(base):
+            return (base / "cards").resolve()
+
     candidate_projects_dirs: list[Path] = []
     if base.is_dir() and base.name == "projects":
         candidate_projects_dirs.append(base)
@@ -130,37 +255,60 @@ def resolve_src_dir(
 
     for p_dir in candidate_projects_dirs:
         for sub in sorted(p_dir.iterdir()):
-            if sub.is_dir() and has_svg_output(sub):
-                r_sub = (sub / "svg_output").resolve()
-                if r_sub not in seen:
-                    seen.add(r_sub)
-                    found.append(r_sub)
+            if not sub.is_dir():
+                continue
+            if cards:
+                if has_cards(sub):
+                    r_sub = (sub / "cards").resolve()
+                    if r_sub not in seen:
+                        seen.add(r_sub)
+                        found.append(r_sub)
+            else:
+                if has_svg_output(sub):
+                    r_sub = (sub / "svg_output").resolve()
+                    if r_sub not in seen:
+                        seen.add(r_sub)
+                        found.append(r_sub)
+                elif has_cards(sub):
+                    r_sub = (sub / "cards").resolve()
+                    if r_sub not in seen:
+                        seen.add(r_sub)
+                        found.append(r_sub)
         if found:
             break
 
-    # 4. 若 projects/ 下未找到，但 base 本身有 svg_output/*.svg（兜底）
-    if not found and has_svg_output(base):
-        return (base / "svg_output").resolve()
+    if not found:
+        if cards and has_cards(base):
+            return (base / "cards").resolve()
+        elif not cards:
+            if has_svg_output(base):
+                return (base / "svg_output").resolve()
+            elif has_cards(base):
+                return (base / "cards").resolve()
 
     if len(found) == 1:
         return found[0]
     elif len(found) == 0:
+        target_name = "cards/*.svg" if cards else "svg_output/*.svg"
         raise FileNotFoundError(
-            "未在当前目录或 projects/ 下发现包含 svg_output/*.svg 的有效项目，请显式指定 src 参数"
+            f"未在当前目录或 projects/ 下发现包含 {target_name} 的有效项目，请显式指定 src 参数"
         )
     else:
         names = ", ".join(p.parent.name for p in found)
+        target_name = "cards" if cards else "svg_output"
         raise ValueError(
-            f"发现多个包含 svg_output 的有效项目 ({names})，无法安全确定，请显式指定 src 参数"
+            f"发现多个包含 {target_name} 的有效项目 ({names})，无法安全确定，请显式指定 src 参数"
         )
 
 
 def build_preview(
     src: str | Path | None = None,
     out: str | Path = "output/预览.html",
-    title: str = "智流 OS · 幻灯片预览",
-) -> None:
-    src_path = resolve_src_dir(src)
+    title: str | None = None,
+    cards: bool = False,
+    check: bool = False,
+) -> Path:
+    src_path = resolve_src_dir(src, cards=cards)
     out_path = Path(out).resolve()
 
     if not src_path.is_dir():
@@ -171,32 +319,72 @@ def build_preview(
         raise FileNotFoundError(f"目录内无 SVG 文件: {src_path}")
 
     svgs = []
+    aspects = []
     for f in svg_files:
         t = f.read_text(encoding="utf-8")
         t = re.sub(r"\s*<\?xml[^>]*\?>", "", t)
         t = inline_images(t, src_path)
         svgs.append(t)
+        aspects.append(extract_aspect(t))
 
-    w, h = extract_aspect(svgs[0]) if svgs else (1280.0, 720.0)
+    # 画幅与纵横比跨页一致性检测
+    w0, h0 = aspects[0] if aspects else (1280.0, 720.0)
+    r0 = w0 / h0 if h0 > 0 else (16.0 / 9.0)
+    for f, (w_i, h_i) in zip(svg_files[1:], aspects[1:]):
+        r_i = w_i / h_i if h_i > 0 else r0
+        if abs(r_i - r0) / r0 > 0.05:
+            print(
+                f"  [warn] 跨页画幅比例不统一: 首页 {w0:.0f}×{h0:.0f} (比值 {r0:.3f}) vs {f.name} {w_i:.0f}×{h_i:.0f} (比值 {r_i:.3f})"
+            )
+
+    w, h = w0, h0
     vw_h = (h / w) * 100.0
     vh_w = (w / h) * 100.0
 
     slides = "\n".join(f'  <div class="slide{" active" if i == 0 else ""}">{s}</div>' for i, s in enumerate(svgs))
     n = len(svgs)
 
+    meta = resolve_project_meta(src_path)
+    is_cards_mode = cards or (src_path.name == "cards")
+
+    if title is None or not str(title).strip():
+        proj_title = meta.get("title", "智流 OS")
+        sub_title = "卡片集" if is_cards_mode else "幻灯片预览"
+        final_title = f"{proj_title} · {sub_title}"
+    else:
+        final_title = str(title).strip()
+
+    bg = meta.get("background", "#08090C")
+    divider = meta.get("divider", "#23242E")
+    accent = meta.get("accent", "#6E7BFF")
+    primary_text = meta.get("primary_text", "#F7F7F9")
+    tertiary_text = meta.get("tertiary_text", "#7F8090")
+
+    def _hex_to_rgba(hex_code: str, alpha: float) -> str:
+        h_str = hex_code.lstrip("#")
+        if len(h_str) == 6:
+            try:
+                r_c, g_c, b_c = int(h_str[0:2], 16), int(h_str[2:4], 16), int(h_str[4:6], 16)
+                return f"rgba({r_c},{g_c},{b_c},{alpha})"
+            except ValueError:
+                pass
+        return f"rgba(110,123,255,{alpha})"
+
+    hover_bg = _hex_to_rgba(accent, 0.3)
+
     html = f"""<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>{title}</title><style>
+<title>{final_title}</title><style>
 *{{margin:0;padding:0;box-sizing:border-box}}
-body{{background:#05060a;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow:hidden}}
+body{{background:{bg};font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow:hidden}}
 .stage{{width:100vw;height:100vh;display:flex;align-items:center;justify-content:center}}
 .slide{{display:none;width:100vw;height:{vw_h:.2f}vw;max-height:100vh;max-width:{vh_w:.2f}vh}}
 .slide.active{{display:block}}.slide svg{{width:100%;height:100%;display:block}}
 .nav{{position:fixed;bottom:18px;right:22px;display:flex;gap:10px;z-index:50}}
-.nav button{{background:rgba(18,19,26,.85);border:1px solid #23242E;color:#F7F7F9;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;backdrop-filter:blur(6px)}}
-.nav button:hover{{background:rgba(110,123,255,.3);border-color:#6E7BFF}}
-.ind{{position:fixed;bottom:24px;left:22px;color:#5A5B66;font-size:12px;letter-spacing:2px}}
-.hint{{position:fixed;top:14px;left:22px;color:#5A5B66;font-size:12px}}
+.nav button{{background:rgba(18,19,26,.85);border:1px solid {divider};color:{primary_text};padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;backdrop-filter:blur(6px)}}
+.nav button:hover{{background:{hover_bg};border-color:{accent}}}
+.ind{{position:fixed;bottom:24px;left:22px;color:{tertiary_text};font-size:12px;letter-spacing:2px}}
+.hint{{position:fixed;top:14px;left:22px;color:{tertiary_text};font-size:12px}}
 </style></head><body><div class="stage">
 {slides}
 </div><div class="hint">← → 翻页 · F 全屏</div><div class="ind" id="ind">01 / {n:02d}</div>
@@ -212,6 +400,17 @@ window.addEventListener('keydown',e=>{{if(e.key==='ArrowRight'||e.key===' '){{e.
     out_path.write_text(html, encoding="utf-8")
     print(f"saved: {out_path} {out_path.stat().st_size} bytes, {n} slides")
 
+    if check:
+        if run_qa_slide_preview is not None:
+            ok = run_qa_slide_preview(out_path)
+            if not ok:
+                raise RuntimeError(f"翻页预览客观质量门禁未通过: {out_path}")
+            print(f"  [门禁] ✓ 翻页预览客观质量门禁通过")
+        else:
+            print("  [warn] 未导入 run_qa_slide_preview，跳过门禁检查")
+
+    return out_path
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="把若干 SVG 打包成单文件 HTML 翻页预览")
@@ -219,15 +418,25 @@ def main(argv: list[str] | None = None) -> int:
         "src",
         nargs="?",
         default=None,
-        help="包含 SVG 文件的目录（默认安全自动发现唯一有效项目的 svg_output）",
+        help="包含 SVG 文件的目录或项目根目录（默认安全自动发现）",
     )
     parser.add_argument("out", nargs="?", default="output/预览.html", help="输出 HTML 路径")
-    parser.add_argument("title", nargs="?", default="智流 OS · 幻灯片预览", help="HTML 页面标题")
+    parser.add_argument("title", nargs="?", default=None, help="HTML 页面标题（默认智能推导）")
+    parser.add_argument("--cards", action="store_true", help="优先打包 cards/ 下的竖版卡片")
+    parser.add_argument("--check", action="store_true", help="构建完成后执行客观质量门禁校验")
+    parser.add_argument("--title-override", dest="opt_title", default=None, help="显式指定标题（覆盖位置参数）")
     args = parser.parse_args(argv)
 
+    chosen_title = args.opt_title if args.opt_title is not None else args.title
     try:
-        build_preview(args.src, args.out, args.title)
-    except (FileNotFoundError, ValueError) as err:
+        build_preview(
+            src=args.src,
+            out=args.out,
+            title=chosen_title,
+            cards=args.cards,
+            check=args.check,
+        )
+    except (FileNotFoundError, ValueError, RuntimeError) as err:
         print(f"[err] {err}", file=sys.stderr)
         return 1
 
