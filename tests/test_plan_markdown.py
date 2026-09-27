@@ -12,6 +12,12 @@ SPEC.loader.exec_module(MODULE)
 
 
 class PlanMarkdownTests(unittest.TestCase):
+    def test_comparison_table_contract(self):
+        plan=MODULE.build_plan("x.md", "# D\n\n## Compare\n| A | B |\n| --- | --- |\n| a | b |\n| c | d |\n| e | f |".encode())
+        self.assertEqual(plan["slides"][1]["blocks"],[{"type":"comparison-table","headers":["A","B"],"rows":[["a","b"],["c","d"],["e","f"]]}])
+        for source in ("# D\n## X\n| A | B | C |\n| --- | --- | --- |\n| a | b | c |\n| d | e | f |", "# D\n## X\n| A | B |\n| --- | --- |\n| a | b |"):
+            with self.subTest(source=source):
+                with self.assertRaises(ValueError): MODULE.build_plan("x.md",source.encode())
     def test_quote_block_and_attribution(self):
         plan=MODULE.build_plan("x.md", "# D\n\n## Principle\n> First line\n> Second line\n> — AgentFlow".encode())
         self.assertEqual(plan["slides"][1]["blocks"],[{"type":"quote","lines":["First line","Second line"],"attribution":"AgentFlow"}])

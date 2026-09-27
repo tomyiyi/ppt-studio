@@ -16,6 +16,11 @@ def plan(slides):
 
 
 class AssignLayoutIntentTests(unittest.TestCase):
+    def test_comparison_table_layout_and_mixed_reject(self):
+        source=b"{}"; table={"type":"comparison-table","headers":["A","B"],"rows":[["a","b"],["c","d"]]}
+        self.assertEqual(MODULE.build_intent(plan([{"id":"01","kind":"content","blocks":[table]}]),source)["slides"][0]["layout"],"comparison-table")
+        with self.assertRaisesRegex(ValueError,"mixed comparison"):
+            MODULE.build_intent(plan([{"id":"01","kind":"content","blocks":[{"type":"paragraph","text":"x"},table]}]),source)
     def test_quote_layout_and_mixed_rejected(self):
         source=b"{}"; q={"type":"quote","lines":["a"]}
         self.assertEqual(MODULE.build_intent(plan([{"id":"01","kind":"content","blocks":[q]}]),source)["slides"][0]["layout"],"quote-callout")

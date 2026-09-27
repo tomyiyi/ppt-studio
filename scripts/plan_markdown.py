@@ -12,6 +12,7 @@ _HEADING = re.compile(r"^(#{1,3})[ \t]+(.+?)[ \t]*$")
 _BULLET = re.compile(r"^[ \t]*([-*])[ \t]+(.+?)[ \t]*$")
 _ORDERED = re.compile(r"^[ \t]*(\d+)[.]\s+(.+?)[ \t]*$")
 _QUOTE = re.compile(r"^>[ \t]+(.+?)[ \t]*$")
+_TABLE = re.compile(r"^\|(.+)\|[ \t]*$")
 
 
 def _normalise_lines(text: str) -> list[str]:
@@ -55,8 +56,21 @@ def parse_markdown(text: str) -> list[dict]:
             continue
         if current is None:
             raise ValueError("content appeared before H1")
-        if line.lstrip().startswith(("|", "+---")):
-            raise ValueError("unsupported markdown structure: table")
+        table = _TABLE.match(line)
+        if table:
+            rows=[]
+            while i < len(lines) and _TABLE.match(lines[i]):
+                cells=[x.strip() for x in _TABLE.match(lines[i]).group(1).split("|")]
+                if any(not x for x in cells): raise ValueError("comparison table cells must be non-empty")
+                rows.append(cells); i += 1
+            if len(rows)==1: raise ValueError("unsupported markdown structure: table")
+            if len(rows)<3: raise ValueError("comparison table requires header and 2-4 data rows")
+            if len(rows[0])!=2: raise ValueError("comparison table requires exactly 2 columns")
+            if len(rows[1])!=2 or any(not re.fullmatch(r":?-{3,}:?", x) for x in rows[1]): raise ValueError("comparison table alignment syntax is not supported")
+            data=rows[2:]
+            if not 2<=len(data)<=4 or any(len(x)!=2 for x in data): raise ValueError("comparison table requires 2-4 data rows")
+            current["blocks"].append({"type":"comparison-table","headers":rows[0],"rows":data})
+            continue
         bullet = _BULLET.match(line)
         if bullet:
             items = []
