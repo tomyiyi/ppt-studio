@@ -38,6 +38,9 @@ from scripts.qa_layout import (
     check_dup_images,
     check_line_collisions,
     check_statement_consistency,
+    check_contrast,
+    Image,
+    np,
     resolve_layout_dirs,
     qa_single_layout,
     run_qa_single_layout,
@@ -494,6 +497,17 @@ class TestMainCli(unittest.TestCase):
             code_q = main(["/non_existent_target_123", "some_render_dir", "-q"])
         self.assertEqual(code_q, 1)
         self.assertEqual(buf_err_q.getvalue(), "")
+
+
+class TestContrastPolarity(unittest.TestCase):
+    def test_light_background_dark_small_text_uses_reverse_polarity(self):
+        pixels = np.full((80, 220, 3), 255, dtype=np.uint8)
+        pixels[18:22, 10:90] = 17
+        image = Image.fromarray(pixels, mode="RGB")
+        root = ET.fromstring('<svg xmlns="http://www.w3.org/2000/svg"><text x="10" y="30" font-size="16">small</text></svg>')
+        rows = check_contrast(image, root)
+        self.assertEqual(len(rows), 1)
+        self.assertGreaterEqual(rows[0][0], 4.5)
 
 
 class TestQaLayoutProgrammaticAPI(unittest.TestCase):

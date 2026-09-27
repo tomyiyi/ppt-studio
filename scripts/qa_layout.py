@@ -400,18 +400,25 @@ def check_contrast(img, root):
         reg = g[y0:y1, x0:x1]
         if reg.size < 30:
             continue
-        bg_t = np.percentile(reg, 20)
-        gl_t = np.percentile(reg, 99.5)
-        bgm = reg <= bg_t
-        glm = reg >= gl_t
-        if not bgm.any() or not glm.any():
+        # 兼容暗底亮字与亮底暗字。旧算法固定取低分位作背景、高分位作笔画，
+        # 对小字号深色文字会把两端都采成背景，造成“背景 vs 背景”的假阴性。
+        gray = reg
+        candidates = []
+        for bg_t, gl_t in ((np.percentile(gray, 20), np.percentile(gray, 99.5)),
+                           (np.percentile(gray, 99.5), np.percentile(gray, 5))):
+            bgm = gray <= bg_t if bg_t < gl_t else gray >= bg_t
+            glm = gray >= gl_t if bg_t < gl_t else gray <= gl_t
+            if not bgm.any() or not glm.any():
+                continue
+            bg = rgb[y0:y1, x0:x1][bgm].mean(axis=0)
+            gl = rgb[y0:y1, x0:x1][glm].mean(axis=0)
+            L1, L2 = lum(gl), lum(bg)
+            if L1 < L2:
+                L1, L2 = L2, L1
+            candidates.append((L1 + 0.05) / (L2 + 0.05))
+        if not candidates:
             continue
-        bg = rgb[y0:y1, x0:x1][bgm].mean(axis=0)
-        gl = rgb[y0:y1, x0:x1][glm].mean(axis=0)
-        L1, L2 = lum(gl), lum(bg)
-        if L1 < L2:
-            L1, L2 = L2, L1
-        ratio = (L1 + 0.05) / (L2 + 0.05)
+        ratio = max(candidates)
         rows.append((ratio, txt, size))
     return rows
 
