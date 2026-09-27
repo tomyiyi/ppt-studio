@@ -7,6 +7,7 @@ TAG = re.compile(r"<[^>]+>")
 COLOR_ATTR = re.compile(r'(\b(?:fill|stroke|stop-color)\s*=\s*["\'])(#[0-9A-Fa-f]{6})(["\'])', re.I)
 ROOT_SVG = re.compile(r'<svg\b[^>]*>', re.I)
 ROOT_FONT = re.compile(r'\sfont-family\s*=\s*("[^"]*"|\'[^\']*\')', re.I)
+GRID_GROUP = re.compile(r'<g\b([^>]*\bdata-grid-role\s*=\s*["\']lower-row["\'][^>]*)>', re.I)
 
 def transform_svg(text, mapping, role_mapping):
     def transform_tag(match):
@@ -31,6 +32,24 @@ def apply_root_font_family(text, root_font_family):
         return tag[:-1].rstrip() + ' ' + value + '>'
     return ROOT_SVG.sub(replace_root, text, count=1)
 
+def apply_grid_row_gap(text, row_gap):
+    if row_gap is None:
+        return text
+    def move_group(match):
+        attrs = match.group(1)
+        base_match = re.search(r'\bdata-grid-base-gap\s*=\s*["\']([0-9]+(?:\.[0-9]+)?)["\']', attrs, re.I)
+        if not base_match:
+            return match.group(0)
+        dy = float(row_gap) - float(base_match.group(1))
+        if dy == 0:
+            return match.group(0)
+        dy_text = str(int(dy)) if dy.is_integer() else str(dy)
+        transform = re.search(r'\btransform\s*=\s*(["\'][^"\']*["\'])', attrs, re.I)
+        if transform:
+            return match.group(0)
+        return '<g' + attrs + ' transform="translate(0 ' + dy_text + ')">'
+    return GRID_GROUP.sub(move_group, text)
+
 def main(argv=None):
     p = argparse.ArgumentParser()
     p.add_argument("source_svg", type=Path)
@@ -45,11 +64,14 @@ def main(argv=None):
     role_mapping = {role: {k.upper(): v.upper() for k, v in colors.items()} for role, colors in theme.get("role_colors", {}).items()}
     typography = theme.get("typography", {})
     root_font_family = typography.get("root_font_family")
+    grid = theme.get("grid", {})
+    row_gap = grid.get("row_gap")
     a.output_svg.mkdir(parents=True, exist_ok=True)
     for src in sorted(a.source_svg.glob("*.svg")):
         text = src.read_text(encoding="utf-8")
         text = transform_svg(text, mapping, role_mapping)
         text = apply_root_font_family(text, root_font_family)
+        text = apply_grid_row_gap(text, row_gap)
         (a.output_svg / src.name).write_text(text, encoding="utf-8")
     if a.spec_in and a.spec_out:
         spec = a.spec_in.read_text(encoding="utf-8")

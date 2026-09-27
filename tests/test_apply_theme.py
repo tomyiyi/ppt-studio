@@ -5,6 +5,42 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.apply_theme import main
 
 class ThemeTest(unittest.TestCase):
+    def test_grid_row_gap_moves_all_lower_row_groups(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); src=root/'src'; out=root/'out'; src.mkdir()
+            (src/'01.svg').write_text('<svg><g data-grid-role="lower-row" data-grid-base-gap="20"><rect y="378"/></g><g data-grid-role="lower-row" data-grid-base-gap="20"><text y="400">x</text></g></svg>')
+            theme=root/'theme.json'; theme.write_text(json.dumps({'name':'x','colors':{},'grid':{'row_gap':28}}))
+            main([str(src),str(out),'--theme',str(theme)])
+            got=(out/'01.svg').read_text()
+            self.assertEqual(got.count('transform="translate(0 8)"'), 2)
+
+    def test_grid_row_gap_without_token_preserves_geometry(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); src=root/'src'; out=root/'out'; src.mkdir()
+            original='<svg><g data-grid-role="lower-row" data-grid-base-gap="20"><rect y="378"/></g></svg>'
+            (src/'01.svg').write_text(original)
+            theme=root/'theme.json'; theme.write_text(json.dumps({'name':'x','colors':{}}))
+            main([str(src),str(out),'--theme',str(theme)])
+            self.assertEqual((out/'01.svg').read_text(), original)
+
+    def test_grid_row_gap_requires_base_metadata(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); src=root/'src'; out=root/'out'; src.mkdir()
+            original='<svg><g data-grid-role="lower-row"><rect y="378"/></g></svg>'
+            (src/'01.svg').write_text(original)
+            theme=root/'theme.json'; theme.write_text(json.dumps({'name':'x','colors':{},'grid':{'row_gap':28}}))
+            main([str(src),str(out),'--theme',str(theme)])
+            self.assertEqual((out/'01.svg').read_text(), original)
+
+    def test_grid_row_gap_does_not_overwrite_existing_transform(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); src=root/'src'; out=root/'out'; src.mkdir()
+            original='<svg><g data-grid-role="lower-row" data-grid-base-gap="20" transform="translate(1 2)"><rect/></g></svg>'
+            (src/'01.svg').write_text(original)
+            theme=root/'theme.json'; theme.write_text(json.dumps({'name':'x','colors':{},'grid':{'row_gap':28}}))
+            main([str(src),str(out),'--theme',str(theme)])
+            self.assertEqual((out/'01.svg').read_text(), original)
+
     def test_root_typography_token_changes_only_svg_root(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); src=root/'src'; out=root/'out'; src.mkdir()

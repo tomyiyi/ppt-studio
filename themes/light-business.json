@@ -3,6 +3,9 @@
   "typography": {
     "root_font_family": "\"Noto Sans CJK SC\", \"Microsoft YaHei\", \"PingFang SC\", Arial, sans-serif"
   },
+  "grid": {
+    "row_gap": 28
+  },
   "colors": {
     "#08090C": "#111827",
     "#12131A": "#1F2937",

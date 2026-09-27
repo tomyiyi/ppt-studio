@@ -38,7 +38,7 @@
     <text x="112" y="318" font-size="16" fill="#8E8F9A">异常分支靠人补，下次换个样子照样卡住。</text>
   </g>
 
-  <g id="compare-after">
+  <g id="compare-after" data-grid-role="lower-row" data-grid-base-gap="20">
     <rect x="80" y="378" width="500" height="180" rx="8" fill="#12131A" fill-opacity="0.66" stroke="#23242E" stroke-width="1" />
     <line x1="80" y1="378" x2="80" y2="468" stroke="#6E7BFF" stroke-width="3" />
     <text x="112" y="418" font-size="13" fill="#6E7BFF" letter-spacing="2">AFTER</text>
@@ -46,7 +46,7 @@
     <text x="112" y="518" font-size="16" fill="#8E8F9A">同一类异常第二次出现时已经会自己绕开。</text>
   </g>
 
-  <g id="chart">
+  <g id="chart" data-grid-role="lower-row" data-grid-base-gap="20">
     <rect x="620" y="378" width="580" height="180" rx="8" fill="#0E0F14" fill-opacity="0.68" stroke="#23242E" stroke-width="1" />
     <text x="648" y="404" font-size="13" fill="#8E8F9A" letter-spacing="2">人工介入次数 / 千任务</text>
 
