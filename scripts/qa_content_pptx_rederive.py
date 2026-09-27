@@ -29,8 +29,9 @@ def rederive(bundle:Path, config:Path):
     if git_master:=subprocess.run(["git","-C",str(master),"rev-parse","HEAD"],check=True,capture_output=True,text=True).stdout.strip():
         if git_master!=expected_master: raise ValueError("ppt-master HEAD mismatch")
     with tempfile.TemporaryDirectory(prefix="content-pptx-rederive-") as tmp:
-        root=Path(tmp); svg=root/"svg_output"; out=root/"output"; svg.mkdir(); out.mkdir(); spec=root/"spec_lock.md"
+        root=Path(tmp); svg=root/"svg_output"; out=root/"output"; svg.mkdir(); out.mkdir(); (root/"validation").mkdir(); spec=root/"spec_lock.md"
         shutil.copyfile(bundle/"spec_lock.md",spec)
+        shutil.copyfile(bundle/"validation/svg_quality_report.json",root/"validation/svg_quality_report.json")
         names=receipt.get("artifacts",{}).get("svg",{})
         for name in names: shutil.copyfile(bundle/"svg_output"/name,svg/name)
         pptx=out/"content-deck.pptx"; converter=master/"skills/ppt-master/scripts/svg_to_pptx.py"
