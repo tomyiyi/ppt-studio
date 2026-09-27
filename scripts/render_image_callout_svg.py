@@ -1,5 +1,5 @@
 from __future__ import annotations
-import argparse, base64, hashlib, json, re
+import argparse, hashlib, json, re
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -34,8 +34,7 @@ def validate(plan_path,output_path,plan,raw,intent):
         asset=output_path/"assets"/f'{slide["id"]}_image_callout{suffix}'
         if asset.is_symlink() or not asset.is_file(): fail(f"materialized image asset missing: {asset.name}")
         if len(slide.get("title",""))>28 or any(len(b.get("text",""))>72 for b in paragraphs): fail("image-callout text exceeds v1 budget")
-        mime={".png":"image/png",".jpg":"image/jpeg",".jpeg":"image/jpeg"}[suffix]
-        out.append({"id":slide["id"],"title":slide.get("title",""),"alt":block["alt"],"path":f"data:{mime};base64,{base64.b64encode(asset.read_bytes()).decode('ascii')}","text":paragraphs[0].get("text","") if paragraphs else ""})
+        out.append({"id":slide["id"],"title":slide.get("title",""),"alt":block["alt"],"path":f"assets/{asset.name}","text":paragraphs[0].get("text","") if paragraphs else ""})
     if not out: fail("no image-callout slides found")
     return out
 def render(x,total,c,s,font):
