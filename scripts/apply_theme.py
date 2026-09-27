@@ -32,22 +32,28 @@ def apply_root_font_family(text, root_font_family):
         return tag[:-1].rstrip() + ' ' + value + '>'
     return ROOT_SVG.sub(replace_root, text, count=1)
 
-def apply_grid_row_gap(text, row_gap):
-    if row_gap is None:
+def apply_grid_layout(text, row_gap, column_gap):
+    if row_gap is None and column_gap is None:
         return text
     def move_group(match):
         attrs = match.group(1)
         base_match = re.search(r'\bdata-grid-base-gap\s*=\s*["\']([0-9]+(?:\.[0-9]+)?)["\']', attrs, re.I)
-        if not base_match:
+        base_column = re.search(r'\bdata-grid-base-column-gap\s*=\s*["\']([0-9]+(?:\.[0-9]+)?)["\']', attrs, re.I)
+        column_role = re.search(r'\bdata-grid-column-role\s*=\s*["\']right["\']', attrs, re.I)
+        if not base_match and not base_column:
             return match.group(0)
-        dy = float(row_gap) - float(base_match.group(1))
-        if dy == 0:
+        dx = 0.0
+        dy = 0.0
+        if row_gap is not None and base_match:
+            dy = float(row_gap) - float(base_match.group(1))
+        if column_gap is not None and base_column and column_role:
+            dx = float(column_gap) - float(base_column.group(1))
+        if dx == 0 and dy == 0:
             return match.group(0)
-        dy_text = str(int(dy)) if dy.is_integer() else str(dy)
         transform = re.search(r'\btransform\s*=\s*(["\'][^"\']*["\'])', attrs, re.I)
         if transform:
             return match.group(0)
-        return '<g' + attrs + ' transform="translate(0 ' + dy_text + ')">'
+        return '<g' + attrs + ' transform="translate(' + f'{dx:g} {dy:g}' + ')">'
     return GRID_GROUP.sub(move_group, text)
 
 def main(argv=None):
@@ -66,12 +72,13 @@ def main(argv=None):
     root_font_family = typography.get("root_font_family")
     grid = theme.get("grid", {})
     row_gap = grid.get("row_gap")
+    column_gap = grid.get("column_gap")
     a.output_svg.mkdir(parents=True, exist_ok=True)
     for src in sorted(a.source_svg.glob("*.svg")):
         text = src.read_text(encoding="utf-8")
         text = transform_svg(text, mapping, role_mapping)
         text = apply_root_font_family(text, root_font_family)
-        text = apply_grid_row_gap(text, row_gap)
+        text = apply_grid_layout(text, row_gap, column_gap)
         (a.output_svg / src.name).write_text(text, encoding="utf-8")
     if a.spec_in and a.spec_out:
         spec = a.spec_in.read_text(encoding="utf-8")

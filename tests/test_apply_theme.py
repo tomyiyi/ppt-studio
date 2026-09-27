@@ -5,6 +5,43 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.apply_theme import main
 
 class ThemeTest(unittest.TestCase):
+    def test_grid_column_gap_moves_only_right_column(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); src=root/'src'; out=root/'out'; src.mkdir()
+            (src/'01.svg').write_text('<svg><g data-grid-role="lower-row" data-grid-column-role="left" data-grid-base-gap="20"><rect/></g><g data-grid-role="lower-row" data-grid-column-role="right" data-grid-base-gap="20" data-grid-base-column-gap="40"><rect/></g></svg>')
+            theme=root/'theme.json'; theme.write_text(json.dumps({'name':'x','colors':{},'grid':{'column_gap':48}}))
+            main([str(src),str(out),'--theme',str(theme)])
+            got=(out/'01.svg').read_text()
+            self.assertEqual(got.count('translate(8 0)'), 1)
+            self.assertEqual(got.count('data-grid-column-role="left"'), 1)
+
+    def test_grid_row_and_column_gaps_compose_once(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); src=root/'src'; out=root/'out'; src.mkdir()
+            (src/'01.svg').write_text('<svg><g data-grid-role="lower-row" data-grid-column-role="right" data-grid-base-gap="20" data-grid-base-column-gap="40"><rect/></g></svg>')
+            theme=root/'theme.json'; theme.write_text(json.dumps({'name':'x','colors':{},'grid':{'row_gap':28,'column_gap':48}}))
+            main([str(src),str(out),'--theme',str(theme)])
+            got=(out/'01.svg').read_text()
+            self.assertIn('transform="translate(8 8)"', got)
+            self.assertNotIn('translate(0 8) translate(8 0)', got)
+
+    def test_grid_column_gap_without_token_preserves_existing_row_behavior(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); src=root/'src'; out=root/'out'; src.mkdir()
+            (src/'01.svg').write_text('<svg><g data-grid-role="lower-row" data-grid-column-role="right" data-grid-base-gap="20" data-grid-base-column-gap="40"><rect/></g></svg>')
+            theme=root/'theme.json'; theme.write_text(json.dumps({'name':'x','colors':{},'grid':{'row_gap':28}}))
+            main([str(src),str(out),'--theme',str(theme)])
+            self.assertIn('transform="translate(0 8)"', (out/'01.svg').read_text())
+
+    def test_grid_column_gap_requires_right_role_and_base_metadata(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); src=root/'src'; out=root/'out'; src.mkdir()
+            original='<svg><g data-grid-role="lower-row" data-grid-column-role="left"><rect/></g></svg>'
+            (src/'01.svg').write_text(original)
+            theme=root/'theme.json'; theme.write_text(json.dumps({'name':'x','colors':{},'grid':{'column_gap':48}}))
+            main([str(src),str(out),'--theme',str(theme)])
+            self.assertEqual((out/'01.svg').read_text(), original)
+
     def test_grid_row_gap_moves_all_lower_row_groups(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); src=root/'src'; out=root/'out'; src.mkdir()
