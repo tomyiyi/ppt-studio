@@ -83,6 +83,9 @@ def build(args: argparse.Namespace) -> None:
         plan_data = json.loads(plan.read_text(encoding="utf-8"))
         expected_media = sum(1 for slide in plan_data["slides"] for block in slide.get("blocks", []) if block.get("type") == "image")
         run([python, str(REPO / "scripts/materialize_content_project.py"), str(plan), str(intent), "--spec", str(stage / "spec_lock.md"), "-o", str(stage / "svg_output")])
+        materialized_assets = stage / "svg_output" / "assets"
+        if materialized_assets.is_dir():
+            shutil.copytree(materialized_assets, stage / "assets", dirs_exist_ok=True)
         title = args.title or source.stem
         run([python, str(REPO / "scripts/build_preview.py"), str(stage / "svg_output"), str(stage / "preview/content-deck.html"), title, "--check"])
         quality = master_root / "skills/ppt-master/scripts/svg_quality_checker.py"
