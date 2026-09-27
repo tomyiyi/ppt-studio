@@ -57,13 +57,17 @@ def build_diff(receipt_a: dict, receipt_b: dict) -> dict:
             "artifacts": artifacts,
         },
     }
-    leaves = [payload["changes"]["slides"]["changed"]]
-    leaves += [payload["changes"]["inputs"][key]["changed"] for key in INPUT_KEYS]
-    leaves += [payload["changes"]["toolchain"][key]["changed"] for key in TOOLCHAIN_KEYS]
-    leaves += [payload["changes"]["artifacts"][key]["changed"] for key in ARTIFACT_SCALARS]
-    leaves += [len(payload["changes"]["artifacts"]["svg"][key]) > 0 for key in ("added", "removed", "modified")]
-    payload["changes_count"] = sum(leaves)
     return payload
+
+
+def changes_count(payload: dict) -> int:
+    changes = payload["changes"]
+    leaves = [changes["slides"]["changed"]]
+    leaves += [changes["inputs"][key]["changed"] for key in INPUT_KEYS]
+    leaves += [changes["toolchain"][key]["changed"] for key in TOOLCHAIN_KEYS]
+    leaves += [changes["artifacts"][key]["changed"] for key in ARTIFACT_SCALARS]
+    leaves += [bool(changes["artifacts"]["svg"][key]) for key in ("added", "removed", "modified")]
+    return sum(leaves)
 
 
 def run(bundle_a: Path, report_a: Path, bundle_b: Path, report_b: Path, output: Path) -> None:
@@ -84,7 +88,7 @@ def run(bundle_a: Path, report_a: Path, bundle_b: Path, report_b: Path, output: 
     except BaseException:
         temporary.unlink(missing_ok=True)
         raise
-    print(f"CONTENT_RELEASE_DIFF changes={payload['changes_count']}")
+    print(f"CONTENT_RELEASE_DIFF changes={changes_count(payload)}")
 
 
 def main(argv=None):

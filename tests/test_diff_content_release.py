@@ -48,7 +48,7 @@ class DiffReleaseTests(unittest.TestCase):
         value = receipt()
         data = subject.build_diff(value, json.loads(json.dumps(value)))
         self.assertTrue(data["same_release_identity"])
-        self.assertEqual(data["changes_count"], 0)
+        self.assertEqual(subject.changes_count(data), 0)
         self.assertEqual(data["changes"]["artifacts"]["svg"]["added"], [])
         self.assertEqual(data["changes"]["artifacts"]["svg"]["removed"], [])
         self.assertEqual(data["changes"]["artifacts"]["svg"]["modified"], [])
@@ -64,7 +64,7 @@ class DiffReleaseTests(unittest.TestCase):
         self.assertFalse(first["same_release_identity"])
         self.assertEqual(first["changes"]["artifacts"]["svg"]["modified"], ["01.svg"])
         self.assertEqual(first["changes"]["artifacts"]["svg"]["added"], ["02.svg"])
-        self.assertGreater(first["changes_count"], 0)
+        self.assertGreater(subject.changes_count(first), 0)
 
 
 if __name__ == "__main__":
