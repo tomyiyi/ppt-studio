@@ -7,8 +7,8 @@
     <stop offset="1" stop-color="#08090C" stop-opacity="0.16"/>
   </linearGradient>
   <linearGradient id="band-fade" x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="#0B0C12" stop-opacity="0"/>
-    <stop offset="1" stop-color="#0B0C12" stop-opacity="0.96"/>
+    <stop offset="0" stop-color="#08090C" stop-opacity="0"/>
+    <stop offset="1" stop-color="#08090C" stop-opacity="0.96"/>
   </linearGradient>
   <linearGradient id="panel-grad" x1="0" y1="0" x2="0" y2="1">
     <stop offset="0" stop-color="#12131B" stop-opacity="1"/>
