@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import argparse
+import json
 from pathlib import Path
+import sys
 from typing import Any
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts.prepare_agnes_image import _resolve_and_dedup_targets, check_images
 from scripts.crop_panel import check_crop_panel
@@ -41,3 +47,20 @@ def run_image_qa(targets: list[str | Path] | str | Path | None = None, *, size: 
     if verbose:
         print(f"image QA: {passed}/{len(items)} passed")
     return result
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="运行 PPT 图片统一质量门禁")
+    parser.add_argument("targets", nargs="+", help="一个或多个图片、目录或项目路径")
+    parser.add_argument("--json", action="store_true", dest="as_json", help="仅输出 JSON 结果")
+    args = parser.parse_args(argv)
+    result = run_image_qa(args.targets, verbose=not args.as_json)
+    if args.as_json:
+        print(json.dumps(result, ensure_ascii=False, default=str))
+    else:
+        print(json.dumps({k: result[k] for k in ("ok", "total", "passed", "failed")}, ensure_ascii=False))
+    return 0 if result["ok"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

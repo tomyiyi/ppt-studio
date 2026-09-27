@@ -1,11 +1,17 @@
 import unittest
+import json
 from pathlib import Path
+import subprocess
+import sys
 from unittest.mock import patch
 
 from scripts.qa_image_pipeline import run_image_qa
 
 
 class TestImageQAPipeline(unittest.TestCase):
+    SCRIPT = Path(__file__).parents[1] / "scripts" / "qa_image_pipeline.py"
+    FIXTURE = Path(__file__).parents[1] / "projects/agentflow-os-launch/images/cover_bg.png"
+
     def test_all_stages_pass(self):
         with patch("scripts.qa_image_pipeline._resolve_and_dedup_targets", return_value=([Path("a.png")], [])), \
              patch("scripts.qa_image_pipeline.check_images", return_value={"ok": True}), \
@@ -62,6 +68,28 @@ class TestImageQAPipeline(unittest.TestCase):
                  patch("scripts.qa_image_pipeline.check_boost_ink", return_value=(True, {}, [])):
                 return run_image_qa(value, verbose=verbose)
         self.assertEqual(run(["a.png", "b.png"], False), run(["b.png", "a.png"], True))
+
+    def test_cli_success_and_json(self):
+        completed = subprocess.run([sys.executable, str(self.SCRIPT), str(self.FIXTURE), "--json"], capture_output=True, text=True)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertEqual((payload["total"], payload["passed"], payload["failed"]), (1, 1, 0))
+        self.assertEqual(payload["items"][0]["stage"], "complete")
+
+    def test_cli_mixed_failure_keeps_json_parseable(self):
+        completed = subprocess.run([sys.executable, str(self.SCRIPT), str(self.FIXTURE), "/tmp/qa-image-missing.png", "--json"], capture_output=True, text=True)
+        self.assertEqual(completed.returncode, 1)
+        payload = json.loads(completed.stdout)
+        self.assertEqual((payload["total"], payload["passed"], payload["failed"]), (2, 1, 1))
+        self.assertTrue(any(item.get("code") == "FILE_NOT_FOUND" for item in payload["items"]))
+
+    def test_cli_usage_error_is_two(self):
+        completed = subprocess.run([sys.executable, str(self.SCRIPT), "--unknown"], capture_output=True, text=True)
+        self.assertEqual(completed.returncode, 2)
+
+    def test_cli_without_target_is_two(self):
+        completed = subprocess.run([sys.executable, str(self.SCRIPT)], capture_output=True, text=True)
+        self.assertEqual(completed.returncode, 2)
 
 
 if __name__ == "__main__":
