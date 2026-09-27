@@ -18,6 +18,7 @@ def assign_layout(slide: dict) -> str:
     if not blocks:
         return "section-divider"
     has_bullets = False
+    has_steps = False
     paragraph_count = 0
     for block in blocks:
         if not isinstance(block, dict):
@@ -25,11 +26,18 @@ def assign_layout(slide: dict) -> str:
         if block.get("type") == "bullets":
             has_bullets = True
             continue
+        if block.get("type") == "steps":
+            has_steps = True
+            continue
         if block.get("type") != "paragraph":
             raise ValueError("unsupported block type")
         paragraph_count += 1
     if has_bullets:
+        if has_steps:
+            raise ValueError("mixed bullets and ordered steps are not supported in v1")
         return "statement-list"
+    if has_steps:
+        return "process-steps"
     if paragraph_count == 2:
         return "statement-split"
     return "statement"

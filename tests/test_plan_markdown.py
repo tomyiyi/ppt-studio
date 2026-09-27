@@ -26,6 +26,14 @@ class PlanMarkdownTests(unittest.TestCase):
         plan = MODULE.build_plan("x.md", b"# D\n\n## S\n- A\n* B\n- C")
         self.assertEqual(plan["slides"][1]["blocks"], [{"type": "bullets", "items": ["A", "B", "C"]}])
 
+    def test_ordered_steps_require_consecutive_start_at_one(self):
+        plan = MODULE.build_plan("x.md", b"# D\n\n## S\nIntro\n\n1. A\n2. B\n3. C")
+        self.assertEqual(plan["slides"][1]["blocks"], [{"type":"paragraph","text":"Intro"},{"type":"steps","items":["A","B","C"]}])
+        for source in (b"# D\n## S\n2. A\n3. B", b"# D\n## S\n1. A\n3. B", b"# D\n## S\n1. A\n1. B"):
+            with self.subTest(source=source):
+                with self.assertRaisesRegex(ValueError, "ordered steps"):
+                    MODULE.build_plan("x.md", source)
+
     def test_serialisation_is_deterministic_and_hashed(self):
         source = b"# D\n\n## S\nBody\n"
         first = MODULE.build_plan("x.md", source)

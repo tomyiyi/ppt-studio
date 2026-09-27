@@ -40,6 +40,12 @@ class AssignLayoutIntentTests(unittest.TestCase):
         ]}]), source)
         self.assertEqual(intent["slides"][0]["layout"], "statement-list")
 
+    def test_steps_layout_and_mixed_steps_rejected(self):
+        source=b"{}"
+        self.assertEqual(MODULE.build_intent(plan([{"id":"01","kind":"content","blocks":[{"type":"steps","items":["a","b"]}]}]),source)["slides"][0]["layout"],"process-steps")
+        with self.assertRaisesRegex(ValueError, "mixed bullets"):
+            MODULE.build_intent(plan([{"id":"01","kind":"content","blocks":[{"type":"steps","items":["a","b"]},{"type":"bullets","items":["x"]}]}]),source)
+
     def test_output_has_no_content_copy_and_hashes_plan_bytes(self):
         source = b'{"schema":"ppt-studio-slide-plan/v1","slides":[]}'
         intent = MODULE.build_intent(plan([{"id": "01", "kind": "cover", "blocks": []}]), source)

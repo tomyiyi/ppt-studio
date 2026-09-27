@@ -10,6 +10,7 @@ from pathlib import Path
 
 _HEADING = re.compile(r"^(#{1,3})[ \t]+(.+?)[ \t]*$")
 _BULLET = re.compile(r"^[ \t]*([-*])[ \t]+(.+?)[ \t]*$")
+_ORDERED = re.compile(r"^[ \t]*(\d+)[.]\s+(.+?)[ \t]*$")
 
 
 def _normalise_lines(text: str) -> list[str]:
@@ -66,9 +67,24 @@ def parse_markdown(text: str) -> list[dict]:
                 i += 1
             current["blocks"].append({"type": "bullets", "items": items})
             continue
+        ordered = _ORDERED.match(line)
+        if ordered:
+            items = []
+            expected = 1
+            while i < len(lines):
+                item = _ORDERED.match(lines[i])
+                if not item:
+                    break
+                if int(item.group(1)) != expected:
+                    raise ValueError("ordered steps must start at 1 and be strictly consecutive")
+                items.append(item.group(2).strip())
+                expected += 1
+                i += 1
+            current["blocks"].append({"type": "steps", "items": items})
+            continue
         paragraph = [line.strip()]
         i += 1
-        while i < len(lines) and lines[i].strip() and not _HEADING.match(lines[i]) and not _BULLET.match(lines[i]):
+        while i < len(lines) and lines[i].strip() and not _HEADING.match(lines[i]) and not _BULLET.match(lines[i]) and not _ORDERED.match(lines[i]):
             if lines[i].lstrip().startswith("|"):
                 raise ValueError("unsupported markdown structure: table")
             paragraph.append(lines[i].strip())
