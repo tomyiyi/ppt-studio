@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""Parse the deliberately small Markdown contract used by ppt-studio slide plans."""
+
+import argparse
+import hashlib
+import json
+import re
+from pathlib import Path
+
+
+_HEADING = re.compile(r"^(#{1,3})[ \t]+(.+?)[ \t]*$")
+_BULLET = re.compile(r"^[ \t]*([-*])[ \t]+(.+?)[ \t]*$")
+
+
+def _normalise_lines(text: str) -> list[str]:
+    return [line.rstrip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+
+
+def parse_markdown(text: str) -> list[dict]:
+    lines = _normalise_lines(text)
+    slides: list[dict] = []
+    current: dict | None = None
+    i = 0
+    h1_count = 0
+    in_fence = False
+    while i < len(lines):
+        line = lines[i]
+        if line.strip().startswith("```"):
+            in_fence = not in_fence
+            raise ValueError("unsupported markdown structure: fenced code block")
+        if not line.strip():
+            i += 1
+            continue
+        match = _HEADING.match(line)
+        if match:
+            level, title = len(match.group(1)), match.group(2).strip()
+            if level == 1:
+                h1_count += 1
+                if h1_count > 1:
+                    raise ValueError("expected exactly one H1")
+                if slides:
+                    raise ValueError("H1 must be the first heading")
+                current = {"kind": "cover", "title": title, "blocks": []}
+                slides.append(current)
+            elif level == 2:
+                if h1_count != 1:
+                    raise ValueError("H2 appeared before H1")
+                current = {"kind": "content", "title": title, "blocks": []}
+                slides.append(current)
+            else:
+                raise ValueError("unsupported markdown structure: ### heading")
+            i += 1
+            continue
+        if current is None:
+            raise ValueError("content appeared before H1")
+        if line.lstrip().startswith(("|", "+---")):
+            raise ValueError("unsupported markdown structure: table")
+        bullet = _BULLET.match(line)
+        if bullet:
+            items = []
+            while i < len(lines):
+                item = _BULLET.match(lines[i])
+                if not item:
+                    break
+                items.append(item.group(2).strip())
+                i += 1
+            current["blocks"].append({"type": "bullets", "items": items})
+            continue
+        paragraph = [line.strip()]
+        i += 1
+        while i < len(lines) and lines[i].strip() and not _HEADING.match(lines[i]) and not _BULLET.match(lines[i]):
+            if lines[i].lstrip().startswith("|"):
+                raise ValueError("unsupported markdown structure: table")
+            paragraph.append(lines[i].strip())
+            i += 1
+        current["blocks"].append({"type": "paragraph", "text": " ".join(paragraph)})
+    if h1_count != 1:
+        raise ValueError("expected exactly one H1")
+    return slides
+
+
+def build_plan(source_name: str, source_bytes: bytes) -> dict:
+    text = source_bytes.decode("utf-8")
+    raw_slides = parse_markdown(text)
+    slides = []
+    for index, slide in enumerate(raw_slides, 1):
+        slides.append({"index": index, "id": f"{index:02d}", **slide})
+    return {
+        "schema": "ppt-studio-slide-plan/v1",
+        "source_name": source_name,
+        "source_sha256": hashlib.sha256(source_bytes).hexdigest(),
+        "slides": slides,
+    }
+
+
+def write_plan(plan: dict, output: Path) -> None:
+    output.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="Convert V1 Markdown into a deterministic PPT slide plan")
+    parser.add_argument("source", type=Path)
+    parser.add_argument("-o", "--output", type=Path, required=True)
+    args = parser.parse_args(argv)
+    try:
+        source_bytes = args.source.read_bytes()
+        write_plan(build_plan(args.source.name, source_bytes), args.output)
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        parser.error(str(exc))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
