@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+"""Assign a deterministic, content-free layout intent to a slide plan."""
+
+import argparse
+import hashlib
+import json
+from pathlib import Path
+
+
+def assign_layout(slide: dict) -> str:
+    if slide.get("kind") == "cover":
+        return "cover"
+    if slide.get("kind") != "content":
+        raise ValueError("unsupported slide kind")
+    blocks = slide.get("blocks")
+    if not isinstance(blocks, list):
+        raise ValueError("slide blocks must be a list")
+    for block in blocks:
+        if not isinstance(block, dict):
+            raise ValueError("slide block must be an object")
+        if block.get("type") == "bullets":
+            return "statement-list"
+        if block.get("type") != "paragraph":
+            raise ValueError("unsupported block type")
+    return "statement"
+
+
+def build_intent(plan: dict, source_bytes: bytes) -> dict:
+    if plan.get("schema") != "ppt-studio-slide-plan/v1":
+        raise ValueError("unsupported slide plan schema")
+    slides = plan.get("slides")
+    if not isinstance(slides, list) or not slides:
+        raise ValueError("slide plan must contain a non-empty slides list")
+    output = []
+    for slide in slides:
+        if not isinstance(slide, dict) or not isinstance(slide.get("id"), str):
+            raise ValueError("slide must contain a string id")
+        output.append({"id": slide["id"], "layout": assign_layout(slide)})
+    return {
+        "schema": "ppt-studio-layout-intent/v1",
+        "source_plan_sha256": hashlib.sha256(source_bytes).hexdigest(),
+        "slides": output,
+    }
+
+
+def write_intent(intent: dict, output: Path) -> None:
+    output.write_text(json.dumps(intent, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="Assign deterministic layout intent to a slide plan")
+    parser.add_argument("source", type=Path)
+    parser.add_argument("-o", "--output", type=Path, required=True)
+    args = parser.parse_args(argv)
+    try:
+        source_bytes = args.source.read_bytes()
+        plan = json.loads(source_bytes.decode("utf-8"))
+        write_intent(build_intent(plan, source_bytes), args.output)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        parser.error(str(exc))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
