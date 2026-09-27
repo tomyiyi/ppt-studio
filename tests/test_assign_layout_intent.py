@@ -118,3 +118,13 @@ def _decision_matrix_layout_test(self):
     source=b"{}"; block={"type":"decision-matrix","headers":["Option","Impact","Effort"],"rows":[["A","High","Low"],["B","Low","High"]]}
     self.assertEqual(MODULE.build_intent(plan([{"id":"01","kind":"content","blocks":[block]}]),source)["slides"][0]["layout"],"decision-matrix")
 AssignLayoutIntentTests.test_decision_matrix_layout = _decision_matrix_layout_test
+
+
+def _trend_layout(self):
+    source=b"{}"
+    block={"type":"trend-series","items":[{"period":"W1","value":1},{"period":"W2","value":2},{"period":"W3","value":3}]}
+    self.assertEqual(MODULE.build_intent(plan([{"id":"01","kind":"content","blocks":[block]}]),source)["slides"][0]["layout"], "trend-line-chart")
+    self.assertEqual(MODULE.build_intent(plan([{"id":"01","kind":"content","blocks":[{"type":"paragraph","text":"x"},block]}]),source)["slides"][0]["layout"], "trend-line-chart")
+    with self.assertRaisesRegex(ValueError, "mixed trend"):
+        MODULE.build_intent(plan([{"id":"01","kind":"content","blocks":[{"type":"paragraph","text":"x"},{"type":"paragraph","text":"y"},block]}]),source)
+AssignLayoutIntentTests.test_trend_layout=_trend_layout

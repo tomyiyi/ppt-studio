@@ -142,3 +142,23 @@ def _swimlane_contract(self):
     with self.assertRaisesRegex(ValueError, "2-3 distinct owners"):
         MODULE.build_plan("x.md",source)
 PlanMarkdownTests.test_swimlane_handoff_contract=_swimlane_contract
+
+
+def _trend_series_contract(self):
+    source=b"# D\n## Trend\n| Period | Value |\n| --- | --- |\n| W1 | 42 |\n| W2 | 58 |\n| W3 | 71 |\n| W4 | 83 |"
+    block=MODULE.build_plan("x.md",source)["slides"][1]["blocks"][0]
+    self.assertEqual(block["type"], "trend-series")
+    self.assertEqual(block["items"], [{"period":"W1","value":42},{"period":"W2","value":58},{"period":"W3","value":71},{"period":"W4","value":83}])
+    ordinary=b"# D\n## Compare\n| Name | Score |\n| --- | --- |\n| A | High |\n| B | Low |"
+    self.assertEqual(MODULE.build_plan("x.md",ordinary)["slides"][1]["blocks"][0]["type"], "comparison-table")
+    cases = [
+        b"# D\n## T\n| Period | Value |\n| --- | --- |\n| W1 | 1 |\n| W2 | 2 |",
+        b"# D\n## T\n| Period | Value |\n| --- | --- |\n| W1 | 1 |\n| W2 | 2 |\n| W3 | 3 |\n| W4 | 4 |\n| W5 | 5 |\n| W6 | 6 |\n| W7 | 7 |",
+        b"# D\n## T\n| Period | Value |\n| --- | --- |\n| W1 | -1 |\n| W2 | 2 |",
+        b"# D\n## T\n| Period | Value |\n| --- | --- |\n| W1 | 1 |\n| W1 | 2 |",
+        b"# D\n## T\n| Period | Value |\n| --- | --- |\n| W1 | 1% |\n| W2 | 2 |",
+    ]
+    for bad in cases:
+        with self.subTest(source=bad):
+            with self.assertRaises(ValueError): MODULE.build_plan("x.md",bad)
+PlanMarkdownTests.test_trend_series_contract=_trend_series_contract

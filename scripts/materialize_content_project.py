@@ -10,6 +10,7 @@ RENDERERS["checklist-status"]=ROOT/"render_checklist_status_svg.py"
 RENDERERS["risk-register"]=ROOT/"render_risk_register_svg.py"
 RENDERERS["decision-matrix"]=ROOT/"render_decision_matrix_svg.py"
 RENDERERS["swimlane-handoff"]=ROOT/"render_swimlane_handoff_svg.py"
+RENDERERS["trend-line-chart"]=ROOT/"render_trend_line_chart_svg.py"
 RENDERERS["faq"]=ROOT/"render_faq_svg.py"
 RENDERERS["funnel-stages"]=ROOT/"render_funnel_stages_svg.py"
 RENDERERS["hierarchy-tree"]=ROOT/"render_hierarchy_tree_svg.py"
@@ -29,7 +30,7 @@ def expected_files(plan,intent,raw):
     for slide,item in zip(slides,intents):
         layout=item.get("layout")
         if layout not in RENDERERS: fail(f"unsupported layout: {layout}")
-        names={"section-divider":"section_divider","statement-list":"statement_list","statement-split":"statement_split","process-steps":"process_steps","quote-callout":"quote_callout","comparison-table":"comparison_table","risk-register":"risk_register","decision-matrix":"decision_matrix","faq":"faq","funnel-stages":"funnel_stages","hierarchy-tree":"hierarchy_tree","three-card":"three_card","image-callout":"image_callout","image-comparison":"image_comparison","code-callout":"code_callout","metric-highlights":"metric_highlights","milestone-timeline":"milestone_timeline","architecture-stack":"architecture_stack","bar-chart":"bar_chart","checklist-status":"checklist_status","swimlane-handoff":"swimlane_handoff"}
+        names={"section-divider":"section_divider","statement-list":"statement_list","statement-split":"statement_split","process-steps":"process_steps","quote-callout":"quote_callout","comparison-table":"comparison_table","risk-register":"risk_register","decision-matrix":"decision_matrix","faq":"faq","funnel-stages":"funnel_stages","hierarchy-tree":"hierarchy_tree","three-card":"three_card","image-callout":"image_callout","image-comparison":"image_comparison","code-callout":"code_callout","metric-highlights":"metric_highlights","milestone-timeline":"milestone_timeline","architecture-stack":"architecture_stack","bar-chart":"bar_chart","checklist-status":"checklist_status","swimlane-handoff":"swimlane_handoff","trend-line-chart":"trend_line_chart"}
         result.append(f"{slide.get('id')}_{names.get(layout,layout)}.svg")
     return result
 def run_renderer(renderer,plan,intent,spec,output): subprocess.run([sys.executable,str(renderer),str(plan),str(intent),"--spec",str(spec),"-o",str(output)],check=True)

@@ -146,6 +146,18 @@ def parse_markdown(text: str) -> list[dict]:
                 if any(x not in {"Low","Medium","High"} for x in [r[1] for r in data]): raise ValueError("risk-register severity must be Low, Medium, or High")
                 current["blocks"].append({"type":"risk-register","headers":rows[0],"rows":data})
                 continue
+            if rows[0] == ["Period", "Value"]:
+                if len(rows[1])!=2 or any(not re.fullmatch(r":?-{3,}:?", x) for x in rows[1]): raise ValueError("trend series alignment syntax is not supported")
+                data=rows[2:]
+                if not 3<=len(data)<=6 or any(len(x)!=2 or not x[0] for x in data): raise ValueError("trend series requires 3-6 data rows")
+                periods=[x[0] for x in data]
+                if len(set(periods)) != len(periods): raise ValueError("trend series periods must be unique in v1")
+                values=[]
+                for row in data:
+                    if not re.fullmatch(r"(?:0|[1-9]\d{0,3})(?:\.\d{1,2})?", row[1]): raise ValueError("trend series values must be non-negative decimals up to 9999")
+                    values.append({"period":row[0],"value":float(row[1])})
+                current["blocks"].append({"type":"trend-series","headers":rows[0],"items":values})
+                continue
             if len(rows[0])!=2: raise ValueError("comparison table requires exactly 2 columns")
             if len(rows[1])!=2 or any(not re.fullmatch(r":?-{3,}:?", x) for x in rows[1]): raise ValueError("comparison table alignment syntax is not supported")
             data=rows[2:]
