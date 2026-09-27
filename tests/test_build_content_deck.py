@@ -71,6 +71,8 @@ class BuildContractTests(unittest.TestCase):
     with patch.object(mod,'run',side_effect=fake):
       mod.build(self.args(out))
     receipt=json.loads((out/'build_receipt.json').read_text())
+    self.assertEqual((out/'source.md').read_bytes(), self.src.read_bytes())
+    self.assertEqual(mod.sha256(out/'source.md'), receipt['inputs']['markdown_sha256'])
     self.assertEqual(receipt['schema'],'ppt-studio-content-build-receipt/v1')
     self.assertEqual(receipt['artifacts']['pptx_sha256'],mod.sha256(out/'output/content-deck.pptx'))
     self.assertNotIn(str(out), (out/'build_receipt.json').read_text())
