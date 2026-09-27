@@ -1,10 +1,35 @@
-import hashlib, json, tempfile, unittest
+import hashlib, json, re, tempfile, unittest
 from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.apply_theme import main
 
 class ThemeTest(unittest.TestCase):
+    def test_image_scrim_role_maps_stop_color_without_touching_stop_geometry(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); src=root/'src'; out=root/'out'; src.mkdir()
+            source='<svg><rect fill="#08090C"/><linearGradient><stop data-theme-role="image-scrim" offset="0.45" stop-color="#08090C" stop-opacity="0.80"/></linearGradient></svg>'
+            (src/'01.svg').write_text(source)
+            theme=root/'theme.json'; theme.write_text(json.dumps({'name':'x','colors':{'#08090C':'#FFFFFF'},'role_colors':{'image-scrim':{'#08090C':'#0F172A'}}}))
+            main([str(src),str(out),'--theme',str(theme)])
+            got=(out/'01.svg').read_text()
+            self.assertIn('<rect fill="#FFFFFF"/>', got)
+            self.assertIn('data-theme-role="image-scrim" offset="0.45" stop-color="#0F172A" stop-opacity="0.80"', got)
+
+    def test_only_allowed_roles_are_used_in_core_slice(self):
+        allowed={'on-image','on-dark-surface','on-accent','image-scrim'}
+        text=(Path(__file__).resolve().parents[1]/'projects/agentflow-os-launch/svg_output/04_capability_selfheal.svg').read_text()
+        roles=set(re.findall(r'data-theme-role="([^"]+)"', text))
+        self.assertTrue(roles <= allowed)
+        self.assertEqual(roles, {'on-image','on-dark-surface','on-accent','image-scrim'})
+
+    def test_scrim_metadata_does_not_change_non_metadata_source(self):
+        import subprocess
+        import re
+        baseline=subprocess.check_output(['git','show','7b50234:projects/agentflow-os-launch/svg_output/04_capability_selfheal.svg'], text=True)
+        current=(Path(__file__).resolve().parents[1]/'projects/agentflow-os-launch/svg_output/04_capability_selfheal.svg').read_text()
+        strip=lambda s: re.sub(r'\sdata-theme-role="[^"]+"','',s)
+        self.assertEqual(strip(baseline), strip(current))
     def test_only_declared_colors_change(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); src=root/'src'; out=root/'out'; src.mkdir()
