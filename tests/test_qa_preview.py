@@ -26,6 +26,10 @@ from scripts.qa_preview import (
     run_qa_slide_preview,
     run_qa_showroom_portal,
     run_qa_html_file,
+    run_qa_preview,
+    qa_preview,
+    qa_single_preview,
+    run_qa_single_preview,
     main,
 )
 
@@ -450,6 +454,46 @@ class TestRunQaSlidePreview(unittest.TestCase):
             p.write_bytes(p.read_bytes()[:200])
             self.assertFalse(run_qa_slide_preview(p))
 
+    def test_nav_buttons_with_spaces_and_span_indicator(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "custom_tags.html"
+            html = """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>自定义指示器测试</title>
+  <style>
+    body { background: #0b0c12; margin: 0; }
+    .stage { width: 100vw; height: 100vh; position: relative; }
+    .slide { display: none; }
+    .slide.active { display: block; }
+    .canvas { width: 100%; height: 100%; }
+    .nav-bar { position: absolute; }
+  </style>
+</head>
+<body>
+  <div class="stage">
+    <div class="slide active"><div class="canvas"><svg viewBox="0 0 1280 720"><text>S1</text></svg></div></div>
+    <div class="slide"><div class="canvas"><svg viewBox="0 0 1280 720"><text>S2</text></svg></div></div>
+  </div>
+  <div class="nav-bar">
+    <button onclick="go( -1 )">‹</button>
+    <span id="ind">01 / 02</span>
+    <button onclick="go( 1 )">›</button>
+  </div>
+<script>
+function go(n) {}
+document.addEventListener("keydown", function(e) {
+    if (e.key === "ArrowRight" || e.key === "ArrowLeft") {}
+    if (e.key === "f" || e.key === "F") { document.documentElement.requestFullscreen(); }
+});
+</script>
+</body>
+</html>"""
+            p.write_text(html, encoding="utf-8")
+            self.assertTrue(run_qa_slide_preview(p, verbose=False))
+
 
 class TestRunQaShowroomPortal(unittest.TestCase):
     """测试多形态物料展厅客观门禁。"""
@@ -532,6 +576,15 @@ class TestRunQaHtmlFileRouting(unittest.TestCase):
             p.write_text(html, encoding="utf-8")
             self.assertTrue(run_qa_html_file(p))
 
+    def test_run_qa_single_preview_alias(self):
+        self.assertIs(run_qa_single_preview, run_qa_html_file)
+        self.assertIs(qa_single_preview, run_qa_html_file)
+        self.assertIs(qa_preview, run_qa_preview)
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "preview.html"
+            p.write_text(make_valid_slide_preview_html(slides_count=1), encoding="utf-8")
+            self.assertTrue(run_qa_single_preview(p, verbose=False))
+
     def test_unreadable_file_fails(self):
         p = Path("/non_existent_dir_12345/non_existent_file.html")
         self.assertFalse(run_qa_html_file(p))
@@ -548,6 +601,36 @@ class TestMainCli(unittest.TestCase):
             with patch("sys.stdout", new_callable=io.StringIO):
                 code = main([str(p)])
             self.assertEqual(code, 0)
+
+    def test_cli_quiet_flag(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "slide.html"
+            html = make_valid_slide_preview_html(slides_count=1)
+            p.write_text(html, encoding="utf-8")
+            with patch("sys.stdout", new_callable=io.StringIO) as out_q:
+                code_q = main([str(p), "-q"])
+            self.assertEqual(code_q, 0)
+            self.assertEqual(out_q.getvalue(), "")
+
+            with patch("sys.stdout", new_callable=io.StringIO) as out_quiet:
+                code_quiet = main([str(p), "--quiet"])
+            self.assertEqual(code_quiet, 0)
+            self.assertEqual(out_quiet.getvalue(), "")
+
+    def test_cli_verbose_flag(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "slide.html"
+            html = make_valid_slide_preview_html(slides_count=1)
+            p.write_text(html, encoding="utf-8")
+            with patch("sys.stdout", new_callable=io.StringIO) as out_v:
+                code_v = main([str(p), "-v"])
+            self.assertEqual(code_v, 0)
+            self.assertIn("ALL CLEAR", out_v.getvalue())
+
+            with patch("sys.stdout", new_callable=io.StringIO) as out_verbose:
+                code_verbose = main([str(p), "--verbose"])
+            self.assertEqual(code_verbose, 0)
+            self.assertIn("ALL CLEAR", out_verbose.getvalue())
 
     def test_cli_fails_on_nonexistent_target(self):
         with patch("sys.stdout", new_callable=io.StringIO):

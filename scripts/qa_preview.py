@@ -179,8 +179,14 @@ def run_qa_slide_preview(target_file: Path | str, verbose: bool = True) -> bool:
 
     # 5. 交互翻页与指示器
     has_go_fn = "function go(" in content or "go(" in content
-    has_nav_btn = "go(-1)" in content and "go(1)" in content
-    ind_match = re.search(r'id=["\']ind["\'][^>]*>(.*?)</div>', content)
+    has_nav_btn = bool(
+        ("go(-1)" in content and "go(1)" in content)
+        or (re.search(r'go\(\s*-1\s*\)', content) and re.search(r'go\(\s*1\s*\)', content))
+    )
+    ind_match = (
+        re.search(r'id=["\']ind["\'][^>]*>(.*?)</(?:div|span|p)>', content)
+        or re.search(r'id=["\']ind["\'][^>]*>(.*?)</', content)
+    )
     if not has_nav_btn:
         _log("  [✗] 交互翻页与指示器    : 缺少上一页/下一页导航控制按钮 (go(-1)/go(1))")
         bad += 1
@@ -394,7 +400,7 @@ def run_qa_html_file(f: Path | str, verbose: bool = True) -> bool:
 def find_preview_files(target: Path | str | None = None, base_dir: Path | None = None) -> list[Path]:
     """发现并解析待质检的 HTML 预览与展厅文件列表。"""
     base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
-    if target is None:
+    if target is None or str(target).strip() in ("", "."):
         target_path = base
     else:
         target_path = Path(target)
@@ -412,9 +418,11 @@ def find_preview_files(target: Path | str | None = None, base_dir: Path | None =
     files_to_check: list[Path] = []
     # 1. 检查当前目录
     files_to_check.extend(sorted(target_path.glob("*.html")))
+    files_to_check.extend(sorted(target_path.glob("*.htm")))
     # 2. 检查 output/ 子目录
     if (target_path / "output").is_dir():
         files_to_check.extend(sorted((target_path / "output").glob("*.html")))
+        files_to_check.extend(sorted((target_path / "output").glob("*.htm")))
     # 3. 检查 projects/*/output/ 子目录
     candidate_p_dirs: list[Path] = []
     if (target_path / "projects").is_dir():
@@ -428,12 +436,15 @@ def find_preview_files(target: Path | str | None = None, base_dir: Path | None =
         for p in sorted(p_dir.iterdir()):
             if p.is_dir() and (p / "output").is_dir():
                 files_to_check.extend(sorted((p / "output").glob("*.html")))
+                files_to_check.extend(sorted((p / "output").glob("*.htm")))
 
     # 4. 向上查找 output 目录（如从子目录或 projects/xxx 调用）
     if not files_to_check and (target_path.parent / "output").is_dir():
         files_to_check.extend(sorted((target_path.parent / "output").glob("*.html")))
+        files_to_check.extend(sorted((target_path.parent / "output").glob("*.htm")))
     if not files_to_check and (target_path.parent.parent / "output").is_dir():
         files_to_check.extend(sorted((target_path.parent.parent / "output").glob("*.html")))
+        files_to_check.extend(sorted((target_path.parent.parent / "output").glob("*.htm")))
 
     # 去重保持顺序，排除 .venv 与 site-packages
     seen = set()
@@ -480,14 +491,18 @@ def run_qa_preview(
 
 qa_preview = run_qa_preview
 qa_single_preview = run_qa_html_file
+run_qa_single_preview = run_qa_html_file
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="PPT-Studio HTML 预览与多形态展厅客观质量门禁")
     parser.add_argument("target", nargs="?", default=".", help="HTML 文件路径、output 目录或项目根目录（默认当前目录自发现）")
+    parser.add_argument("--verbose", "-v", action="store_true", default=True, help="详细日志输出（默认开启）")
+    parser.add_argument("--quiet", "-q", action="store_true", help="静默模式（仅通过退出码返回）")
     args = parser.parse_args(argv)
 
-    ok = run_qa_preview(args.target, verbose=True)
+    verbose = not args.quiet if args.quiet else args.verbose
+    ok = run_qa_preview(args.target, verbose=verbose)
     return 0 if ok else 1
 
 
