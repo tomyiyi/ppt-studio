@@ -19,15 +19,17 @@ import sys
 from pathlib import Path
 
 try:
-    from scripts.qa_preview import run_qa_slide_preview
+    from scripts.qa_preview import run_qa_slide_preview, run_qa_preview, qa_preview
 except ImportError:
     repo_root = Path(__file__).resolve().parent.parent
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
     try:
-        from scripts.qa_preview import run_qa_slide_preview
+        from scripts.qa_preview import run_qa_slide_preview, run_qa_preview, qa_preview
     except ImportError:
         run_qa_slide_preview = None
+        run_qa_preview = None
+        qa_preview = None
 
 # 支持标准 href 与 xlink:href，支持双引号与单引号，支持属性前后空格与大小写
 IMAGE_RE = re.compile(

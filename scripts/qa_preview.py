@@ -60,21 +60,37 @@ def check_html_standards(content: str) -> tuple[bool, str]:
     return True, f"HTML5 标准骨架 · UTF-8 · 响应式视口 · 标题《{title}》"
 
 
-def run_qa_slide_preview(target_file: Path) -> bool:
+def run_qa_slide_preview(target_file: Path | str, verbose: bool = True) -> bool:
     """质检交互式单文件翻页预览 HTML。"""
-    content = target_file.read_text(encoding="utf-8")
-    file_kb = target_file.stat().st_size // 1024
+    p = Path(target_file).resolve()
+    if not p.exists():
+        if verbose:
+            print(f"  [✗] 文件不存在: {p}")
+        return False
 
-    print("=" * 60)
-    print("🔍 运行 PPT-Studio HTML 翻页预览客观质量门禁")
-    print(f"   目标: {target_file}")
-    print("=" * 60)
+    try:
+        content = p.read_text(encoding="utf-8")
+    except Exception as e:
+        if verbose:
+            print(f"  [✗] 无法读取文件 {p}: {e}")
+        return False
+
+    file_kb = p.stat().st_size // 1024
+
+    def _log(msg: str) -> None:
+        if verbose:
+            print(msg)
+
+    _log("=" * 60)
+    _log("🔍 运行 PPT-Studio HTML 翻页预览客观质量门禁")
+    _log(f"   目标: {p}")
+    _log("=" * 60)
 
     bad = 0
 
     # 1. HTML 基础规范
     ok, msg = check_html_standards(content)
-    print(f"  [{'✓' if ok else '✗'}] HTML 基础规范       : {msg}")
+    _log(f"  [{'✓' if ok else '✗'}] HTML 基础规范       : {msg}")
     if not ok:
         bad += 1
 
@@ -82,23 +98,23 @@ def run_qa_slide_preview(target_file: Path) -> bool:
     slide_matches = list(re.finditer(r'<div\s+class=["\']slide([^"\']*)["\']', content))
     n_slides = len(slide_matches)
     if n_slides == 0:
-        print("  [✗] 幻灯片容器与激活态  : 未检测到任何 class=\"slide\" 容器")
+        _log("  [✗] 幻灯片容器与激活态  : 未检测到任何 class=\"slide\" 容器")
         bad += 1
     else:
         active_indices = [i for i, m in enumerate(slide_matches) if "active" in m.group(1).split()]
         if len(active_indices) != 1:
-            print(f"  [✗] 幻灯片容器与激活态  : 激活页数量异常 ({len(active_indices)} 个 active，期望有且仅有 1 个)")
+            _log(f"  [✗] 幻灯片容器与激活态  : 激活页数量异常 ({len(active_indices)} 个 active，期望有且仅有 1 个)")
             bad += 1
         elif active_indices[0] != 0:
-            print(f"  [✗] 幻灯片容器与激活态  : 初始激活页非第 1 页 (当前第 {active_indices[0] + 1} 页激活)")
+            _log(f"  [✗] 幻灯片容器与激活态  : 初始激活页非第 1 页 (当前第 {active_indices[0] + 1} 页激活)")
             bad += 1
         else:
-            print(f"  [✓] 幻灯片容器与激活态  : {n_slides} 页幻灯片 · 首页初始激活 (第 1 页)")
+            _log(f"  [✓] 幻灯片容器与激活态  : {n_slides} 页幻灯片 · 首页初始激活 (第 1 页)")
 
     # 3. 矢量画布与画幅适配
     svg_matches = re.findall(r'<svg\b[^>]*\bviewBox\s*=\s*["\']([^"\']+)["\']', content, re.IGNORECASE)
     if len(svg_matches) < n_slides:
-        print(f"  [✗] 矢量画布与画幅适配  : SVG 数量 ({len(svg_matches)}) 与幻灯片数 ({n_slides}) 不匹配")
+        _log(f"  [✗] 矢量画布与画幅适配  : SVG 数量 ({len(svg_matches)}) 与幻灯片数 ({n_slides}) 不匹配")
         bad += 1
     else:
         ratios = []
@@ -117,23 +133,23 @@ def run_qa_slide_preview(target_file: Path) -> bool:
                 parse_err = True
 
         if parse_err or not sizes:
-            print("  [✗] 矢量画布与画幅适配  : 部分 SVG viewBox 坐标或尺寸无法解析")
+            _log("  [✗] 矢量画布与画幅适配  : 部分 SVG viewBox 坐标或尺寸无法解析")
             bad += 1
         else:
             first_w, first_h = sizes[0]
             first_r = ratios[0]
             max_drift = max(abs(r - first_r) / first_r for r in ratios)
             if max_drift > 0.02:
-                print(f"  [✗] 矢量画布与画幅适配  : 跨页画幅比例不统一 (首页: {first_w}×{first_h}, 最大漂移 {max_drift*100:.1f}%)")
+                _log(f"  [✗] 矢量画布与画幅适配  : 跨页画幅比例不统一 (首页: {first_w}×{first_h}, 最大漂移 {max_drift*100:.1f}%)")
                 bad += 1
             else:
                 ratio_desc = "16:9 标准横版" if abs(first_r - 16/9) < 0.05 else ("4:5 竖版卡片" if abs(first_r - 0.8) < 0.05 else f"比例 {first_r:.2f}")
-                print(f"  [✓] 矢量画布与画幅适配  : {first_w}×{first_h} ({ratio_desc}) · {len(sizes)} 页尺寸完全统一")
+                _log(f"  [✓] 矢量画布与画幅适配  : {first_w}×{first_h} ({ratio_desc}) · {len(sizes)} 页尺寸完全统一")
 
     # 4. 媒体资源内联完整性
     img_matches = re.findall(r'<image\b[^>]*?\b(?:href|xlink:href)\s*=\s*["\']([^"\']+)["\']', content, re.IGNORECASE)
     if not img_matches:
-        print("  [✓] 媒体资源内联完整性  : 纯矢量形态 (无内嵌位图资源)")
+        _log("  [✓] 媒体资源内联完整性  : 纯矢量形态 (无内嵌位图资源)")
     else:
         external = [img for img in img_matches if not img.startswith("data:")]
         corrupt_b64 = []
@@ -153,32 +169,32 @@ def run_qa_slide_preview(target_file: Path) -> bool:
                     corrupt_b64.append("解码失败")
 
         if external:
-            print(f"  [✗] 媒体资源内联完整性  : 存在未内联的外部图片路径 ({len(external)} 处，首个: {external[0][:40]})")
+            _log(f"  [✗] 媒体资源内联完整性  : 存在未内联的外部图片路径 ({len(external)} 处，首个: {external[0][:40]})")
             bad += 1
         elif corrupt_b64:
-            print(f"  [✗] 媒体资源内联完整性  : 存在损坏的 Data URI ({len(corrupt_b64)} 处)")
+            _log(f"  [✗] 媒体资源内联完整性  : 存在损坏的 Data URI ({len(corrupt_b64)} 处)")
             bad += 1
         else:
-            print(f"  [✓] 媒体资源内联完整性  : {len(img_matches)} 个媒体资源全部内联为 data URI (Base64 解码完好)")
+            _log(f"  [✓] 媒体资源内联完整性  : {len(img_matches)} 个媒体资源全部内联为 data URI (Base64 解码完好)")
 
     # 5. 交互翻页与指示器
     has_go_fn = "function go(" in content or "go(" in content
     has_nav_btn = "go(-1)" in content and "go(1)" in content
     ind_match = re.search(r'id=["\']ind["\'][^>]*>(.*?)</div>', content)
     if not has_nav_btn:
-        print("  [✗] 交互翻页与指示器    : 缺少上一页/下一页导航控制按钮 (go(-1)/go(1))")
+        _log("  [✗] 交互翻页与指示器    : 缺少上一页/下一页导航控制按钮 (go(-1)/go(1))")
         bad += 1
     elif not ind_match:
-        print("  [✗] 交互翻页与指示器    : 缺少 #ind 页码时序指示器元素")
+        _log("  [✗] 交互翻页与指示器    : 缺少 #ind 页码时序指示器元素")
         bad += 1
     else:
         ind_text = ind_match.group(1).strip()
         expected_ind = f"01 / {n_slides:02d}"
         if ind_text != expected_ind:
-            print(f"  [✗] 交互翻页与指示器    : 初始指示器文字 '{ind_text}' 与实际页数不符 (期望: '{expected_ind}')")
+            _log(f"  [✗] 交互翻页与指示器    : 初始指示器文字 '{ind_text}' 与实际页数不符 (期望: '{expected_ind}')")
             bad += 1
         else:
-            print(f"  [✓] 交互翻页与指示器    : 双向翻页函数齐全 · 时序指示器 {expected_ind} 严格对齐")
+            _log(f"  [✓] 交互翻页与指示器    : 双向翻页函数齐全 · 时序指示器 {expected_ind} 严格对齐")
 
     # 6. 键盘响应与全屏控制
     has_keydown = "keydown" in content
@@ -186,13 +202,13 @@ def run_qa_slide_preview(target_file: Path) -> bool:
     has_fullscreen = "fullscreen" in content.lower() or "requestfullscreen" in content.lower()
 
     if not has_keydown or not has_arrows:
-        print("  [✗] 键盘响应与全屏控制  : 缺少左右方向键键盘事件监听")
+        _log("  [✗] 键盘响应与全屏控制  : 缺少左右方向键键盘事件监听")
         bad += 1
     elif not has_fullscreen:
-        print("  [✗] 键盘响应与全屏控制  : 缺少全屏 (F 键/requestFullscreen) 快捷交互")
+        _log("  [✗] 键盘响应与全屏控制  : 缺少全屏 (F 键/requestFullscreen) 快捷交互")
         bad += 1
     else:
-        print("  [✓] 键盘响应与全屏控制  : 监听 Arrow/Space 翻页 · F 全屏监听闭环")
+        _log("  [✓] 键盘响应与全屏控制  : 监听 Arrow/Space 翻页 · F 全屏监听闭环")
 
     # 7. 零外部依赖自包含
     external_scripts = re.findall(r'<script\b[^>]*?\bsrc\s*=\s*["\'](http[^"\']+)["\']', content, re.IGNORECASE)
@@ -200,36 +216,52 @@ def run_qa_slide_preview(target_file: Path) -> bool:
     
     min_bytes = 10 * 1024 if img_matches else 512
     if external_scripts or external_styles:
-        print(f"  [✗] 零外部依赖自包含    : 存在外部 CDN 引用 (脚本 {len(external_scripts)} / 样式 {len(external_styles)})")
+        _log(f"  [✗] 零外部依赖自包含    : 存在外部 CDN 引用 (脚本 {len(external_scripts)} / 样式 {len(external_styles)})")
         bad += 1
-    elif target_file.stat().st_size < min_bytes:
+    elif p.stat().st_size < min_bytes:
         threshold_str = "10 KB" if img_matches else "512 字节"
-        print(f"  [✗] 零外部依赖自包含    : 文件体积异常过小 ({target_file.stat().st_size} bytes < {threshold_str})，疑似截断")
+        _log(f"  [✗] 零外部依赖自包含    : 文件体积异常过小 ({p.stat().st_size} bytes < {threshold_str})，疑似截断")
         bad += 1
     else:
-        print(f"  [✓] 零外部依赖自包含    : 无外部 CDN 依赖 · {file_kb} KB 单文件完全自包含")
+        _log(f"  [✓] 零外部依赖自包含    : 无外部 CDN 依赖 · {file_kb} KB 单文件完全自包含")
 
-    print("=" * 60)
-    print("ALL CLEAR ✅" if bad == 0 else f"❌ {bad} 项需要处理")
+    _log("=" * 60)
+    _log("ALL CLEAR ✅" if bad == 0 else f"❌ {bad} 项需要处理")
     return bad == 0
 
 
-def run_qa_showroom_portal(target_file: Path) -> bool:
+def run_qa_showroom_portal(target_file: Path | str, verbose: bool = True) -> bool:
     """质检多形态物料在线展厅 index.html。"""
-    content = target_file.read_text(encoding="utf-8")
-    parent_dir = target_file.parent
-    file_kb = target_file.stat().st_size // 1024
+    p = Path(target_file).resolve()
+    if not p.exists():
+        if verbose:
+            print(f"  [✗] 文件不存在: {p}")
+        return False
 
-    print("=" * 60)
-    print("🔍 运行 PPT-Studio 多形态物料展厅客观质量门禁")
-    print(f"   目标: {target_file}")
-    print("=" * 60)
+    try:
+        content = p.read_text(encoding="utf-8")
+    except Exception as e:
+        if verbose:
+            print(f"  [✗] 无法读取文件 {p}: {e}")
+        return False
+
+    parent_dir = p.parent
+    file_kb = p.stat().st_size // 1024
+
+    def _log(msg: str) -> None:
+        if verbose:
+            print(msg)
+
+    _log("=" * 60)
+    _log("🔍 运行 PPT-Studio 多形态物料展厅客观质量门禁")
+    _log(f"   目标: {p}")
+    _log("=" * 60)
 
     bad = 0
 
     # 1. HTML 基础规范
     ok, msg = check_html_standards(content)
-    print(f"  [{'✓' if ok else '✗'}] HTML 基础规范       : {msg}")
+    _log(f"  [{'✓' if ok else '✗'}] HTML 基础规范       : {msg}")
     if not ok:
         bad += 1
 
@@ -240,10 +272,10 @@ def run_qa_showroom_portal(target_file: Path) -> bool:
     card_count = len(re.findall(r'<div class=["\']card["\']>', content))
 
     if not (has_header and has_grid) or card_count < 3:
-        print(f"  [✗] 展厅架构与品牌统摄  : 缺少标准展厅骨架或卡片数量不足 (当前 {card_count} 张卡片)")
+        _log(f"  [✗] 展厅架构与品牌统摄  : 缺少标准展厅骨架或卡片数量不足 (当前 {card_count} 张卡片)")
         bad += 1
     else:
-        print(f"  [✓] 展厅架构与品牌统摄  : 品牌 Badge · 标题与副标题 · {card_count} 组物料卡片")
+        _log(f"  [✓] 展厅架构与品牌统摄  : 品牌 Badge · 标题与副标题 · {card_count} 组物料卡片")
 
     # 3. 多形态物料链路覆盖
     content_lower = content.lower()
@@ -256,10 +288,10 @@ def run_qa_showroom_portal(target_file: Path) -> bool:
     }
     missing_forms = [k for k, v in required_forms.items() if not v]
     if missing_forms:
-        print(f"  [✗] 多形态物料链路覆盖  : 展厅缺少核心形态展示: {', '.join(missing_forms)}")
+        _log(f"  [✗] 多形态物料链路覆盖  : 展厅缺少核心形态展示: {', '.join(missing_forms)}")
         bad += 1
     else:
-        print("  [✓] 多形态物料链路覆盖  : 覆盖 PPTX / 卡片集 / 长图 / 1080p视频 / 竖版短视频")
+        _log("  [✓] 多形态物料链路覆盖  : 覆盖 PPTX / 卡片集 / 长图 / 1080p视频 / 竖版短视频")
 
     # 4. 导出物超链接真实连通
     href_targets = re.findall(r'<a\b[^>]*?\bhref\s*=\s*["\']([^"\']+)["\']', content, re.IGNORECASE)
@@ -275,13 +307,13 @@ def run_qa_showroom_portal(target_file: Path) -> bool:
             empty_files.append(link)
 
     if broken_links:
-        print(f"  [✗] 导出物链接真实连通  : 发现死链接 ({len(broken_links)} 个): {', '.join(broken_links[:3])}")
+        _log(f"  [✗] 导出物链接真实连通  : 发现死链接 ({len(broken_links)} 个): {', '.join(broken_links[:3])}")
         bad += 1
     elif empty_files:
-        print(f"  [✗] 导出物链接真实连通  : 链接目标为空文件 0 字节 ({len(empty_files)} 个): {', '.join(empty_files)}")
+        _log(f"  [✗] 导出物链接真实连通  : 链接目标为空文件 0 字节 ({len(empty_files)} 个): {', '.join(empty_files)}")
         bad += 1
     else:
-        print(f"  [✓] 导出物链接真实连通  : {len(local_links)} 个导出物超链接全部真实存在且体积有效")
+        _log(f"  [✓] 导出物链接真实连通  : {len(local_links)} 个导出物超链接全部真实存在且体积有效")
 
     # 5. 多媒体内嵌与播放源
     source_srcs = re.findall(r'<source\b[^>]*?\bsrc\s*=\s*["\']([^"\']+)["\']', content, re.IGNORECASE)
@@ -296,10 +328,10 @@ def run_qa_showroom_portal(target_file: Path) -> bool:
                 broken_media.append(m)
 
     if broken_media:
-        print(f"  [✗] 多媒体内嵌与播放源  : 视频或海报资源丢失 ({len(broken_media)} 处): {', '.join(broken_media)}")
+        _log(f"  [✗] 多媒体内嵌与播放源  : 视频或海报资源丢失 ({len(broken_media)} 处): {', '.join(broken_media)}")
         bad += 1
     else:
-        print(f"  [✓] 多媒体内嵌与播放源  : {len(source_srcs)} 个视频播放源与封面海报全部有效解析")
+        _log(f"  [✓] 多媒体内嵌与播放源  : {len(source_srcs)} 个视频播放源与封面海报全部有效解析")
 
     # 6. 响应式视口与暗色规范
     has_accent = "#6E7BFF" in content or "#6e7bff" in content
@@ -307,10 +339,10 @@ def run_qa_showroom_portal(target_file: Path) -> bool:
     has_media_query = "@media" in content
 
     if not (has_accent and has_dark_bg):
-        print("  [✗] 响应式视口与暗色规范: 品牌强调色 (#6E7BFF) 或暗色主题规范未对齐")
+        _log("  [✗] 响应式视口与暗色规范: 品牌强调色 (#6E7BFF) 或暗色主题规范未对齐")
         bad += 1
     else:
-        print("  [✓] 响应式视口与暗色规范: 深色主题色板 · 栅格自适应 · 品牌色 #6E7BFF 对齐")
+        _log("  [✓] 响应式视口与暗色规范: 深色主题色板 · 栅格自适应 · 品牌色 #6E7BFF 对齐")
 
     # 7. 离线自包含无断链
     external_scripts = re.findall(r'<script\b[^>]*?\bsrc\s*=\s*["\'](http[^"\']+)["\']', content, re.IGNORECASE)
@@ -326,37 +358,46 @@ def run_qa_showroom_portal(target_file: Path) -> bool:
             details.append(f"样式 {len(external_styles)}")
         if external_imports:
             details.append(f"导入 {len(external_imports)}")
-        print(f"  [✗] 离线自包含无断链    : 存在外部资源依赖 ({' / '.join(details)})")
+        _log(f"  [✗] 离线自包含无断链    : 存在外部资源依赖 ({' / '.join(details)})")
         bad += 1
-    elif target_file.stat().st_size < 512:
-        print(f"  [✗] 离线自包含无断链    : 文件体积异常过小 ({target_file.stat().st_size} bytes < 512 字节)，疑似截断")
+    elif p.stat().st_size < 512:
+        _log(f"  [✗] 离线自包含无断链    : 文件体积异常过小 ({p.stat().st_size} bytes < 512 字节)，疑似截断")
         bad += 1
     else:
-        print(f"  [✓] 离线自包含无断链    : 无外部不可用依赖 · 引用链路 100% 闭环")
+        _log(f"  [✓] 离线自包含无断链    : 无外部不可用依赖 · 引用链路 100% 闭环")
 
-    print("=" * 60)
-    print("ALL CLEAR ✅" if bad == 0 else f"❌ {bad} 项需要处理")
+    _log("=" * 60)
+    _log("ALL CLEAR ✅" if bad == 0 else f"❌ {bad} 项需要处理")
     return bad == 0
 
 
-def run_qa_html_file(f: Path) -> bool:
+def run_qa_html_file(f: Path | str, verbose: bool = True) -> bool:
     """根据文件特征分流至单文件翻页预览或多形态物料展厅。"""
+    p = Path(f).resolve()
+    if not p.exists():
+        if verbose:
+            print(f"[!] 无法读取文件 {p}: [Errno 2] No such file or directory: '{p}'")
+        return False
     try:
-        content = f.read_text(encoding="utf-8")
+        content = p.read_text(encoding="utf-8")
     except Exception as e:
-        print(f"[!] 无法读取文件 {f}: {e}")
+        if verbose:
+            print(f"[!] 无法读取文件 {p}: {e}")
         return False
 
-    if f.name == "index.html" or "展厅" in content or "MULTI-OUTPUT PIPELINE" in content:
-        return run_qa_showroom_portal(f)
+    if p.name == "index.html" or "展厅" in content or "MULTI-OUTPUT PIPELINE" in content:
+        return run_qa_showroom_portal(p, verbose=verbose)
     else:
-        return run_qa_slide_preview(f)
+        return run_qa_slide_preview(p, verbose=verbose)
 
 
-def find_preview_files(target: Path | str = ".", base_dir: Path | None = None) -> list[Path]:
+def find_preview_files(target: Path | str | None = None, base_dir: Path | None = None) -> list[Path]:
     """发现并解析待质检的 HTML 预览与展厅文件列表。"""
     base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
-    target_path = Path(target)
+    if target is None:
+        target_path = base
+    else:
+        target_path = Path(target)
     if not target_path.is_absolute():
         target_path = (base / target_path).resolve()
 
@@ -405,29 +446,49 @@ def find_preview_files(target: Path | str = ".", base_dir: Path | None = None) -
     return deduped
 
 
+def run_qa_preview(
+    target: Path | str | None = None,
+    verbose: bool = True,
+) -> bool:
+    """运行 PPT-Studio HTML 预览与多形态展厅客观质量门禁。
+
+    支持输入单个 HTML 文件路径、包含 *.html 的目录路径，或留空默认自发现。
+    支持 Path、str 或 None 输入。
+    """
+    try:
+        files_to_check = find_preview_files(target)
+    except (FileNotFoundError, ValueError) as err:
+        if verbose:
+            print(f"[!] {err}")
+        return False
+
+    if not files_to_check:
+        if verbose:
+            target_str = str(target) if target is not None else "."
+            print(f"[!] 在目录 {target_str} 及其子目录下未发现任何可质检的 HTML 文件")
+        return False
+
+    all_ok = True
+    for i, f in enumerate(files_to_check):
+        ok = run_qa_html_file(f, verbose=verbose)
+        if not ok:
+            all_ok = False
+        if verbose and i < len(files_to_check) - 1:
+            print()
+    return all_ok
+
+
+qa_preview = run_qa_preview
+qa_single_preview = run_qa_html_file
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="PPT-Studio HTML 预览与多形态展厅客观质量门禁")
     parser.add_argument("target", nargs="?", default=".", help="HTML 文件路径、output 目录或项目根目录（默认当前目录自发现）")
     args = parser.parse_args(argv)
 
-    try:
-        files_to_check = find_preview_files(args.target)
-    except (FileNotFoundError, ValueError) as e:
-        print(f"[!] {e}")
-        return 1
-
-    if not files_to_check:
-        print(f"[!] 在目录 {args.target} 及其子目录下未发现任何可质检的 HTML 文件")
-        return 1
-
-    all_ok = True
-    for f in files_to_check:
-        ok = run_qa_html_file(f)
-        print()
-        if not ok:
-            all_ok = False
-
-    return 0 if all_ok else 1
+    ok = run_qa_preview(args.target, verbose=True)
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":
