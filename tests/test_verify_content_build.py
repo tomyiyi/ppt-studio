@@ -18,6 +18,11 @@ class VerifyBuildTests(unittest.TestCase):
     (self.root/'build_receipt.json').write_text(json.dumps(self.receipt))
   def tearDown(self): self.tmp.cleanup()
   def test_valid_bundle(self): self.assertEqual(mod.verify(self.root,self.md),0)
+  def test_bundled_source_is_default(self):
+    self.assertEqual(mod.verify(self.root, None),0)
+  def test_bundled_source_tamper_fails(self):
+    self.md.write_text('# changed\n')
+    with self.assertRaises(ValueError): mod.verify(self.root, None)
   def test_hash_mismatch_fails(self):
     self.md.write_text('# changed\n')
     with self.assertRaises(ValueError): mod.verify(self.root,self.md)

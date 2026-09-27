@@ -35,9 +35,17 @@ def verify(root: Path, markdown: Path) -> int:
     artifacts = receipt.get("artifacts")
     if not isinstance(inputs, dict) or not isinstance(artifacts, dict):
         raise ValueError("receipt inputs/artifacts must be objects")
-    if not markdown.is_file(): raise ValueError(f"missing markdown: {markdown}")
-    if sha256(markdown) != require_hash(inputs.get("markdown_sha256"), "markdown"):
-        raise ValueError("markdown SHA-256 mismatch")
+    bundled_source = root / "source.md"
+    if bundled_source.is_file():
+        if sha256(bundled_source) != require_hash(inputs.get("markdown_sha256"), "markdown"):
+            raise ValueError("input mismatch: markdown_sha256")
+        if markdown is not None and (not markdown.is_file() or sha256(markdown) != sha256(bundled_source)):
+            raise ValueError("input mismatch: markdown_sha256")
+    elif markdown is not None:
+        if not markdown.is_file() or sha256(markdown) != require_hash(inputs.get("markdown_sha256"), "markdown"):
+            raise ValueError("markdown SHA-256 mismatch")
+    else:
+        raise ValueError("missing bundled source.md; provide --markdown for legacy bundle")
     for key, rel in (("spec_sha256", "spec_lock.md"), ("slide_plan_sha256", "slide_plan.json"), ("layout_intent_sha256", "layout_intent.json")):
         path = root / rel
         if not path.is_file() or sha256(path) != require_hash(inputs.get(key), key):
@@ -71,7 +79,7 @@ def verify(root: Path, markdown: Path) -> int:
 def main(argv=None):
     p = argparse.ArgumentParser()
     p.add_argument("root", type=Path)
-    p.add_argument("--markdown", required=True, type=Path)
+    p.add_argument("--markdown", type=Path)
     args = p.parse_args(argv)
     try: return verify(args.root, args.markdown)
     except (OSError, ValueError, json.JSONDecodeError) as exc:

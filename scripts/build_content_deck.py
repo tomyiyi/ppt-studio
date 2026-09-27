@@ -63,6 +63,7 @@ def build(args: argparse.Namespace) -> None:
         stage = Path(name)
         (stage / "preview").mkdir(); (stage / "output").mkdir()
         shutil.copy2(spec, stage / "spec_lock.md")
+        (stage / "source.md").write_bytes(source.read_bytes())
         plan = stage / "slide_plan.json"; intent = stage / "layout_intent.json"
         python = str(master_py)
         run([python, str(REPO / "scripts/plan_markdown.py"), str(source), "-o", str(plan)])
@@ -80,7 +81,7 @@ def build(args: argparse.Namespace) -> None:
         run([str(master_py), str(master_root / "skills/ppt-master/scripts/svg_to_pptx.py"), str(stage), "-o", str(pptx)])
         slides = len(json.loads(plan.read_text(encoding="utf-8"))["slides"])
         run([python, str(REPO / "scripts/qa_pptx.py"), str(pptx), "--spec", str(stage / "spec_lock.md"), "--expected-slides", str(slides), "--expected-media", "0"])
-        required=[stage/"spec_lock.md",plan,intent,stage/"preview/content-deck.html",report,pptx]
+        required=[stage/"source.md",stage/"spec_lock.md",plan,intent,stage/"preview/content-deck.html",report,pptx]
         required += sorted((stage/"svg_output").glob("*.svg"))
         if not all(p.is_file() and p.stat().st_size for p in required): raise ValueError("final artifact set incomplete")
         receipt = {
