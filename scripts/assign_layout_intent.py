@@ -21,6 +21,7 @@ def assign_layout(slide: dict) -> str:
     has_steps = False
     has_quote = False
     has_table = False
+    has_risk = False
     has_image = False
     has_code = False
     code_count = 0
@@ -45,6 +46,9 @@ def assign_layout(slide: dict) -> str:
             continue
         if block.get("type") == "comparison-table":
             has_table = True
+            continue
+        if block.get("type") == "risk-register":
+            has_risk = True
             continue
         if block.get("type") == "image":
             has_image = True
@@ -96,6 +100,10 @@ def assign_layout(slide: dict) -> str:
         if paragraph_count > 1 or has_bullets or has_steps or has_quote or has_table or has_image or has_metrics or has_layers:
             raise ValueError("mixed task-list blocks are not supported in v1")
         return "checklist-status"
+    if has_risk:
+        if paragraph_count or has_steps or has_quote or has_table or has_image or has_bullets:
+            raise ValueError("mixed risk-register blocks are not supported in v1")
+        return "risk-register"
     if has_image:
         if image_count not in {1, 2} or paragraph_count > 1 or has_bullets or has_steps or has_quote or has_table:
             raise ValueError("mixed image blocks are not supported in v1")

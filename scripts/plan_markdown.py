@@ -113,6 +113,15 @@ def parse_markdown(text: str) -> list[dict]:
                 rows.append(cells); i += 1
             if len(rows)==1: raise ValueError("unsupported markdown structure: table")
             if len(rows)<3: raise ValueError("comparison table requires header and 2-4 data rows")
+            if len(rows[0])==3:
+                if rows[0] != ["Risk", "Severity", "Mitigation"]:
+                    raise ValueError("risk-register header mismatch")
+                if len(rows[1])!=3 or any(not re.fullmatch(r":?-{3,}:?", x) for x in rows[1]): raise ValueError("risk-register alignment syntax is not supported")
+                data=rows[2:]
+                if not 2<=len(data)<=4 or any(len(x)!=3 for x in data): raise ValueError("risk-register requires 2-4 data rows")
+                if any(x not in {"Low","Medium","High"} for x in [r[1] for r in data]): raise ValueError("risk-register severity must be Low, Medium, or High")
+                current["blocks"].append({"type":"risk-register","headers":rows[0],"rows":data})
+                continue
             if len(rows[0])!=2: raise ValueError("comparison table requires exactly 2 columns")
             if len(rows[1])!=2 or any(not re.fullmatch(r":?-{3,}:?", x) for x in rows[1]): raise ValueError("comparison table alignment syntax is not supported")
             data=rows[2:]
