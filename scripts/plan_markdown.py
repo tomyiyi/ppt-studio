@@ -19,6 +19,7 @@ _QUOTE = re.compile(r"^>[ \t]+(.+?)[ \t]*$")
 _TABLE = re.compile(r"^\|(.+)\|[ \t]*$")
 _METRIC = re.compile(r"^([^:：\-][^:：]*?)[ \t]*:[ \t]*(.+)$")
 _MILESTONE = re.compile(r"^(\d{4}(?:-\d{2})?(?:-\d{2})?)[ \t]*:[ \t]*(.+)$")
+_FUNNEL = re.compile(r"^([^=:\-][^=:\-]*?)[ \t]*=>[ \t]*(.+)$")
 _LAYER = re.compile(r"^([^=:\-][^=:\-]*?)[ \t]*=>[ \t]*(.+)$")
 _BAR = re.compile(r"^([^=:\-][^=:\-]*?)[ \t]*=[ \t]*(\d+(?:\.\d{1,2})?)$")
 _TASK = re.compile(r"^\[([ xX])\][ \t]+(.+)$")
@@ -222,7 +223,14 @@ def parse_markdown(text: str) -> list[dict]:
                 expected += 1
                 i += 1
             milestones = []
+            funnel_items = []
+            funnel_matches = 0
             for item in items:
+                fm = _FUNNEL.match(item)
+                if fm:
+                    label, description = fm.group(1).strip(), fm.group(2).strip()
+                    if not label or not description: raise ValueError("funnel label and description must be non-empty")
+                    funnel_items.append({"label": label, "description": description}); funnel_matches += 1; continue
                 match_m = _MILESTONE.match(item)
                 if not match_m:
                     if ":" in item:
@@ -230,6 +238,11 @@ def parse_markdown(text: str) -> list[dict]:
                     milestones = []
                     continue
                 milestones.append({"date": match_m.group(1), "text": match_m.group(2).strip()})
+            if funnel_matches and funnel_matches != len(items):
+                raise ValueError("mixed structured ordered item types are not supported in v1")
+            if funnel_items:
+                if not 3 <= len(funnel_items) <= 5: raise ValueError("funnel stages require 3-5 items in v1")
+                current["blocks"].append({"type":"funnel-stages","items":funnel_items}); continue
             if milestones and len(milestones) != len(items):
                 raise ValueError("mixed milestone and plain ordered items are not supported in v1")
             if milestones:

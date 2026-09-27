@@ -29,6 +29,7 @@ def assign_layout(slide: dict) -> str:
     code_count = 0
     has_metrics = False
     has_milestones = False
+    has_funnel = False
     has_layers = False
     has_bars = False
     has_tasks = False
@@ -72,6 +73,9 @@ def assign_layout(slide: dict) -> str:
         if block.get("type") == "milestone-list":
             has_milestones = True
             continue
+        if block.get("type") == "funnel-stages":
+            has_funnel = True
+            continue
         if block.get("type") == "layer-list":
             has_layers = True
             continue
@@ -96,6 +100,10 @@ def assign_layout(slide: dict) -> str:
         if paragraph_count or has_bullets or has_steps or has_quote or has_table or has_image:
             raise ValueError("mixed milestone-list blocks are not supported in v1")
         return "milestone-timeline"
+    if has_funnel:
+        if paragraph_count > 1 or has_bullets or has_steps or has_quote or has_table or has_image or has_milestones:
+            raise ValueError("mixed funnel-stages blocks are not supported in v1")
+        return "funnel-stages"
     if has_layers:
         if paragraph_count > 1 or has_bullets or has_steps or has_quote or has_table or has_image:
             raise ValueError("mixed structured blocks are not supported in v1")

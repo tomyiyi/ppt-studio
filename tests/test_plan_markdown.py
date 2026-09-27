@@ -103,6 +103,16 @@ class PlanMarkdownTests(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 
+def _funnel_contract(self):
+    source=b"# D\n\n## Funnel\n\n1. Request => capture\n2. Plan => prepare\n3. Execute => run\n4. Verify => check"
+    block=MODULE.build_plan("x.md",source)["slides"][1]["blocks"][0]
+    self.assertEqual(block["type"],"funnel-stages")
+    self.assertEqual(MODULE.build_plan("x.md",b"# D\n## S\n1. A\n2. B\n3. C")["slides"][1]["blocks"][0]["type"],"steps")
+    for count in (2,6):
+        items="\n".join(f"{i}. S{i} => D{i}" for i in range(1,count+1))
+        with self.assertRaises(ValueError): MODULE.build_plan("x.md",f"# D\n## F\n{items}".encode())
+PlanMarkdownTests.test_funnel_contract=_funnel_contract
+
 def _decision_matrix_regression_test(self):
     source=b"# D\n\n## Next\n\n| Option | Impact | Effort |\n| --- | --- | --- |\n| A | High | Medium |\n| B | Medium | Low |\n| C | Low | High |"
     self.assertEqual(MODULE.build_plan("x.md", source)["slides"][1]["blocks"][0]["type"], "decision-matrix")
