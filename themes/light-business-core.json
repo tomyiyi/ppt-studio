@@ -1,0 +1,48 @@
+{
+  "name": "light-business-core",
+  "colors": {
+    "#08090C": "#111827",
+    "#12131A": "#1F2937",
+    "#0E0F14": "#0F172A",
+    "#23242E": "#475569",
+    "#3A3B45": "#64748B",
+    "#F7F7F9": "#F8FAFC",
+    "#8E8F9A": "#CBD5E1",
+    "#7F8090": "#94A3B8",
+    "#6E7BFF": "#F59E0B",
+    "#4ADE80": "#86EFAC"
+  },
+  "role_colors": {
+    "image-scrim": {
+      "#08090C": "#111827",
+      "#8E8F9A": "#FFFFFF",
+      "#7F8090": "#FFFFFF"
+    },
+    "content-scrim": {
+      "#08090C": "#111827"
+    },
+    "readability-surface-light": {
+      "#08090C": "#FFFFFF"
+    },
+    "readability-surface-dark": {
+      "#08090C": "#0F172A"
+    },
+    "on-light-surface": {
+      "#8E8F9A": "#000000",
+      "#7F8090": "#000000"
+    },
+    "on-dark-surface": {
+      "#8E8F9A": "#FFFFFF",
+      "#7F8090": "#FFFFFF",
+      "#6E7BFF": "#93C5FD",
+      "#4ADE80": "#86EFAC"
+    },
+    "on-image": {
+      "#8E8F9A": "#FFFFFF",
+      "#7F8090": "#FFFFFF"
+    },
+    "on-accent": {
+      "#08090C": "#000000"
+    }
+  }
+}
