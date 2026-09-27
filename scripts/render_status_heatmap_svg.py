@@ -18,7 +18,7 @@ def render(slide,out):
     if intro: z.append(f'<text x="64" y="142" font-size="16">{e(intro[0].get("text",""))}</text>')
     for j,p in enumerate(["W1","W2","W3","W4"]):
         x=left+(j+.5)*colw; z.append(f'<text x="{x:.2f}" y="{top-32}" text-anchor="middle" font-size="16">{p}</text>')
-    z.append(f'<text x="64" y="{top+28}" font-size="20">Item</text>')
+    z.append(f'<text x="64" y="{top-32}" font-size="16">Item</text>')
     for i,item in enumerate(items):
         y=top+i*rowh; z.append(f'<text x="64" y="{y+28}" font-size="20">{e(item["item"])}</text>')
         for j,status in enumerate(item["statuses"]):
