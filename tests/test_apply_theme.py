@@ -48,6 +48,17 @@ class ThemeTest(unittest.TestCase):
             x,y,w,h=map(int,(x,y,w,h))
             self.assertFalse(x < terminal[0]+terminal[2] and x+w > terminal[0] and y < terminal[1]+terminal[3] and y+h > terminal[1])
 
+    def test_verified_light_business_theme_declares_all_svg_roles(self):
+        root = Path(__file__).resolve().parents[1]
+        theme = json.loads((root/'themes/light-business.json').read_text())
+        svg_text = ''.join(p.read_text() for p in (root/'projects/agentflow-os-launch/svg_output').glob('*.svg'))
+        used_roles = set(re.findall(r'data-theme-role="([^"]+)"', svg_text))
+        declared_roles = set(theme['role_colors'])
+        self.assertTrue(used_roles <= declared_roles)
+        self.assertEqual(theme['name'], 'light-business')
+        self.assertNotEqual(theme['role_colors']['readability-surface-light']['#08090C'],
+                            theme['role_colors']['readability-surface-dark']['#08090C'])
+
     def test_scrim_metadata_does_not_change_non_metadata_source(self):
         import subprocess
         import re
