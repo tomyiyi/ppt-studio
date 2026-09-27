@@ -416,31 +416,45 @@ def check_contrast(img, root):
     return rows
 
 # ---------------------------------------------------------------- main
-def run_qa_layout(
-    svg_dir_or_file: Path,
-    render_dir: Path | None = None,
-    spec_path: Path | None = None,
+def qa_single_layout(
+    svg_dir_or_file: Path | str,
+    render_dir: Path | str | None = None,
+    spec_path: Path | str | None = None,
+    verbose: bool = True,
 ) -> bool:
+    """对单个 SVG 文件或 SVG 目录执行客观版面门禁复核。"""
+    def _log(msg: str = "", file=sys.stdout) -> None:
+        if verbose:
+            print(msg, file=file)
+
     target = Path(svg_dir_or_file).resolve()
+    if not target.exists():
+        _log(f"[!] 指定的目标路径不存在: {target}", file=sys.stderr)
+        return False
+
     if target.is_file():
         if target.suffix.lower() != ".svg":
-            print(f"[!] 指定文件不是 SVG 文件: {target}", file=sys.stderr)
+            _log(f"[!] 指定文件不是 SVG 文件: {target}", file=sys.stderr)
             return False
         svg_files = [target]
         svg_dir = target.parent
     else:
-        svg_dir = target
+        # 如果 target 包含 svg_output 子目录且当前目录无 svg，则自动切入 svg_output
+        if not list(target.glob("*.svg")) and (target / "svg_output").is_dir():
+            svg_dir = (target / "svg_output").resolve()
+        else:
+            svg_dir = target
         svg_files = sorted(svg_dir.glob("*.svg"))
 
     if not svg_files:
-        print(f"[!] 在 {svg_dir} 未找到任何 .svg 文件", file=sys.stderr)
+        _log(f"[!] 在 {svg_dir} 未找到任何 .svg 文件", file=sys.stderr)
         return False
 
     # 查找 spec_lock.md
     if spec_path:
         spec = Path(spec_path).resolve()
         if not spec.exists():
-            print(f"[warn] 找不到指定的 spec_lock.md ({spec})，用默认阶梯", file=sys.stderr)
+            _log(f"[warn] 找不到指定的 spec_lock.md ({spec})，用默认阶梯", file=sys.stderr)
             spec = None
     else:
         spec = None
@@ -471,8 +485,9 @@ def run_qa_layout(
 
     # 自动查找 render_dir (若未提供)
     if render_dir:
-        render_dir = Path(render_dir).resolve()
+        resolved_render = Path(render_dir).resolve()
     else:
+        resolved_render = None
         for candidate in [
             svg_dir.parent / "render",
             svg_dir.parent / "qa_render",
@@ -480,25 +495,25 @@ def run_qa_layout(
             svg_dir / "render",
         ]:
             if candidate.is_dir():
-                render_dir = candidate.resolve()
+                resolved_render = candidate.resolve()
                 break
 
-    print("=" * 60)
-    print("🔍 运行 PPT-Studio SVG 版面客观复核与质量门禁")
-    print(f"   目标位置: {target}")
-    print(f"   渲染目录: {render_dir if render_dir else '未提供（跳过渲染面板/对比度复核）'}")
-    print(f"   规范配置: {spec if spec else '默认阶梯'}")
-    print("=" * 60)
-    print(f"字号阶梯: {sorted(ramp)}")
+    _log("=" * 60)
+    _log("🔍 运行 PPT-Studio SVG 版面客观复核与质量门禁")
+    _log(f"   目标位置: {target}")
+    _log(f"   渲染目录: {resolved_render if resolved_render else '未提供（跳过渲染面板/对比度复核）'}")
+    _log(f"   规范配置: {spec if spec else '默认阶梯'}")
+    _log("=" * 60)
+    _log(f"字号阶梯: {sorted(ramp)}")
     if "statement" in roles:
-        print(f"跨页主句预期字号: {expected_stmt_sz}px (来自 {spec.name})")
+        _log(f"跨页主句预期字号: {expected_stmt_sz}px (来自 {spec.name})")
 
     # 渲染目录可能是 <name>.png/<name>.png 的嵌套结构
     def find_png(stem):
-        if not render_dir or not render_dir.is_dir():
+        if not resolved_render or not resolved_render.is_dir():
             return None
         for pat in (f"{stem}.png", f"{stem}/*.png", f"**/{stem}.png"):
-            hit = [p for p in glob.glob(os.path.join(str(render_dir), pat), recursive=True)
+            hit = [p for p in glob.glob(os.path.join(str(resolved_render), pat), recursive=True)
                    if os.path.isfile(p)]
             if hit:
                 return hit[0]
@@ -511,96 +526,132 @@ def run_qa_layout(
         try:
             root = ET.parse(svg_path).getroot()
         except Exception as e:
-            print(f"\n=== {stem} ===")
-            print(f"  [XML] ⚠️ 无法解析 SVG 文件: {e}")
+            _log(f"\n=== {stem} ===")
+            _log(f"  [XML] ⚠️ 无法解析 SVG 文件: {e}")
             bad += 1
             continue
         svg_slides.append((stem, root))
 
-        print(f"\n=== {stem} ===")
+        _log(f"\n=== {stem} ===")
 
         used, off = check_typescale(root, ramp)
         line = "  ".join(f"{k}×{v}" for k, v in sorted(used.items()))
         if off:
             bad += len(off)
-            print(f"  [字号] {line}   ⚠️ 越出阶梯: {off}")
+            _log(f"  [字号] {line}   ⚠️ 越出阶梯: {off}")
         else:
-            print(f"  [字号] {line}   OK（{len(used)} 档）")
+            _log(f"  [字号] {line}   OK（{len(used)} 档）")
 
         cov = check_backdrop(root)
         if cov is None:
-            print("  [底图] 无图片")
+            _log("  [底图] 无图片")
         else:
             ok = cov >= 90.0
             if not ok:
                 bad += 1
-            print(f"  [底图] 覆盖画布 {cov:.1f}%  {'OK' if ok else '⚠️ 未铺满，不是底图'}")
+            _log(f"  [底图] 覆盖画布 {cov:.1f}%  {'OK' if ok else '⚠️ 未铺满，不是底图'}")
 
         dups = check_dup_images(root)
         if dups:
             bad += len(dups)
             for d in dups:
-                print(f"  [重影] 同一张源图用了两次：{d}  →  一页只保留一个图位")
+                _log(f"  [重影] 同一张源图用了两次：{d}  →  一页只保留一个图位")
         else:
-            print("  [重影] OK（每张源图仅一次）")
+            _log("  [重影] OK（每张源图仅一次）")
 
         ov = check_overflow(root)
         if ov:
             bad += len(ov)
             for i in ov:
-                print(f"  [溢出] {i}")
+                _log(f"  [溢出] {i}")
         else:
-            print("  [溢出] OK")
+            _log("  [溢出] OK")
 
         col = check_line_collisions(root)
         if col:
             bad += len(col)
             for c in col[:8]:
-                print(f"  [压行] {c}")
+                _log(f"  [压行] {c}")
         else:
-            print("  [压行] OK")
+            _log("  [压行] OK")
 
         png = find_png(stem)
         if not png:
-            print("  [渲染] 未找到对应 PNG，跳过面板/对比度检查")
+            _log("  [渲染] 未找到对应 PNG，跳过面板/对比度检查")
             continue
         img = Image.open(png)
 
         ps = panels_of(root)
         if not ps:
-            print("  [面板] 无独立图片面板")
+            _log("  [面板] 无独立图片面板")
         for name, x, y, w, h in ps:
             line = check_panel(img, (x, y, w, h), name)
-            print(f"  [面板] {line}")
+            _log(f"  [面板] {line}")
             if "⚠️" in line:
                 bad += 1
 
         rows = check_contrast(img, root)
         if not rows:
-            print("  [对比] 无可测文本")
+            _log("  [对比] 无可测文本")
         else:
             rows.sort()
             worst = rows[0]
             fails = [r for r in rows if r[0] < WCAG_MIN]
-            print(f"  [对比] 最低 {worst[0]:.1f}:1  «{worst[1][:20]}»  "
-                  f"| 不达标 {len(fails)}/{len(rows)}")
+            _log(f"  [对比] 最低 {worst[0]:.1f}:1  «{worst[1][:20]}»  "
+                 f"| 不达标 {len(fails)}/{len(rows)}")
             for r, t, s in fails[:6]:
-                print(f"          {r:.1f}:1  «{t[:26]}» ({s:.0f}px)")
+                _log(f"          {r:.1f}:1  «{t[:26]}» ({s:.0f}px)")
                 bad += 1
 
     # 跨页主句一致性检查（多页时执行）
     if len(svg_slides) > 1:
-        print("\n=== 跨页一致性 ===")
+        _log("\n=== 跨页一致性 ===")
         ok_stmt, msg_stmt = check_statement_consistency(svg_slides, expected_stmt_sz)
         if ok_stmt:
-            print(f"  [主句] OK  {msg_stmt}")
+            _log(f"  [主句] OK  {msg_stmt}")
         else:
             bad += 1
-            print(f"  [主句] ⚠️  {msg_stmt}")
+            _log(f"  [主句] ⚠️  {msg_stmt}")
 
-    print("\n" + "=" * 60)
-    print("ALL CLEAR ✅" if bad == 0 else f"待修 {bad} 项 ⚠️")
+    _log("\n" + "=" * 60)
+    _log("ALL CLEAR ✅" if bad == 0 else f"待修 {bad} 项 ⚠️")
     return bad == 0
+
+
+def run_qa_layout(
+    target: Path | str | None = None,
+    render_dir: Path | str | None = None,
+    spec_path: Path | str | None = None,
+    verbose: bool = True,
+) -> bool:
+    """运行 PPT-Studio SVG 版面客观质量门禁。
+
+    支持输入单个 SVG 文件路径、SVG 目录、包含 svg_output 的项目目录，或留空默认自发现。
+    支持 Path、str 或 None 输入。
+    """
+    try:
+        targets = resolve_layout_dirs(target)
+    except (FileNotFoundError, ValueError) as err:
+        if verbose:
+            print(f"[!] {err}", file=sys.stderr)
+        return False
+
+    if not targets:
+        if verbose:
+            print("[!] 未找到任何待质检的 SVG 目标", file=sys.stderr)
+        return False
+
+    all_ok = True
+    for i, t in enumerate(targets):
+        ok = qa_single_layout(t, render_dir=render_dir, spec_path=spec_path, verbose=verbose)
+        if not ok:
+            all_ok = False
+        if verbose and i < len(targets) - 1:
+            print()
+    return all_ok
+
+
+qa_layout = run_qa_layout
 
 
 def resolve_layout_dirs(
@@ -742,22 +793,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[!] 指定的目标路径不存在: {args.target}", file=sys.stderr)
             return 1
         svg_dir = (t_path / "svg_output").resolve() if (t_path / "svg_output").is_dir() else t_path
-        success = run_qa_layout(svg_dir, render_dir, spec_path)
+        success = qa_single_layout(svg_dir, render_dir, spec_path, verbose=True)
         return 0 if success else 1
 
-    try:
-        targets = resolve_layout_dirs(args.target)
-    except (FileNotFoundError, ValueError) as err:
-        print(f"[!] {err}", file=sys.stderr)
-        return 1
-
-    all_ok = True
-    for t in targets:
-        ok = run_qa_layout(t, render_dir, spec_path)
-        if not ok:
-            all_ok = False
-
-    return 0 if all_ok else 1
+    ok = run_qa_layout(args.target, render_dir=render_dir, spec_path=spec_path, verbose=True)
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

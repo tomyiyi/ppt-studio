@@ -39,7 +39,9 @@ from scripts.qa_layout import (
     check_line_collisions,
     check_statement_consistency,
     resolve_layout_dirs,
+    qa_single_layout,
     run_qa_layout,
+    qa_layout,
     main,
 )
 
@@ -431,6 +433,72 @@ class TestMainCli(unittest.TestCase):
             with patch("sys.stderr", new_callable=io.StringIO):
                 code = main([str(f)])
             self.assertEqual(code, 1)
+
+
+class TestQaLayoutProgrammaticAPI(unittest.TestCase):
+    """测试 qa_layout / run_qa_layout / qa_single_layout 可编程接口。"""
+
+    def test_alias_equivalence(self):
+        self.assertIs(qa_layout, run_qa_layout)
+
+    def test_qa_single_layout_path_and_str(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            svg_dir = Path(tmp_dir) / "svgs"
+            create_test_svg(svg_dir / "01.svg", title_sz=56, body_sz=16)
+            self.assertTrue(qa_single_layout(svg_dir, verbose=False))
+            self.assertTrue(qa_single_layout(str(svg_dir), verbose=False))
+
+    def test_qa_single_layout_verbose_false_silence(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            svg_dir = Path(tmp_dir) / "svgs"
+            create_test_svg(svg_dir / "01.svg", title_sz=56, body_sz=16)
+            buf_out = io.StringIO()
+            buf_err = io.StringIO()
+            with patch("sys.stdout", buf_out), patch("sys.stderr", buf_err):
+                res = qa_single_layout(svg_dir, verbose=False)
+            self.assertTrue(res)
+            self.assertEqual(buf_out.getvalue(), "")
+            self.assertEqual(buf_err.getvalue(), "")
+
+    def test_qa_single_layout_nonexistent_returns_false(self):
+        res = qa_single_layout("/non_existent_svg_dir_99999", verbose=False)
+        self.assertFalse(res)
+
+    def test_qa_single_layout_non_svg_file_returns_false(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            txt_file = Path(tmp_dir) / "test.txt"
+            txt_file.touch()
+            res = qa_single_layout(txt_file, verbose=False)
+            self.assertFalse(res)
+
+    def test_qa_single_layout_single_svg_file(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            svg_file = Path(tmp_dir) / "01.svg"
+            create_test_svg(svg_file, title_sz=56, body_sz=16)
+            self.assertTrue(qa_single_layout(svg_file, verbose=False))
+            self.assertTrue(qa_single_layout(str(svg_file), verbose=False))
+
+    def test_qa_single_layout_project_dir_with_svg_output(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj_dir = Path(tmp_dir) / "my_project"
+            svg_out = proj_dir / "svg_output"
+            create_test_svg(svg_out / "01.svg", title_sz=56, body_sz=16)
+            self.assertTrue(qa_single_layout(proj_dir, verbose=False))
+
+    def test_run_qa_layout_project_directory(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj_dir = Path(tmp_dir) / "my_project"
+            svg_out = proj_dir / "svg_output"
+            create_test_svg(svg_out / "01.svg", title_sz=56, body_sz=16)
+            self.assertTrue(run_qa_layout(proj_dir, verbose=False))
+            self.assertTrue(run_qa_layout(str(proj_dir), verbose=False))
+
+    def test_run_qa_layout_empty_directory_returns_false(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            self.assertFalse(run_qa_layout(tmp_dir, verbose=False))
+
+    def test_run_qa_layout_nonexistent_returns_false(self):
+        self.assertFalse(run_qa_layout("/non_existent_layout_dir_99999", verbose=False))
 
 
 if __name__ == "__main__":
