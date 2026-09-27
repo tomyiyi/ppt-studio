@@ -38,6 +38,22 @@ def require_head(value: object) -> str:
     return value
 
 
+def identity(receipt: dict) -> tuple:
+    inputs = receipt.get("inputs")
+    toolchain = receipt.get("toolchain")
+    if not isinstance(inputs, dict) or not isinstance(toolchain, dict):
+        raise ValueError("replay identity mismatch")
+    return (
+        receipt.get("slides"),
+        inputs.get("markdown_sha256"),
+        inputs.get("spec_sha256"),
+        inputs.get("slide_plan_sha256"),
+        inputs.get("layout_intent_sha256"),
+        toolchain.get("ppt_studio_head"),
+        toolchain.get("ppt_master_head"),
+    )
+
+
 def replay(source_bundle: Path, toolchain_config: Path, output: Path) -> None:
     source_bundle = source_bundle.resolve()
     toolchain_config = toolchain_config.resolve()
@@ -75,6 +91,9 @@ def replay(source_bundle: Path, toolchain_config: Path, output: Path) -> None:
             "-o", str(temporary),
         ])
         run([sys.executable, str(VERIFY), str(temporary)])
+        new_receipt = json.loads((temporary / "build_receipt.json").read_text(encoding="utf-8"))
+        if identity(receipt) != identity(new_receipt):
+            raise ValueError("replay identity mismatch")
         os.replace(temporary, output)
     except BaseException:
         if temporary.exists():
