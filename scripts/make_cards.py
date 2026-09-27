@@ -28,7 +28,9 @@ import argparse
 import math
 import os
 import re
+import shutil
 import sys
+import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -879,58 +881,79 @@ def make_cards(
     proj_dir = resolve_project_dir(project_dir)
     src_dir = proj_dir / "svg_output"
     out_dir = proj_dir / out_dir_name
-    out_dir.mkdir(parents=True, exist_ok=True)
+    staging_dir = Path(tempfile.mkdtemp(prefix=f".{out_dir.name}.", dir=proj_dir))
+    backup: Path | None = None
+    try:
+        if only and out_dir.is_dir():
+            for existing in out_dir.iterdir():
+                target = staging_dir / existing.name
+                if existing.is_dir():
+                    shutil.copytree(existing, target)
+                else:
+                    shutil.copy2(existing, target)
+        if not src_dir.is_dir():
+            raise FileNotFoundError(f"项目缺少 svg_output 目录: {src_dir}")
+        files = sorted(f for f in src_dir.iterdir() if f.suffix == ".svg")
+        if only:
+            files = [f for f in files if only in f.name]
+        if not files:
+            raise FileNotFoundError(f"未在 {src_dir} 找到任何待处理的 SVG 文件")
 
-    if not src_dir.is_dir():
-        raise FileNotFoundError(f"项目缺少 svg_output 目录: {src_dir}")
+        W, H, band_h = ratio_wh(ratio)
+        proj_str = str(proj_dir)
+        focus = load_focus(proj_str)
+        total = len(files)
+        spec_target = spec_path if spec_path else proj_str
+        colors = load_spec_colors(spec_target)
+        sizes = load_spec_roles(spec_target)
+        all_src_files = sorted(src_dir.glob("*.svg"))
+        deck_title = load_deck_title(proj_str, all_src_files)
 
-    files = sorted(f for f in src_dir.iterdir() if f.suffix == ".svg")
-    if only:
-        files = [f for f in files if only in f.name]
-    if not files:
-        raise FileNotFoundError(f"未在 {src_dir} 找到任何待处理的 SVG 文件")
+        generated: list[Path] = []
+        for i, fpath in enumerate(files, 1):
+            stem = fpath.stem
+            page_no = stem[:2]
+            texts, bg_img, badge = parse_page(str(fpath))
+            c = pick(texts, badge, focus.get(page_no))
+            if not c["primary"] and not c["metrics"]:
+                print(f"  [skip] {fpath.name} 无可提取内容")
+                continue
+            svg = card_svg(stem, deck_title, c, bg_img, i, total, W, H, colors=colors, sizes=sizes)
+            dst = staging_dir / f"{stem}.svg"
+            dst.write_text(svg, encoding="utf-8")
+            print(f"✓ {fpath.name} → {dst}  主句[{c['kind']}]  指标 {len(c['metrics'])}")
+            generated.append(dst)
 
-    W, H, band_h = ratio_wh(ratio)
-    proj_str = str(proj_dir)
-    focus = load_focus(proj_str)
-    total = len(files)
-
-    spec_target = spec_path if spec_path else proj_str
-    colors = load_spec_colors(spec_target)
-    sizes = load_spec_roles(spec_target)
-    all_src_files = sorted(src_dir.glob("*.svg"))
-    deck_title = load_deck_title(proj_str, all_src_files)
-
-    generated: list[Path] = []
-    for i, fpath in enumerate(files, 1):
-        stem = fpath.stem
-        page_no = stem[:2]
-        texts, bg_img, badge = parse_page(str(fpath))
-        c = pick(texts, badge, focus.get(page_no))
-        if not c["primary"] and not c["metrics"]:
-            print(f"  [skip] {fpath.name} 无可提取内容")
-            continue
-        svg = card_svg(stem, deck_title, c, bg_img, i, total, W, H, colors=colors, sizes=sizes)
-        dst = out_dir / f"{stem}.svg"
-        dst.write_text(svg, encoding="utf-8")
-        print(
-            f"✓ {fpath.name} → {dst}  主句[{c['kind']}] {c['primary']['text'][:24] if c['primary'] else '—'}"
-            f"  指标 {len(c['metrics'])}"
-        )
-        generated.append(dst)
-
-    print(f"完成 {len(generated)}/{len(files)}  ({W}×{H}, 图片带 {band_h}px)")
-
-    if check:
-        if run_qa_cards is not None:
-            ok = run_qa_cards(out_dir, spec_path=spec_path)
-            if not ok:
+        print(f"完成 {len(generated)}/{len(files)}  ({W}×{H}, 图片带 {band_h}px)")
+        if check and run_qa_cards is not None:
+            if not run_qa_cards(staging_dir, spec_path=spec_path):
                 raise RuntimeError(f"卡片客观质量门禁未通过: {out_dir}")
             print("  [门禁] ✓ 卡片客观质量门禁通过")
-        else:
+        elif check:
             print("  [warn] 未导入 run_qa_cards，跳过门禁检查")
 
-    return generated
+        if out_dir.exists():
+            backup = Path(tempfile.mkdtemp(prefix=f".{out_dir.name}.old.", dir=proj_dir))
+            backup.rmdir()
+            os.replace(out_dir, backup)
+        try:
+            os.replace(staging_dir, out_dir)
+        except Exception:
+            if backup is not None and not out_dir.exists():
+                os.replace(backup, out_dir)
+                backup = None
+            raise
+        staging_dir = None  # type: ignore[assignment]
+        if backup is not None:
+            shutil.rmtree(backup)
+            backup = None
+        return [out_dir / path.name for path in generated]
+    except Exception:
+        if staging_dir is not None and staging_dir.exists():
+            shutil.rmtree(staging_dir)
+        if backup is not None and backup.exists() and not out_dir.exists():
+            os.replace(backup, out_dir)
+        raise
 
 
 def main(argv: list[str] | None = None) -> int:
