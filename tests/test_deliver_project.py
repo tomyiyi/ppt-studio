@@ -100,6 +100,17 @@ class TestDeliverProject(unittest.TestCase):
         self.assertIn("产物客观质量门禁未通过", str(ctx.exception))
         self.assertEqual(self.destination.read_bytes(), b"existing-content")
 
+    def test_deliver_project_srt_with_check_success(self):
+        self.write_attestation(valid_attestation())
+        srt_source = self.root / "source.srt"
+        srt_dest = self.root / "published" / "source.srt"
+        srt_source.write_bytes(b"1\n00:00:01,000 --> 00:00:02,000\nhi\n")
+        with patch("scripts.deliver_project.run_qa_subtitles", return_value=True) as qa_mock:
+            delivered = deliver_project(self.attestation, srt_source, srt_dest, check=True)
+        self.assertEqual(delivered, srt_dest)
+        self.assertTrue(srt_dest.is_file())
+        qa_mock.assert_called_once()
+
     def card_sources(self):
         first = self.root / "01.svg"
         second = self.root / "02.svg"
@@ -397,6 +408,21 @@ class TestValidateDeliveredArtifact(unittest.TestCase):
         with patch("scripts.deliver_project.run_qa_layout", return_value=True) as qa_mock:
             validate_delivered_artifact(f)
         qa_mock.assert_called_once_with(f, verbose=False)
+
+    def test_validates_srt(self):
+        f = self.root / "timeline.srt"
+        f.write_bytes(b"srt")
+        with patch("scripts.deliver_project.run_qa_subtitles", return_value=True) as qa_mock:
+            validate_delivered_artifact(f)
+        qa_mock.assert_called_once_with(f, verbose=False)
+
+    def test_validates_srt_failure(self):
+        f = self.root / "timeline.srt"
+        f.write_bytes(b"bad-srt")
+        with patch("scripts.deliver_project.run_qa_subtitles", return_value=False) as qa_mock:
+            with self.assertRaises(RuntimeError) as ctx:
+                validate_delivered_artifact(f)
+        self.assertIn("产物客观质量门禁未通过", str(ctx.exception))
 
     def test_unknown_extension_passes(self):
         f = self.root / "data.json"

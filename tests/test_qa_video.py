@@ -34,6 +34,8 @@ from scripts.qa_video import (
     qa_video,
     run_qa_video,
     run_qa_single_video,
+    run_qa_subtitles,
+    qa_subtitles,
     main,
 )
 
@@ -631,6 +633,24 @@ class TestQAVideoProgrammaticAPI(unittest.TestCase):
                 res = qa_video(tmp_dir, verbose=False)
             self.assertFalse(res)
             self.assertEqual(buf_out.getvalue(), "")
+
+    def test_run_qa_subtitles_valid_and_alias(self):
+        self.assertIs(qa_subtitles, run_qa_subtitles)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            srt = Path(tmp_dir) / "test.srt"
+            srt.write_text("1\n00:00:01,000 --> 00:00:03,000\n你好\n", encoding="utf-8")
+            self.assertTrue(run_qa_subtitles(srt, verbose=False))
+            self.assertTrue(qa_video(srt, verbose=False))
+
+    def test_run_qa_subtitles_invalid(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            srt = Path(tmp_dir) / "bad.srt"
+            srt.write_text("1\n00:00:05,000 --> 00:00:03,000\n倒挂\n", encoding="utf-8")
+            self.assertFalse(run_qa_subtitles(srt, verbose=False))
+            self.assertFalse(qa_video(srt, verbose=False))
+
+    def test_run_qa_subtitles_missing(self):
+        self.assertFalse(run_qa_subtitles("/non_existent_subtitles_file.srt", verbose=False))
 
 
 if __name__ == "__main__":

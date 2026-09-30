@@ -239,6 +239,35 @@ def check_subtitles(srt_path: Path | str | None, video_duration: float) -> tuple
     return True, f"{valid_cues} 条字幕时序合规 · 尾部对齐良好"
 
 
+def run_qa_subtitles(
+    srt_path: Path | str,
+    video_duration: float = float("inf"),
+    *,
+    verbose: bool = True,
+) -> bool:
+    """对独立 SRT 字幕文件执行客观质量门禁。"""
+    path = Path(srt_path).resolve()
+    if not path.is_file():
+        if verbose:
+            print(f"[ERROR] 目标字幕文件不存在: {path}", file=sys.stderr)
+        return False
+    ok, reason = check_subtitles(path, video_duration)
+    if verbose:
+        print("=" * 50)
+        print("🔍 运行 PPT-Studio 字幕质量自动化门禁")
+        print(f"   目标: {path}")
+        print("=" * 50)
+        if ok:
+            print(f"  [✓] 字幕时间线            : {reason}")
+            print("=" * 50)
+            print("ALL CLEAR ✅")
+        else:
+            print(f"  [✗ [FAIL]] 字幕时间线     : {reason}")
+            print("=" * 50)
+            print("QA GATES FAILED ❌ 请根据上述检查项修正重试！")
+    return ok
+
+
 def check_bitrate_and_fps(v_stream: dict | None, format_info: dict) -> tuple[bool, str]:
     if not v_stream:
         return False, "缺少视频流，无法核验帧率与码率"
@@ -396,6 +425,8 @@ def qa_video(
         return False
 
     if target.is_file():
+        if target.suffix.lower() == ".srt":
+            return run_qa_subtitles(target, verbose=verbose)
         if target.suffix.lower() != ".mp4":
             if verbose:
                 print(f"[ERROR] 目标文件非有效 MP4 格式: {target}")
@@ -422,6 +453,8 @@ def qa_video(
 
 run_qa_video = qa_video
 run_qa_single_video = qa_single_video
+qa_subtitles = run_qa_subtitles
+run_qa_subtitles = run_qa_subtitles
 
 
 def main(argv: list[str] | None = None) -> int:

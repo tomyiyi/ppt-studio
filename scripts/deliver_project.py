@@ -17,7 +17,7 @@ try:
     from scripts.qa_long_card import run_qa_long_card
     from scripts.qa_pptx import run_qa_pptx
     from scripts.qa_preview import run_qa_preview
-    from scripts.qa_video import run_qa_video
+    from scripts.qa_video import run_qa_subtitles, run_qa_video
 except ModuleNotFoundError:
     repo_root = Path(__file__).resolve().parent.parent
     if str(repo_root) not in sys.path:
@@ -27,7 +27,7 @@ except ModuleNotFoundError:
     from scripts.qa_long_card import run_qa_long_card
     from scripts.qa_pptx import run_qa_pptx
     from scripts.qa_preview import run_qa_preview
-    from scripts.qa_video import run_qa_video
+    from scripts.qa_video import run_qa_subtitles, run_qa_video
 
 
 _STAGES = ("image", "layout", "cards", "long_card")
@@ -70,6 +70,8 @@ def validate_delivered_artifact(
         ok = bool(run_qa_preview(path, verbose=verbose))
     elif suffix == ".svg":
         ok = bool(run_qa_layout(path, verbose=verbose))
+    elif suffix == ".srt":
+        ok = bool(run_qa_subtitles(path, verbose=verbose))
 
     if not ok:
         raise RuntimeError(f"产物客观质量门禁未通过: {display_name}")
