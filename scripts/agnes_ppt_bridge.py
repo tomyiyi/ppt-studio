@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -44,7 +45,7 @@ from pathlib import Path
 def load_gateway(config_path: Path | str | None = None) -> tuple[str, str]:
     """复用 Agnes Studio 的 ~/.new-api/local_key.json，不另存密钥。"""
     p = Path(config_path) if config_path else Path.home() / ".new-api" / "local_key.json"
-    base, key = "http://127.0.0.1:13000/v1", ""
+    base, key = os.environ.get("AGNES_IMAGE_BASE_URL", "http://127.0.0.1:13000/v1"), ""
     if p.exists():
         try:
             d = json.loads(p.read_text(encoding="utf-8"))
