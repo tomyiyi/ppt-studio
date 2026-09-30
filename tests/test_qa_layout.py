@@ -32,6 +32,8 @@ from scripts.qa_layout import (
     inherited_font_size,
     load_ramp,
     load_spec_roles,
+    load_canvas_from_spec,
+    load_margin_from_spec,
     check_overflow,
     check_typescale,
     check_backdrop,
@@ -268,6 +270,46 @@ class TestDefaultRampAndSpecLoading(unittest.TestCase):
         root = ET.fromstring(xml_str)
         dups = check_dup_images(root)
         self.assertIn("card_bg", dups)
+
+
+class TestCanvasFromSpec(unittest.TestCase):
+    """画布尺寸/margin 从 spec_lock.md 自动读取。"""
+
+    def _write_spec(self, tmp_dir, content):
+        spec_file = Path(tmp_dir) / "spec_lock.md"
+        spec_file.write_text(content, encoding="utf-8")
+        return str(spec_file)
+
+    def test_canvas_1920x1080(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write_spec(d, "## canvas\n- viewBox: 0 0 1920 1080\n- margin: 144px\n")
+            self.assertEqual(load_canvas_from_spec(p), (1920, 1080))
+
+    def test_canvas_default_1280x720(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write_spec(d, "## canvas\n- viewBox: 0 0 1280 720\n")
+            self.assertEqual(load_canvas_from_spec(p), (1280, 720))
+
+    def test_canvas_missing_viewbox(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write_spec(d, "## canvas\n- format: PPT 16:9\n")
+            self.assertEqual(load_canvas_from_spec(p), (None, None))
+
+    def test_canvas_nonexistent_file(self):
+        self.assertEqual(load_canvas_from_spec("/non_existent_spec.md"), (None, None))
+
+    def test_margin_read(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write_spec(d, "## canvas\n- margin: 96px\n")
+            self.assertEqual(load_margin_from_spec(p), 96)
+
+    def test_margin_missing(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write_spec(d, "## canvas\n- viewBox: 0 0 1280 720\n")
+            self.assertIsNone(load_margin_from_spec(p))
+
+    def test_margin_nonexistent_file(self):
+        self.assertIsNone(load_margin_from_spec("/non_existent_spec.md"))
 
 
 class TestLineCollisions(unittest.TestCase):

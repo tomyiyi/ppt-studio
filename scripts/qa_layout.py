@@ -43,6 +43,7 @@ except ImportError:
 NS = "{http://www.w3.org/2000/svg}"
 CANVAS_W, CANVAS_H = 1280, 720
 MARGIN = 60
+_CANVAS_OVERRIDDEN = False  # --canvas explicit => True, skip spec auto-read
 WCAG_MIN = 4.5
 
 # ---------------------------------------------------------------- 基础数值解析
@@ -105,6 +106,30 @@ def check_overflow(root):
 
 # ---------------------------------------------------------------- 面板
 DEFAULT_RAMP = {11, 13, 16, 20, 24, 32, 44, 56, 96}
+
+
+def load_canvas_from_spec(spec_lock_path):
+    """Read viewBox: 0 0 W H from spec_lock.md ## canvas. Returns (w,h) or (None,None)."""
+    try:
+        from pathlib import Path as _P
+        txt = _P(spec_lock_path).read_text(encoding="utf-8")
+    except OSError:
+        return None, None
+    m = re.search(r"viewBox\s*:\s*0\s+0\s+(\d+)\s+(\d+)", txt)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    return None, None
+
+
+def load_margin_from_spec(spec_lock_path):
+    """Read margin: Npx from spec_lock.md. Returns int or None."""
+    try:
+        from pathlib import Path as _P
+        txt = _P(spec_lock_path).read_text(encoding="utf-8")
+    except OSError:
+        return None
+    m = re.search(r"margin\s*[:\uff1a]\s*(\d+)\s*px", txt)
+    return int(m.group(1)) if m else None
 
 
 def load_ramp(spec_lock_path):
@@ -511,6 +536,16 @@ def qa_single_layout(
                     break
 
     ramp = load_ramp(str(spec)) if spec else DEFAULT_RAMP
+
+    # canvas auto-read: unless --canvas given, read viewBox from spec_lock.md
+    if not _CANVAS_OVERRIDDEN and spec:
+        _cw, _ch = load_canvas_from_spec(str(spec))
+        if _cw and _ch:
+            global CANVAS_W, CANVAS_H, MARGIN
+            CANVAS_W, CANVAS_H = _cw, _ch
+            _sm = load_margin_from_spec(str(spec))
+            MARGIN = _sm if _sm else round(60 * _cw / 1280)
+            _log(f"[canvas] from spec {_cw}x{_ch}, MARGIN={MARGIN}")
     roles = load_spec_roles(str(spec)) if spec else {}
     expected_stmt_sz = roles.get("statement", 56)
 
@@ -819,7 +854,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.canvas:
-        global CANVAS_W, CANVAS_H, MARGIN
+        global CANVAS_W, CANVAS_H, MARGIN, _CANVAS_OVERRIDDEN
+        _CANVAS_OVERRIDDEN = True
         m = re.match(r"\s*(\d+)\s*[x\u00d7]\s*(\d+)\s*", args.canvas)
         if m:
             CANVAS_W, CANVAS_H = int(m.group(1)), int(m.group(2))
