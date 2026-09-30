@@ -57,7 +57,11 @@ SEVERITY = {
     "backdrop": "warning",  # 底图未铺满：风格选择
     "panel": "warning",     # 面板墨量不足：可调
     "statement": "warning", # 主句跨页不一致：需人工判断
+    "role_discipline": "warning", # breathing 页多卡片：违反版式角色纪律
 }
+
+# role 纪律：breathing 页最多允许的卡片数（ppt-master 差距3）
+BREATHING_MAX_CARDS = 2
 
 # ---------------------------------------------------------------- 基础数值解析
 def parse_num(val, default: float = 0.0) -> float:
@@ -347,6 +351,36 @@ def panels_of(root):
         out.append(("panel:" + m.group(1),) + geo)
     return out
 
+def check_role_discipline(root, page_id, page_map, canvas_w, canvas_h):
+    """breathing 节奏页禁止多卡片网格（role 纪律）。
+
+    page_map: {P01: {role, rhythm}}；rhythm=breathing 的页卡片数 ≤ BREATHING_MAX_CARDS。
+    卡片启发式：非背景 rect（宽150-800、高100-600、有填充）。
+    返回 (ok, msg)。
+    """
+    rhythm = (page_map.get(page_id) or {}).get("rhythm", "")
+    if rhythm != "breathing":
+        return True, "非 breathing 页，跳过"
+    cards = 0
+    for r in root.iter("{http://www.w3.org/2000/svg}rect"):
+        try:
+            w = float(r.get("width", 0)); h = float(r.get("height", 0))
+        except ValueError:
+            continue
+        if not (150 <= w <= 800 and 100 <= h <= 600):
+            continue
+        if r.get("fill", "") in ("none", "transparent"):
+            continue
+        # 排除铺满画布的背景
+        if w * h > canvas_w * canvas_h * 0.8:
+            continue
+        cards += 1
+    ok = cards <= BREATHING_MAX_CARDS
+    msg = "breathing 页卡片 %d 个%s" % (
+        cards, " OK" if ok else " > %d，违反 role 纪律（应留白呼吸）" % BREATHING_MAX_CARDS)
+    return ok, msg
+
+
 def check_panel(img, box, name):
     """必须用 max 通道衡量，不能只用亮度：
     #6E7BFF 靛蓝的蓝通道是 255，但相对亮度权重只有 0.0722，
@@ -573,6 +607,15 @@ def qa_single_layout(
     roles = load_spec_roles(str(spec)) if spec else {}
     expected_stmt_sz = roles.get("statement", 56)
 
+    # page_map 加载（role 纪律检查用）
+    page_map = {}
+    if spec:
+        try:
+            from check_page_map import parse_page_map
+            page_map = parse_page_map(Path(str(spec)))
+        except Exception:
+            page_map = {}
+
     # 自动查找 render_dir (若未提供)
     if render_dir:
         resolved_render = Path(render_dir).resolve()
@@ -631,6 +674,15 @@ def qa_single_layout(
             _log(f"  [字号] {line}   ⚠️ 越出阶梯: {off}")
         else:
             _log(f"  [字号] {line}   OK（{len(used)} 档）")
+
+        # role 纪律：breathing 页禁止多卡片网格
+        page_id = stem[:3].upper() if stem[:1].isdigit() else stem.split("_")[0].upper()
+        if page_id[:1].isdigit():
+            page_id = "P" + page_id[:2].zfill(2) if len(page_id) >= 2 else page_id
+        ok_role, msg_role = check_role_discipline(root, page_id, page_map, CANVAS_W, CANVAS_H)
+        if not ok_role:
+            bad += 1
+        _log(f"  [角色] {msg_role}")
 
         cov = check_backdrop(root)
         if cov is None:

@@ -35,6 +35,8 @@ from scripts.qa_layout import (
     load_canvas_from_spec,
     load_margin_from_spec,
     SEVERITY,
+    check_role_discipline,
+    BREATHING_MAX_CARDS,
     check_overflow,
     check_typescale,
     check_backdrop,
@@ -656,3 +658,39 @@ class TestStageEarly(unittest.TestCase):
                 return int(m.group(1)) if m else 9999
             early = sorted(files, key=_page_key)[:3]
             self.assertEqual([p.stem for p in early], ["01_p", "02_p", "03_p"])
+
+
+class TestRoleDiscipline(unittest.TestCase):
+    """breathing 页禁止多卡片网格（role 纪律）。"""
+
+    def _svg(self, n_cards):
+        rects = "".join(
+            '<rect x="%d" y="100" width="400" height="300" fill="#eee"/>' % (100 + i * 450)
+            for i in range(n_cards))
+        return ET.fromstring(
+            '<svg xmlns="http://www.w3.org/2000/svg"><rect width="1920" height="1080" fill="#fff"/>%s</svg>' % rects)
+
+    def _map(self):
+        return {"P04": {"role": "Typographic Hero", "rhythm": "breathing"},
+                "P05": {"role": "Product Grid", "rhythm": "dense"}}
+
+    def test_breathing_violation(self):
+        ok, msg = check_role_discipline(self._svg(3), "P04", self._map(), 1920, 1080)
+        self.assertFalse(ok)
+        self.assertIn("违反 role 纪律", msg)
+
+    def test_breathing_ok(self):
+        ok, _ = check_role_discipline(self._svg(2), "P04", self._map(), 1920, 1080)
+        self.assertTrue(ok)
+
+    def test_dense_skipped(self):
+        ok, msg = check_role_discipline(self._svg(5), "P05", self._map(), 1920, 1080)
+        self.assertTrue(ok)
+        self.assertIn("跳过", msg)
+
+    def test_unknown_page_skipped(self):
+        ok, _ = check_role_discipline(self._svg(5), "P99", self._map(), 1920, 1080)
+        self.assertTrue(ok)
+
+    def test_max_cards_constant(self):
+        self.assertEqual(BREATHING_MAX_CARDS, 2)
