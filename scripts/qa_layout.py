@@ -87,7 +87,15 @@ def char_w(ch, mono=False):
         return 0.60
     return 0.52             # 拉丁字母比例字体近似
 
-def text_width(s, size, mono=False, ls=0.0):
+def text_width(s, size, mono=False, ls=0.0, family=None):
+    """文本宽度：优先 PIL 实测（text_measure），失败回退字符启发式。"""
+    try:
+        from text_measure import measure as _pil_measure
+        w = _pil_measure(s, int(round(size)), family)
+        if w is not None:
+            return w + ls * max(0, len(s) - 1)
+    except Exception:
+        pass
     w = sum(char_w(c, mono) for c in s) * size
     return w + ls * max(0, len(s) - 1)
 
