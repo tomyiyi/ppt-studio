@@ -1,0 +1,11 @@
+# 06 风格流派
+- 主句：让人记住，而不止是看起来昂贵
+- 副句：经历数季 quiet luxury，设计师重新拥抱戏剧性
+- 六个流派：
+  - 暗黑浪漫/新哥特：Saint Laurent · McQueen
+  - 1920s 装饰艺术：Chanel · Khaite
+  - 波西米亚蕾丝：Fendi · Gabriela Hearst
+  - 动物纹当主角：Balmain · Isabel Marant
+  - 工艺奢华：Chanel · Dior · LV
+  - 新复古混搭：Prada
+- 署名（v4）：— formosalive 趋势总览（转述）（去品牌化措辞）

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1280 720" width="1280" height="720">
+<defs><linearGradient id="scrim8" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#F5EFE6" stop-opacity="0.96"/><stop offset="0.55" stop-color="#F5EFE6" stop-opacity="0.85"/><stop offset="0.8" stop-color="#F5EFE6" stop-opacity="0.35"/><stop offset="1" stop-color="#F5EFE6" stop-opacity="0"/></linearGradient></defs>
+<image xlink:href="../images/08_runway_bg.png" x="0" y="0" width="1280" height="720" preserveAspectRatio="xMidYMid slice"/>
+<rect x="0" y="0" width="1280" height="720" fill="url(#scrim8)"/>
+<text x="96" y="170" font-family="Noto Sans CJK SC, PingFang SC, sans-serif" font-size="14" letter-spacing="2.2" fill="#6B5D4C">RUNWAY</text>
+<line x1="96" y1="198" x2="136" y2="198" stroke="#A68B4B" stroke-width="1"/>
+<text x="96" y="300" font-family="Noto Serif CJK SC, Songti SC, serif" font-weight="300" font-size="72" fill="#2A2118">大牌本季做了什么</text>
+<text x="96" y="390" font-family="Noto Sans CJK SC, PingFang SC, sans-serif" font-size="20" fill="#2A2118">—  Chanel · Tweed 全变体</text>
+<text x="96" y="440" font-family="Noto Sans CJK SC, PingFang SC, sans-serif" font-size="20" fill="#2A2118">—  Dior · 斗篷为核心</text>
+<text x="96" y="490" font-family="Noto Sans CJK SC, PingFang SC, sans-serif" font-size="20" fill="#2A2118">—  LV · 植物基皮草</text>
+<text x="96" y="540" font-family="Noto Sans CJK SC, PingFang SC, sans-serif" font-size="20" fill="#2A2118">—  Saint Laurent · 巨型皮草大衣</text>
+<text x="96" y="590" font-family="Noto Sans CJK SC, PingFang SC, sans-serif" font-size="20" fill="#2A2118">—  Hermès · 大腿靴统治</text>
+<text x="1200" y="680" font-family="Noto Serif CJK SC, Songti SC, serif" font-weight="300" font-size="180" fill="#2A2118" opacity="0.08" text-anchor="end" data-decorative="true">08</text>
+<text x="96" y="680" font-family="Noto Sans CJK SC, PingFang SC, sans-serif" font-size="12" letter-spacing="1.9" fill="#6B5D4C">FW26 TREND REPORT · PARIS — MILAN — NEW YORK</text><text x="516" y="680" font-family="Noto Sans CJK SC, PingFang SC, sans-serif" font-size="12" fill="#2A2118">2026</text>
+</svg>

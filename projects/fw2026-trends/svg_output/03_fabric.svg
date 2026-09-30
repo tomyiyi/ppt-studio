@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1280 720" width="1280" height="720">
+<defs><linearGradient id="scrim3" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#F5EFE6" stop-opacity="0.96"/><stop offset="0.55" stop-color="#F5EFE6" stop-opacity="0.85"/><stop offset="0.8" stop-color="#F5EFE6" stop-opacity="0.35"/><stop offset="1" stop-color="#F5EFE6" stop-opacity="0"/></linearGradient></defs>
+<image xlink:href="../images/03_fabric_bg.png" x="0" y="0" width="1280" height="720" preserveAspectRatio="xMidYMid slice"/>
+<rect x="0" y="0" width="1280" height="720" fill="url(#scrim3)"/>
+<text x="96" y="170" font-family="Noto Sans CJK SC, PingFang SC, sans-serif" font-size="14" letter-spacing="2.2" fill="#6B5D4C">FABRIC</text>
+<line x1="96" y1="198" x2="136" y2="198" stroke="#A68B4B" stroke-width="1"/>
+<text x="96" y="300" font-family="Noto Serif CJK SC, Songti SC, serif" font-weight="300" font-size="84" fill="#2A2118">毛茸茸的冬天</text>
+<text x="96" y="345" font-family="Noto Sans CJK SC, PingFang SC, sans-serif" font-size="17" fill="#6B5D4C">皮草大衣市场采纳率 +29%</text>
+<text x="96" y="420" font-family="Noto Serif CJK SC, Songti SC, serif" font-size="26" fill="#2A2118">皮草 / 仿皮草</text>
+<text x="96" y="450" font-family="Noto Sans CJK SC, PingFang SC, sans-serif" font-size="16" fill="#6B5D4C">本季第一面料 · Saint Laurent</text>
+<text x="96" y="495" font-family="Noto Serif CJK SC, Songti SC, serif" font-size="26" fill="#2A2118">植物基皮草</text>
+<text x="96" y="525" font-family="Noto Sans CJK SC, PingFang SC, sans-serif" font-size="16" fill="#6B5D4C">LV × BioFluff · 可降解</text>
+<text x="96" y="570" font-family="Noto Serif CJK SC, Songti SC, serif" font-size="26" fill="#2A2118">Tweed 软呢</text>
+<text x="96" y="600" font-family="Noto Sans CJK SC, PingFang SC, sans-serif" font-size="16" fill="#6B5D4C">Chanel 全系列 · 取代针织衫</text>
+<text x="1200" y="680" font-family="Noto Serif CJK SC, Songti SC, serif" font-weight="300" font-size="180" fill="#2A2118" opacity="0.08" text-anchor="end" data-decorative="true">03</text>
+<text x="96" y="680" font-family="Noto Sans CJK SC, PingFang SC, sans-serif" font-size="12" letter-spacing="1.9" fill="#6B5D4C">FW26 TREND REPORT · PARIS — MILAN — NEW YORK</text><text x="516" y="680" font-family="Noto Sans CJK SC, PingFang SC, sans-serif" font-size="12" fill="#2A2118">2026</text>
+</svg>

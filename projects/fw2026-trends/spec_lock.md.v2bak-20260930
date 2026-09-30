@@ -1,0 +1,64 @@
+<!-- ppt-master-schema: spec-lock/v1 -->
+# Execution Lock — fw2026-trends (v2 高级感升级版)
+
+## canvas
+- viewBox: 0 0 1280 720
+- format: PPT 16:9
+- margin: 96px（四边统一，高级呼吸感）
+
+## communication
+- primary_language: zh-Hans
+- audience: 关注时尚趋势的消费者、买手、内容创作者
+- objective: 呈现 2026 秋冬时尚趋势，给出可执行的购买与搭配建议
+- core_message: 少买，但买得有特色
+- consumption_mode: presented
+
+## mode
+- mode: showcase
+
+## visual_style
+- visual_style: luxury-editorial-v2（杂志思维：图片出血 + 文字压图 + 去框化）
+- layout_principle: 每页只讲一件事，主句 + ≤3 条支撑点
+
+## colors（60-30-10 秩序）
+- background: #F5EFE6（骨色主色，去暖黄）
+- surface: #EDE5D5
+- primary_text: #2A2118（深棕）
+- secondary_text: #6B5D4C
+- tertiary_text: #8C7E6B
+- accent_gold: #A68B4B（哑光香槟金，降饱和，只用在一处：40px 细金线）
+- secondary_hue: #7A8B7C（鼠尾草灰绿，低饱和，30% 辅助）
+- scrim: linear-gradient 方向性渐隐（文字侧 85% 不透明 → 图片侧 0%）
+- rule: NO frames（去框化，禁止双框线）
+
+## typography
+- font_family: Noto Sans CJK SC, PingFang SC, sans-serif
+- title_family: Noto Serif CJK SC, Songti SC, serif（字重 Light 300，高级感来自细）
+- body_family: Noto Sans CJK SC, PingFang SC, sans-serif
+# v2 字号阶梯：极端对比
+#   kicker      英文眉题：全大写 + letter-spacing 0.16em
+#   caption     页脚署名：全大写 + letter-spacing 0.16em
+#   body        正文
+#   lead        条目行
+#   subtitle    章节副标题
+#   statement   页面主句（衬线 Light，放大）
+#   cover       封面主标题（衬线 Light，占画面 1/4 高）
+#   pagenum     超大页码水印（衬线，5% 透明度）
+- kicker: 14
+- caption: 12
+- body: 17
+- detail: 16
+- lead: 21
+- list: 20
+- subtitle: 30
+- itemhead: 26
+- statement: 84
+- section: 72
+- cover: 150
+- pagenum: 180
+
+## details
+- page_number: 超大数字水印（200px，5% 透明度，右下角）
+- footer: FW26 TREND REPORT · PARIS — MILAN — NEW YORK（全大写，0.16em 字距）
+- gold_line: 40px 长 1px 金线（全页唯一金色，章节分隔用）
+- no_frames: 禁止任何框线分区

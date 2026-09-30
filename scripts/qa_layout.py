@@ -348,6 +348,8 @@ def check_line_collisions(root):
     for t, anc in _iter_with_parents(root):
         if t.tag != NS + "text":
             continue
+        if t.get("data-decorative") == "true":
+            continue  # 装饰性水印不参与对比度门禁
         txt = "".join(t.itertext()).strip()
         if not txt:
             continue
@@ -393,6 +395,8 @@ def check_contrast(img, root, polarity="dark"):
     for t, anc in _iter_with_parents(root):
         if t.tag != NS + "text":
             continue
+        if t.get("data-decorative") == "true":
+            continue  # 装饰性水印不参与对比度门禁
         txt = "".join(t.itertext()).strip()
         if not txt:
             continue
@@ -811,7 +815,28 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--spec", help="可选指定 spec_lock.md 路径")
     parser.add_argument("--verbose", "-v", action="store_true", default=True, help="详细日志输出（默认开启）")
     parser.add_argument("--quiet", "-q", action="store_true", help="静默模式（仅通过退出码返回）")
+    parser.add_argument("--canvas", default=None, help="画布尺寸 WxH（默认 1280x720；v4 起 1920x1080），覆盖内置常量")
     args = parser.parse_args(argv)
+
+    if args.canvas:
+        global CANVAS_W, CANVAS_H, MARGIN
+        m = re.match(r"\s*(\d+)\s*[x\u00d7]\s*(\d+)\s*", args.canvas)
+        if m:
+            CANVAS_W, CANVAS_H = int(m.group(1)), int(m.group(2))
+            # margin 优先从 spec 读取（如 "margin: 144px"），读不到才按比例缩放
+            spec_margin = None
+            if args.spec:
+                try:
+                    sm = re.search(r"margin\s*[:：]\s*(\d+)\s*px",
+                                   Path(args.spec).read_text(encoding="utf-8"))
+                    if sm:
+                        spec_margin = int(sm.group(1))
+                except Exception:
+                    pass
+            MARGIN = spec_margin if spec_margin else round(60 * CANVAS_W / 1280)
+            print(f"[画布] {CANVAS_W}x{CANVAS_H}，MARGIN={MARGIN}")
+        else:
+            print(f"[warn] --canvas 格式错误 ({args.canvas})，沿用默认 1280x720", file=sys.stderr)
 
     verbose = not args.quiet if args.quiet else args.verbose
     spec_path = Path(args.spec).resolve() if args.spec else None
