@@ -3,7 +3,7 @@
   "generated_at": "2026-09-23",
   "deck_rendering": "dark-minimal-tech",
   "acquisition_path": "host-native",
-  "image_backend": "agnes-studio (New API 127.0.0.1:3000) — 严禁使用 gemini 系列生图模型",
+  "image_backend": "agnes-studio (New API 127.0.0.1:13000) — 严禁使用 gemini 系列生图模型",
   "color_scheme": {
     "background": "#08090C",
     "secondary_bg": "#12131A",

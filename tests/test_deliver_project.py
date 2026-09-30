@@ -4,8 +4,15 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
-from scripts.deliver_project import deliver_artifact_set, deliver_project, load_valid_attestation, main
+from scripts.deliver_project import (
+    deliver_artifact_set,
+    deliver_project,
+    load_valid_attestation,
+    main,
+    validate_delivered_artifact,
+)
 
 
 def valid_attestation(**overrides):
@@ -75,6 +82,24 @@ class TestDeliverProject(unittest.TestCase):
             deliver_project(self.attestation, self.root / "missing.mp4", self.destination)
         self.assertFalse(self.destination.exists())
 
+    def test_deliver_project_with_check_success(self):
+        self.write_attestation(valid_attestation())
+        with patch("scripts.deliver_project.run_qa_video", return_value=True) as qa_mock:
+            delivered = deliver_project(self.attestation, self.source, self.destination, check=True)
+        self.assertEqual(delivered, self.destination)
+        self.assertEqual(self.destination.read_bytes(), b"artifact")
+        qa_mock.assert_called_once()
+
+    def test_deliver_project_with_check_failure_raises_and_preserves_target(self):
+        self.write_attestation(valid_attestation())
+        self.destination.parent.mkdir(parents=True, exist_ok=True)
+        self.destination.write_bytes(b"existing-content")
+        with patch("scripts.deliver_project.run_qa_video", return_value=False) as qa_mock:
+            with self.assertRaises(RuntimeError) as ctx:
+                deliver_project(self.attestation, self.source, self.destination, check=True)
+        self.assertIn("产物客观质量门禁未通过", str(ctx.exception))
+        self.assertEqual(self.destination.read_bytes(), b"existing-content")
+
     def card_sources(self):
         first = self.root / "01.svg"
         second = self.root / "02.svg"
@@ -126,6 +151,29 @@ class TestDeliverProject(unittest.TestCase):
         self.write_attestation(valid_attestation())
         with self.assertRaises(ValueError):
             deliver_artifact_set(self.attestation, [source], self.root / "cards")
+
+    def test_deliver_artifact_set_with_check_success(self):
+        sources = self.card_sources()
+        self.write_attestation(valid_attestation())
+        destination = self.root / "cards"
+        with patch("scripts.deliver_project.run_qa_cards", return_value=True) as qa_mock:
+            delivered = deliver_artifact_set(self.attestation, sources, destination, check=True)
+        self.assertEqual([path.name for path in delivered], ["01.svg", "02.svg"])
+        self.assertTrue((destination / "01.svg").is_file())
+        qa_mock.assert_called_once()
+
+    def test_deliver_artifact_set_with_check_failure_preserves_existing_directory(self):
+        sources = self.card_sources()
+        self.write_attestation(valid_attestation())
+        destination = self.root / "cards"
+        destination.mkdir()
+        (destination / "old.svg").write_bytes(b"old-card")
+        with patch("scripts.deliver_project.run_qa_cards", return_value=False) as qa_mock:
+            with self.assertRaises(RuntimeError) as ctx:
+                deliver_artifact_set(self.attestation, sources, destination, check=True)
+        self.assertIn("卡片集客观质量门禁未通过", str(ctx.exception))
+        self.assertEqual((destination / "old.svg").read_bytes(), b"old-card")
+        self.assertFalse((destination / "01.svg").exists())
 
 
 class TestDeliverProjectCLI(unittest.TestCase):
@@ -246,6 +294,114 @@ class TestDeliverProjectCLI(unittest.TestCase):
             ])
         self.assertEqual(code, 1)
         self.assertIn("交付卡片集时必须指定", err_buf.getvalue())
+
+    def test_cli_single_delivery_check_flag(self):
+        buf = io.StringIO()
+        with patch("scripts.deliver_project.run_qa_video", return_value=True) as qa_mock:
+            with redirect_stdout(buf):
+                code = main([
+                    "--attestation", str(self.attestation),
+                    "--source", str(self.source),
+                    "--destination", str(self.destination),
+                    "--check",
+                ])
+        self.assertEqual(code, 0)
+        self.assertTrue(self.destination.is_file())
+        self.assertIn("[✓] 已交付产物", buf.getvalue())
+        qa_mock.assert_called_once()
+
+    def test_cli_single_delivery_check_failure(self):
+        err_buf = io.StringIO()
+        with patch("scripts.deliver_project.run_qa_video", return_value=False):
+            with redirect_stderr(err_buf):
+                code = main([
+                    "--attestation", str(self.attestation),
+                    "--source", str(self.source),
+                    "--destination", str(self.destination),
+                    "--check",
+                ])
+        self.assertEqual(code, 1)
+        self.assertIn("[err] 产物客观质量门禁未通过", err_buf.getvalue())
+        self.assertFalse(self.destination.exists())
+
+    def test_cli_artifact_set_delivery_check_flag(self):
+        c1 = self.root / "01.svg"
+        c2 = self.root / "02.svg"
+        c1.write_bytes(b"<svg>1</svg>")
+        c2.write_bytes(b"<svg>2</svg>")
+        dest_dir = self.root / "cards_checked_out"
+        buf = io.StringIO()
+        with patch("scripts.deliver_project.run_qa_cards", return_value=True) as qa_mock:
+            with redirect_stdout(buf):
+                code = main([
+                    "--attestation", str(self.attestation),
+                    "--sources", str(c1), str(c2),
+                    "--destination-dir", str(dest_dir),
+                    "--check",
+                ])
+        self.assertEqual(code, 0)
+        self.assertTrue((dest_dir / "01.svg").is_file())
+        self.assertIn("[✓] 已交付卡片集: 2 张", buf.getvalue())
+        qa_mock.assert_called_once()
+
+    def test_cli_artifact_set_delivery_check_failure(self):
+        c1 = self.root / "01.svg"
+        c1.write_bytes(b"<svg>1</svg>")
+        dest_dir = self.root / "cards_checked_fail"
+        err_buf = io.StringIO()
+        with patch("scripts.deliver_project.run_qa_cards", return_value=False):
+            with redirect_stderr(err_buf):
+                code = main([
+                    "--attestation", str(self.attestation),
+                    "--sources", str(c1),
+                    "--destination-dir", str(dest_dir),
+                    "--check",
+                ])
+        self.assertEqual(code, 1)
+        self.assertIn("[err] 卡片集客观质量门禁未通过", err_buf.getvalue())
+        self.assertFalse(dest_dir.exists())
+
+
+class TestValidateDeliveredArtifact(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_validates_pptx(self):
+        f = self.root / "deck.pptx"
+        f.write_bytes(b"pptx")
+        with patch("scripts.deliver_project.run_qa_pptx", return_value=True) as qa_mock:
+            validate_delivered_artifact(f)
+        qa_mock.assert_called_once_with(f, verbose=False)
+
+    def test_validates_png(self):
+        f = self.root / "long.png"
+        f.write_bytes(b"png")
+        with patch("scripts.deliver_project.run_qa_long_card", return_value=True) as qa_mock:
+            validate_delivered_artifact(f)
+        qa_mock.assert_called_once_with(f, verbose=False)
+
+    def test_validates_html(self):
+        f = self.root / "preview.html"
+        f.write_bytes(b"html")
+        with patch("scripts.deliver_project.run_qa_preview", return_value=True) as qa_mock:
+            validate_delivered_artifact(f)
+        qa_mock.assert_called_once_with(f, verbose=False)
+
+    def test_validates_svg(self):
+        f = self.root / "slide.svg"
+        f.write_bytes(b"svg")
+        with patch("scripts.deliver_project.run_qa_layout", return_value=True) as qa_mock:
+            validate_delivered_artifact(f)
+        qa_mock.assert_called_once_with(f, verbose=False)
+
+    def test_unknown_extension_passes(self):
+        f = self.root / "data.json"
+        f.write_bytes(b"{}")
+        validate_delivered_artifact(f)
 
 
 if __name__ == "__main__":

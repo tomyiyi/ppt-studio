@@ -150,7 +150,7 @@ python3 ../../scripts/qa_pptx.py .               # 跑 PPTX 7 项质检门禁
 
 ## 两条铁律
 
-**1. 生图模型只用 Agnes。** 语言模型（gemini 反代）负责文案与规划，生图一律走 Agnes Studio / New API（`http://127.0.0.1:3000/v1`）。`agnes_ppt_bridge.py` 内置黑名单会硬性拦截 `gemini-*-image` 之类的模型名 —— 不是性能问题，是明确的约束。可用模型：`agnes-image-2.5-flash`（主）、`agnes-image-2.1-flash`。
+**1. 生图模型只用 Agnes。** 语言模型（gemini 反代）负责文案与规划，生图一律走 Agnes Studio / New API（`http://127.0.0.1:13000/v1`）。`agnes_ppt_bridge.py` 内置黑名单会硬性拦截 `gemini-*-image` 之类的模型名 —— 不是性能问题，是明确的约束。可用模型：`agnes-image-2.5-flash`（主）、`agnes-image-2.1-flash`。
 
 **2. 做完要验证，不能凭 "跑通了" 就交付。** 返回码成功 ≠ 结果正确。本项目踩过的坑里，有一半是脚本本身在骗人（比如质检脚本没解析父节点继承的 `font-size`，把 56px 大标题读成 16px，整张审计表都是错的）。所以：写完改完，跑 `qa_layout.py`，读它的输出，再说"好了"。
 

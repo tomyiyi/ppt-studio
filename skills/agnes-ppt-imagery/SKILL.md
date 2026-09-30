@@ -16,7 +16,7 @@ agent_created: true
 
 - 本机 gemini 是**反代（中转文本通道）**，没有可靠图像生成能力。
 - 模型黑名单：`gemini*`、`dall-e*`、`gpt-image*`、`flux*`、`seedream*`。
-- 唯一通道：New API `http://127.0.0.1:3000/v1`，凭据 `~/.new-api/local_key.json`。
+- 唯一通道：New API `http://127.0.0.1:13000/v1`，凭据 `~/.new-api/local_key.json`。
 - 可用模型仅 2 个：`agnes-image-2.5-flash`（主用）、`agnes-image-2.1-flash`。
 
 **别搞混两类模型**：

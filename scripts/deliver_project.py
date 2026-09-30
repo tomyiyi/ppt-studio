@@ -11,6 +11,24 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+try:
+    from scripts.qa_cards import run_qa_cards
+    from scripts.qa_layout import run_qa_layout
+    from scripts.qa_long_card import run_qa_long_card
+    from scripts.qa_pptx import run_qa_pptx
+    from scripts.qa_preview import run_qa_preview
+    from scripts.qa_video import run_qa_video
+except ModuleNotFoundError:
+    repo_root = Path(__file__).resolve().parent.parent
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    from scripts.qa_cards import run_qa_cards
+    from scripts.qa_layout import run_qa_layout
+    from scripts.qa_long_card import run_qa_long_card
+    from scripts.qa_pptx import run_qa_pptx
+    from scripts.qa_preview import run_qa_preview
+    from scripts.qa_video import run_qa_video
+
 
 _STAGES = ("image", "layout", "cards", "long_card")
 
@@ -31,10 +49,39 @@ def load_valid_attestation(path: str | Path) -> dict[str, Any]:
     return data
 
 
+def validate_delivered_artifact(
+    artifact_path: str | Path,
+    original_name: str | None = None,
+    *,
+    verbose: bool = False,
+) -> None:
+    """根据产物类型自动调用对应客观质量门禁。"""
+    path = Path(artifact_path)
+    display_name = original_name or path.name
+    suffix = path.suffix.lower()
+    ok = True
+    if suffix == ".mp4":
+        ok = bool(run_qa_video(path, verbose=verbose))
+    elif suffix == ".pptx":
+        ok = bool(run_qa_pptx(path, verbose=verbose))
+    elif suffix == ".png":
+        ok = bool(run_qa_long_card(path, verbose=verbose))
+    elif suffix in (".html", ".htm"):
+        ok = bool(run_qa_preview(path, verbose=verbose))
+    elif suffix == ".svg":
+        ok = bool(run_qa_layout(path, verbose=verbose))
+
+    if not ok:
+        raise RuntimeError(f"产物客观质量门禁未通过: {display_name}")
+
+
 def deliver_project(
     attestation_path: str | Path,
     source_path: str | Path,
     destination_path: str | Path,
+    *,
+    check: bool = False,
+    verbose: bool = False,
 ) -> Path:
     """凭据通过后原子复制一个已生成产物；失败时不产生交付副作用。"""
     load_valid_attestation(attestation_path)
@@ -43,14 +90,21 @@ def deliver_project(
     if not source.is_file():
         raise FileNotFoundError(f"交付源产物不存在: {source}")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix=f".{destination.name}.", dir=destination.parent)
+    fd, temporary = tempfile.mkstemp(
+        prefix=f".{destination.name}.",
+        suffix=source.suffix,
+        dir=destination.parent,
+    )
+    temp_path = Path(temporary)
     try:
         os.close(fd)
-        shutil.copy2(source, temporary)
-        os.replace(temporary, destination)
+        shutil.copy2(source, temp_path)
+        if check:
+            validate_delivered_artifact(temp_path, original_name=source.name, verbose=verbose)
+        os.replace(temp_path, destination)
     except Exception:
         try:
-            os.unlink(temporary)
+            temp_path.unlink()
         except FileNotFoundError:
             pass
         raise
@@ -61,6 +115,9 @@ def deliver_artifact_set(
     attestation_path: str | Path,
     sources: list[str | Path],
     destination_dir: str | Path,
+    *,
+    check: bool = False,
+    verbose: bool = False,
 ) -> list[Path]:
     """在 cards QA 通过后事务性交付一组 SVG；失败时保留旧目录。"""
     attestation = load_valid_attestation(attestation_path)
@@ -97,6 +154,10 @@ def deliver_artifact_set(
             names.add(source.name)
             shutil.copy2(source, staging / source.name)
 
+        if check:
+            if not run_qa_cards(staging, verbose=verbose):
+                raise RuntimeError("卡片集客观质量门禁未通过")
+
         if destination.exists():
             backup = Path(tempfile.mkdtemp(prefix=f".{destination.name}.old.", dir=destination.parent))
             backup.rmdir()
@@ -130,6 +191,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--destination", dest="dest_opt", help="单一产物交付目标路径（覆盖位置参数）")
     parser.add_argument("--sources", nargs="+", help="卡片集交付源 SVG 文件列表")
     parser.add_argument("--destination-dir", help="卡片集交付目标目录")
+    parser.add_argument("--check", action="store_true", help="交付前执行目标产物客观质量门禁校验")
     args = parser.parse_args(argv)
 
     try:
@@ -143,6 +205,7 @@ def main(argv: list[str] | None = None) -> int:
                 attestation_path=args.attestation,
                 sources=args.sources,
                 destination_dir=dest_dir,
+                check=args.check,
             )
             print(f"[✓] 已交付卡片集: {len(delivered)} 张至 {dest_dir}")
         else:
@@ -154,6 +217,7 @@ def main(argv: list[str] | None = None) -> int:
                 attestation_path=args.attestation,
                 source_path=src,
                 destination_path=dst,
+                check=args.check,
             )
             print(f"[✓] 已交付产物: {delivered_file}")
     except (FileNotFoundError, NotADirectoryError, OSError, ValueError, RuntimeError) as err:
