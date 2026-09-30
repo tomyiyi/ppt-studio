@@ -43,16 +43,36 @@ from pathlib import Path
 # ---------------------------------------------------------------- 配置解析
 
 def load_gateway(config_path: Path | str | None = None) -> tuple[str, str]:
-    """复用 Agnes Studio 的 ~/.new-api/local_key.json，不另存密钥。"""
-    p = Path(config_path) if config_path else Path.home() / ".new-api" / "local_key.json"
-    base, key = os.environ.get("AGNES_IMAGE_BASE_URL", "http://127.0.0.1:13000/v1"), ""
-    if p.exists():
+    """复用 Agnes Studio 的 ~/.new-api/local_key.json，不另存密钥。
+    遵循标准配置层级：显式 config_path > 环境变量 (AGNES_IMAGE_BASE_URL / AGNES_IMAGE_API_KEY) > 默认 local_key.json > 内置默认值。"""
+    env_base = os.environ.get("AGNES_IMAGE_BASE_URL", "").strip()
+    env_key = os.environ.get("AGNES_IMAGE_API_KEY", "")
+
+    if config_path:
+        p = Path(config_path)
+        base = env_base or "http://127.0.0.1:13000/v1"
+        key = env_key
+        if p.exists():
+            try:
+                d = json.loads(p.read_text(encoding="utf-8"))
+                base = d.get("image_base_url") or d.get("base_url") or base
+                key = d.get("api_key") or key
+            except Exception as e:
+                print(f"[warn] 读取网关配置失败: {e}")
+        return base.rstrip("/"), key
+
+    default_p = Path.home() / ".new-api" / "local_key.json"
+    file_base, file_key = "", ""
+    if default_p.exists():
         try:
-            d = json.loads(p.read_text(encoding="utf-8"))
-            base = d.get("base_url") or base
-            key = d.get("api_key") or key
+            d = json.loads(default_p.read_text(encoding="utf-8"))
+            file_base = d.get("image_base_url") or d.get("base_url") or ""
+            file_key = d.get("api_key") or ""
         except Exception as e:
             print(f"[warn] 读取网关配置失败: {e}")
+
+    base = env_base or file_base or "http://127.0.0.1:13000/v1"
+    key = env_key or file_key or ""
     return base.rstrip("/"), key
 
 

@@ -55,8 +55,11 @@ class TestGatewayConfig(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.tmp_dir = Path(self.tmp.name)
+        self.orig_env = os.environ.copy()
 
     def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self.orig_env)
         self.tmp.cleanup()
 
     def test_load_gateway_default_fallback(self):
@@ -84,6 +87,31 @@ class TestGatewayConfig(unittest.TestCase):
         self.assertEqual(base, "http://127.0.0.1:13000/v1")
         self.assertEqual(key, "")
         self.assertIn("[warn] 读取网关配置失败", buf.getvalue())
+
+    def test_load_gateway_env_fallback_without_file(self):
+        os.environ["AGNES_IMAGE_BASE_URL"] = "http://env-host:13000/v1"
+        os.environ["AGNES_IMAGE_API_KEY"] = "sk-env-key-999"
+        non_exist = self.tmp_dir / "no_key.json"
+        base, key = load_gateway(non_exist)
+        self.assertEqual(base, "http://env-host:13000/v1")
+        self.assertEqual(key, "sk-env-key-999")
+
+    def test_load_gateway_env_override_default(self):
+        os.environ["AGNES_IMAGE_BASE_URL"] = "http://override-host:13000/v1/"
+        os.environ["AGNES_IMAGE_API_KEY"] = "sk-override-key"
+        base, key = load_gateway()
+        self.assertEqual(base, "http://override-host:13000/v1")
+        self.assertEqual(key, "sk-override-key")
+
+    def test_load_gateway_image_base_url_field(self):
+        cfg = self.tmp_dir / "key.json"
+        cfg.write_text(
+            json.dumps({"image_base_url": "http://image-specific:8000/v1/", "api_key": "sk-image"}),
+            encoding="utf-8",
+        )
+        base, key = load_gateway(cfg)
+        self.assertEqual(base, "http://image-specific:8000/v1")
+        self.assertEqual(key, "sk-image")
 
 
 class TestModelResolution(unittest.TestCase):
