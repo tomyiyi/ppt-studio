@@ -2,7 +2,7 @@
 # Execution Lock — fw2026-trends (v3 顶级时尚编辑级)
 
 ## canvas
-- viewBox: 0 0 1280 720
+- viewBox: 0 0 1920 1080
 - format: PPT 16:9
 - margin: 96px（≈ 画布宽度 7.5%，四边统一）
 - grid: 12 栏 / 槽宽 24px（文字区 1–5 栏，图片 6–12 栏或全出血变体）

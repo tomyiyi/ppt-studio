@@ -45,10 +45,12 @@ def parse_page_map(spec_path: Path) -> dict:
 
 
 def find_svg_dir(project_dir: Path) -> Path | None:
-    for cand in [project_dir / "svg_output", project_dir / "svg_output_v4",
-                 project_dir / "svg_output_v3", project_dir / "svg_output_v2"]:
-        if cand.is_dir() and list(cand.glob("*.svg")):
-            return cand
+    # 优先最高版本（v4 > v3 > v2 > 无后缀），避免旧目录掩盖当前版本
+    cands = sorted(
+        [d for d in project_dir.glob("svg_output*") if d.is_dir() and list(d.glob("*.svg"))],
+        key=lambda d: d.name, reverse=True)
+    if cands:
+        return cands[0]
     if list(project_dir.glob("*.svg")):
         return project_dir
     return None
