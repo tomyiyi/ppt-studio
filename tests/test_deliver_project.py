@@ -82,6 +82,15 @@ class TestDeliverProject(unittest.TestCase):
             deliver_project(self.attestation, self.root / "missing.mp4", self.destination)
         self.assertFalse(self.destination.exists())
 
+    def test_empty_source_blocks_delivery(self):
+        self.write_attestation(valid_attestation())
+        empty_source = self.root / "empty.mp4"
+        empty_source.write_bytes(b"")
+        with self.assertRaises(ValueError) as ctx:
+            deliver_project(self.attestation, empty_source, self.destination)
+        self.assertIn("交付源产物为空文件 (0 字节)", str(ctx.exception))
+        self.assertFalse(self.destination.exists())
+
     def test_deliver_project_with_check_success(self):
         self.write_attestation(valid_attestation())
         with patch("scripts.deliver_project.run_qa_video", return_value=True) as qa_mock:
@@ -162,6 +171,14 @@ class TestDeliverProject(unittest.TestCase):
         self.write_attestation(valid_attestation())
         with self.assertRaises(ValueError):
             deliver_artifact_set(self.attestation, [source], self.root / "cards")
+
+    def test_empty_card_source_blocks_delivery(self):
+        sources = self.card_sources()
+        sources[0].write_bytes(b"")
+        self.write_attestation(valid_attestation())
+        with self.assertRaises(ValueError) as ctx:
+            deliver_artifact_set(self.attestation, sources, self.root / "cards")
+        self.assertIn("卡片源产物为空文件 (0 字节)", str(ctx.exception))
 
     def test_deliver_artifact_set_with_check_success(self):
         sources = self.card_sources()
@@ -372,6 +389,47 @@ class TestDeliverProjectCLI(unittest.TestCase):
         self.assertIn("[err] 卡片集客观质量门禁未通过", err_buf.getvalue())
         self.assertFalse(dest_dir.exists())
 
+    def test_cli_verbose_flag_single_delivery(self):
+        buf = io.StringIO()
+        with patch("scripts.deliver_project.run_qa_video", return_value=True) as qa_mock:
+            with redirect_stdout(buf):
+                code = main([
+                    "--attestation", str(self.attestation),
+                    "--source", str(self.source),
+                    "--destination", str(self.destination),
+                    "--check",
+                    "--verbose",
+                ])
+        self.assertEqual(code, 0)
+        self.assertTrue(self.destination.is_file())
+        # QA 在原子移动前对临时文件执行（实现：先校验临时文件再 os.replace），
+        # 因此断言 mock 以临时文件路径（而非目标路径）被调用一次。
+        qa_mock.assert_called_once()
+        qa_path = Path(qa_mock.call_args[0][0])
+        self.assertNotEqual(qa_path, self.destination)
+        self.assertEqual(qa_path.parent, self.destination.parent)
+        self.assertTrue(qa_path.name.startswith(f".{self.destination.name}."))
+        self.assertTrue(qa_mock.call_args[1].get("verbose"))
+
+    def test_cli_verbose_flag_artifact_set(self):
+        c1 = self.root / "01.svg"
+        c1.write_bytes(b"<svg>1</svg>")
+        dest_dir = self.root / "cards_verbose_out"
+        buf = io.StringIO()
+        with patch("scripts.deliver_project.run_qa_cards", return_value=True) as qa_mock:
+            with redirect_stdout(buf):
+                code = main([
+                    "--attestation", str(self.attestation),
+                    "--sources", str(c1),
+                    "--destination-dir", str(dest_dir),
+                    "--check",
+                    "-v",
+                ])
+        self.assertEqual(code, 0)
+        self.assertTrue((dest_dir / "01.svg").is_file())
+        qa_mock.assert_called_once()
+        self.assertTrue(qa_mock.call_args[1].get("verbose"))
+
 
 class TestValidateDeliveredArtifact(unittest.TestCase):
     def setUp(self):
@@ -428,6 +486,21 @@ class TestValidateDeliveredArtifact(unittest.TestCase):
         f = self.root / "data.json"
         f.write_bytes(b"{}")
         validate_delivered_artifact(f)
+
+    def test_validate_delivered_artifact_empty_file_fails(self):
+        f = self.root / "empty.unknown"
+        f.write_bytes(b"")
+        with self.assertRaises(RuntimeError) as ctx:
+            validate_delivered_artifact(f)
+        self.assertIn("产物客观质量门禁未通过", str(ctx.exception))
+        self.assertIn("0 字节", str(ctx.exception))
+
+    def test_validate_delivered_artifact_forwards_verbose(self):
+        f = self.root / "deck.pptx"
+        f.write_bytes(b"pptx")
+        with patch("scripts.deliver_project.run_qa_pptx", return_value=True) as qa_mock:
+            validate_delivered_artifact(f, verbose=True)
+        qa_mock.assert_called_once_with(f, verbose=True)
 
 
 if __name__ == "__main__":

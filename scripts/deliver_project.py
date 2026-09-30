@@ -58,6 +58,10 @@ def validate_delivered_artifact(
     """根据产物类型自动调用对应客观质量门禁。"""
     path = Path(artifact_path)
     display_name = original_name or path.name
+    if not path.is_file():
+        raise FileNotFoundError(f"交付源产物不存在: {path}")
+    if path.stat().st_size == 0:
+        raise RuntimeError(f"产物客观质量门禁未通过: {display_name} (文件大小为 0 字节)")
     suffix = path.suffix.lower()
     ok = True
     if suffix == ".mp4":
@@ -91,6 +95,8 @@ def deliver_project(
     destination = Path(destination_path)
     if not source.is_file():
         raise FileNotFoundError(f"交付源产物不存在: {source}")
+    if source.stat().st_size == 0:
+        raise ValueError(f"交付源产物为空文件 (0 字节): {source}")
     destination.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(
         prefix=f".{destination.name}.",
@@ -138,6 +144,8 @@ def deliver_artifact_set(
             raise ValueError(f"卡片集包含非 SVG 文件: {source}")
         if not source.is_file():
             raise FileNotFoundError(f"卡片源产物不存在: {source}")
+        if source.stat().st_size == 0:
+            raise ValueError(f"卡片源产物为空文件 (0 字节): {source}")
         resolved_sources.append(source)
     if not resolved_sources:
         raise ValueError("卡片集不能为空")
@@ -194,6 +202,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sources", nargs="+", help="卡片集交付源 SVG 文件列表")
     parser.add_argument("--destination-dir", help="卡片集交付目标目录")
     parser.add_argument("--check", action="store_true", help="交付前执行目标产物客观质量门禁校验")
+    parser.add_argument("--verbose", "-v", action="store_true", help="详细日志输出")
     args = parser.parse_args(argv)
 
     try:
@@ -208,6 +217,7 @@ def main(argv: list[str] | None = None) -> int:
                 sources=args.sources,
                 destination_dir=dest_dir,
                 check=args.check,
+                verbose=args.verbose,
             )
             print(f"[✓] 已交付卡片集: {len(delivered)} 张至 {dest_dir}")
         else:
@@ -220,6 +230,7 @@ def main(argv: list[str] | None = None) -> int:
                 source_path=src,
                 destination_path=dst,
                 check=args.check,
+                verbose=args.verbose,
             )
             print(f"[✓] 已交付产物: {delivered_file}")
     except (FileNotFoundError, NotADirectoryError, OSError, ValueError, RuntimeError) as err:

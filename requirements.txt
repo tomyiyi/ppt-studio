@@ -1,0 +1,7 @@
+# ppt-studio 直接依赖（2026-09-30 从 .venv 导出）
+Pillow>=12.3.0
+numpy>=2.5.3
+playwright>=1.63.0
+edge-tts>=7.2.8
+python-pptx>=1.0.2
+# playwright 需要安装浏览器: playwright install chromium
