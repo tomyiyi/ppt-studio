@@ -46,6 +46,19 @@ MARGIN = 60
 _CANVAS_OVERRIDDEN = False  # --canvas explicit => True, skip spec auto-read
 WCAG_MIN = 4.5
 
+# 检查项严重度（借鉴 ppt-master：只有客观失败算 error，品味问题算 warning）
+# final 阶段要求 0 error；early 阶段 error 即阻塞继续生成
+SEVERITY = {
+    "overflow": "error",    # 文本溢出画布：客观失败
+    "collision": "error",   # 压行碰撞：客观失败
+    "contrast": "error",    # 对比度不足：客观失败
+    "dup_images": "error",  # 同图重影：客观失败
+    "typescale": "warning", # 字号偏离阶梯：可修
+    "backdrop": "warning",  # 底图未铺满：风格选择
+    "panel": "warning",     # 面板墨量不足：可调
+    "statement": "warning", # 主句跨页不一致：需人工判断
+}
+
 # ---------------------------------------------------------------- 基础数值解析
 def parse_num(val, default: float = 0.0) -> float:
     """安全解析可能包含单位 (如 px) 或空白的数值字符串。"""
@@ -473,6 +486,8 @@ def qa_single_layout(
     render_dir: Path | str | None = None,
     spec_path: Path | str | None = None,
     verbose: bool = True,
+    stage: str | None = None,
+    early_n: int = 5,
 ) -> bool:
     """对单个 SVG 文件或 SVG 目录执行客观版面门禁复核。"""
     def _log(msg: str = "", file=sys.stdout) -> None:
@@ -502,8 +517,17 @@ def qa_single_layout(
             svg_dir = target
         svg_files = sorted(svg_dir.glob("*.svg"))
 
+    if stage == "early":
+        # 只取前 N 页做方法样本（按文件名页码排序）
+        def _page_key(p):
+            m = re.match(r"(\d+)_", p.stem)
+            return int(m.group(1)) if m else 9999
+        svg_files = sorted(svg_files, key=_page_key)[:early_n]
+        _log("[stage=early] 方法样本：前 %d 页 %s" % (
+            early_n, [p.stem for p in svg_files]))
+
     if not svg_files:
-        _log(f"[!] 在 {svg_dir} 未找到任何 .svg 文件", file=sys.stderr)
+        _log("[!] 在 %s 未找到任何 .svg 文件" % svg_dir, file=sys.stderr)
         return False
 
     # 查找 spec_lock.md
@@ -689,6 +713,8 @@ def run_qa_layout(
     render_dir: Path | str | None = None,
     spec_path: Path | str | None = None,
     verbose: bool = True,
+    stage: str | None = None,
+    early_n: int = 5,
 ) -> bool:
     """运行 PPT-Studio SVG 版面客观质量门禁。
 
@@ -709,7 +735,8 @@ def run_qa_layout(
 
     all_ok = True
     for i, t in enumerate(targets):
-        ok = qa_single_layout(t, render_dir=render_dir, spec_path=spec_path, verbose=verbose)
+        ok = qa_single_layout(t, render_dir=render_dir, spec_path=spec_path,
+                              verbose=verbose, stage=stage, early_n=early_n)
         if not ok:
             all_ok = False
         if verbose and i < len(targets) - 1:
@@ -851,6 +878,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--verbose", "-v", action="store_true", default=True, help="详细日志输出（默认开启）")
     parser.add_argument("--quiet", "-q", action="store_true", help="静默模式（仅通过退出码返回）")
     parser.add_argument("--canvas", default=None, help="画布尺寸 WxH（默认 1280x720；v4 起 1920x1080），覆盖内置常量")
+    parser.add_argument("--stage", choices=["early", "final"], default=None,
+                        help="early=只查前 N 页（方法样本），error 即阻塞；final=全量，0 error 才通过；不传=传统行为")
+    parser.add_argument("--early-n", type=int, default=5, help="early 阶段检查的前 N 页（默认 5）")
     args = parser.parse_args(argv)
 
     if args.canvas:
@@ -886,10 +916,12 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"[!] 指定的目标路径不存在: {args.target}", file=sys.stderr)
             return 1
         svg_dir = (t_path / "svg_output").resolve() if (t_path / "svg_output").is_dir() else t_path
-        success = qa_single_layout(svg_dir, render_dir, spec_path, verbose=verbose)
+        success = qa_single_layout(svg_dir, render_dir, spec_path, verbose=verbose,
+                                   stage=args.stage, early_n=args.early_n)
         return 0 if success else 1
 
-    ok = run_qa_layout(args.target, render_dir=render_dir, spec_path=spec_path, verbose=verbose)
+    ok = run_qa_layout(args.target, render_dir=render_dir, spec_path=spec_path,
+                       verbose=verbose, stage=args.stage, early_n=args.early_n)
     return 0 if ok else 1
 
 

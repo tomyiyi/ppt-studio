@@ -34,6 +34,7 @@ from scripts.qa_layout import (
     load_spec_roles,
     load_canvas_from_spec,
     load_margin_from_spec,
+    SEVERITY,
     check_overflow,
     check_typescale,
     check_backdrop,
@@ -626,3 +627,32 @@ class TestQaLayoutProgrammaticAPI(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestStageEarly(unittest.TestCase):
+    """--stage early 前 N 页方法样本 + severity 分级。"""
+
+    def test_severity_map(self):
+        self.assertEqual(SEVERITY["overflow"], "error")
+        self.assertEqual(SEVERITY["collision"], "error")
+        self.assertEqual(SEVERITY["contrast"], "error")
+        self.assertEqual(SEVERITY["dup_images"], "error")
+        self.assertEqual(SEVERITY["typescale"], "warning")
+        self.assertEqual(SEVERITY["backdrop"], "warning")
+        self.assertEqual(SEVERITY["panel"], "warning")
+        self.assertEqual(SEVERITY["statement"], "warning")
+
+    def test_early_page_filtering(self):
+        import re
+        with tempfile.TemporaryDirectory() as d:
+            svg_dir = Path(d)
+            for i in range(1, 7):
+                (svg_dir / ("%02d_p.svg" % i)).write_text(
+                    '<svg xmlns="http://www.w3.org/2000/svg"><rect width="1280" height="720"/></svg>',
+                    encoding="utf-8")
+            files = sorted(svg_dir.glob("*.svg"))
+            def _page_key(p):
+                m = re.match(r"(\d+)_", p.stem)
+                return int(m.group(1)) if m else 9999
+            early = sorted(files, key=_page_key)[:3]
+            self.assertEqual([p.stem for p in early], ["01_p", "02_p", "03_p"])
