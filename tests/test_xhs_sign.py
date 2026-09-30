@@ -66,11 +66,27 @@ class TestSignedGetHeaders(unittest.TestCase):
         self.assertNotIn("x-rap-param", h)
 
 
+class TestSignedPostHeaders(unittest.TestCase):
+    def test_post_header_format(self):
+        h = xhs_sign.signed_post_headers(
+            "https://edith.xiaohongshu.com/api/sns/web/v1/search/notes",
+            {"keyword": "test", "page": 1},
+            {"a1": "A" * 52, "web_session": "s"},
+        )
+        # x-s 必须以 XYS_ 开头（搜索接口实测要求默认 xys 格式，xyw 会被 461 拒绝）
+        self.assertTrue(h.get("x-s", "").startswith("XYS_"))
+        self.assertRegex(str(h.get("x-t", "")), r"^\d{13}$")
+        self.assertIn("x-rap-param", h)
+        self.assertIn("x-s-common", h)
+        self.assertEqual(h.get("Content-Type"), "application/json;charset=UTF-8")
+
+
 class TestBuildSearchParams(unittest.TestCase):
     def test_params_shape(self):
         p = xhs_sign.build_search_params("秋冬穿搭", page_size=5)
         self.assertEqual(p["keyword"], "秋冬穿搭")
-        self.assertEqual(p["page_size"], "5")
+        self.assertEqual(p["page_size"], 5)
+        self.assertIsInstance(p["page"], int)
         self.assertIn("search_id", p)
         self.assertTrue(p["search_id"])  # base36 非空
 
@@ -98,6 +114,10 @@ class TestApiSearchNotes(unittest.TestCase):
 
         out = xhs_sign.api_search_notes(
             "秋冬穿搭", 5, {"a1": "A" * 52, "web_session": "s"})
+        # 必须用 POST 发 JSON body（GET 会被服务端 404）
+        req = mock_urlopen.call_args[0][0]
+        self.assertEqual(req.get_method(), "POST")
+        self.assertIn(b"keyword", req.data)
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["title"], "秋冬穿搭分享")
         self.assertEqual(out[0]["author"], "时尚博主")
