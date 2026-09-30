@@ -21,6 +21,87 @@ from scripts.qa_cards import run_qa_cards
 from scripts.qa_long_card import run_qa_long_card
 
 
+def resolve_project_dir(
+    project_arg: str | Path | None = None,
+    base_dir: str | Path | None = None,
+) -> Path:
+    """自适应探测待验收的项目根目录。
+
+    1. 若显式指定非 '.' 的 project_arg：
+       - 转换为绝对路径（若为相对路径则基于 base_dir 或当前工作目录解析）；
+       - 若存在且为子目录（如 images、svg_output、cards、notes），自动回退到其父目录；
+       - 返回绝对路径。
+    2. 若未显式指定 project_arg 或为 '.'：
+       - 探测 base_dir（默认当前工作目录）：
+         * 若当前目录直接包含有效项目特征（images/、svg_output/、cards/ 或 spec_lock.md），返回该目录；
+         * 若当前位于子目录（如 images/、svg_output/、cards/），返回其父目录；
+       - 从 base/projects 或仓库根目录 projects/ 探测：
+         * 收集所有包含有效项目特征的子项目；
+         * 若唯一匹配，返回该项目；
+         * 若存在多个匹配项目，抛出 ValueError（避免歧义导致错误验收）；
+         * 若未发现匹配项目，安全保留 base 路径。
+    """
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    is_default = (project_arg is None or str(project_arg).strip() in ("", "."))
+
+    if not is_default:
+        p = Path(project_arg)
+        if not p.is_absolute():
+            p = (base / p).resolve()
+        else:
+            p = p.resolve()
+        if p.is_dir() and p.name in ("images", "svg_output", "cards", "notes"):
+            return p.parent.resolve()
+        return p
+
+    def is_valid_project(p: Path) -> bool:
+        if not p.is_dir():
+            return False
+        return (
+            (p / "images").is_dir()
+            or (p / "svg_output").is_dir()
+            or (p / "cards").is_dir()
+            or (p / "spec_lock.md").is_file()
+        )
+
+    if is_valid_project(base):
+        return base
+
+    if base.name in ("images", "svg_output", "cards", "notes") and is_valid_project(base.parent):
+        return base.parent.resolve()
+
+    candidate_projects_dirs: list[Path] = []
+    if base.is_dir() and base.name == "projects":
+        candidate_projects_dirs.append(base)
+    elif (base / "projects").is_dir():
+        candidate_projects_dirs.append(base / "projects")
+    elif base_dir is None:
+        repo_root = Path(__file__).resolve().parent.parent
+        p_cand = repo_root / "projects"
+        if p_cand.is_dir():
+            candidate_projects_dirs.append(p_cand)
+
+    found: list[Path] = []
+    seen: set[Path] = set()
+    for p_dir in candidate_projects_dirs:
+        if not p_dir.is_dir():
+            continue
+        for sub in sorted(p_dir.iterdir()):
+            if is_valid_project(sub):
+                r = sub.resolve()
+                if r not in seen:
+                    seen.add(r)
+                    found.append(r)
+
+    if len(found) == 1:
+        return found[0]
+    elif len(found) > 1:
+        names = ", ".join(p.name for p in found)
+        raise ValueError(f"发现多个项目 ({names})，无法安全确定，请显式指定 project 参数")
+
+    return base
+
+
 def run_project_qa(
     project: str | Path = ".",
     *,
@@ -31,7 +112,7 @@ def run_project_qa(
     verbose: bool = False,
 ) -> dict[str, Any]:
     """按 image -> layout -> cards -> long_card 顺序执行项目验收。"""
-    root = Path(project).resolve()
+    root = resolve_project_dir(project)
     image_input = image_targets if image_targets is not None else root / "images"
     stages: dict[str, Any] = {}
     image_result = run_image_qa(image_input, verbose=False)
@@ -50,6 +131,9 @@ def run_project_qa(
             return {"ok": False, "failed_stage": name, "stages": stages}
 
     return {"ok": True, "failed_stage": None, "stages": stages}
+
+
+qa_project = run_project_qa
 
 
 def build_qa_attestation(result: dict[str, Any]) -> dict[str, Any]:

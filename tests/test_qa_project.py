@@ -8,7 +8,14 @@ from contextlib import ExitStack, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts.qa_project import build_qa_attestation, main, run_project_qa, write_qa_attestation
+from scripts.qa_project import (
+    build_qa_attestation,
+    main,
+    qa_project,
+    resolve_project_dir,
+    run_project_qa,
+    write_qa_attestation,
+)
 
 
 class TestProjectQA(unittest.TestCase):
@@ -171,6 +178,71 @@ class TestProjectQA(unittest.TestCase):
         data = json.loads(completed.stdout)
         self.assertTrue(data["ok"])
         self.assertIn("stages", data)
+
+    def test_cli_subprocess_invocation_default_auto_discovery(self):
+        script = Path(__file__).resolve().parent.parent / "scripts" / "qa_project.py"
+        root = Path(__file__).resolve().parent.parent
+        completed = subprocess.run(
+            [sys.executable, str(script), "--json"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        data = json.loads(completed.stdout)
+        self.assertTrue(data["ok"])
+        self.assertIn("stages", data)
+
+
+class TestResolveProjectDir(unittest.TestCase):
+    def test_alias(self):
+        self.assertIs(qa_project, run_project_qa)
+
+    def test_explicit_path_preserved(self):
+        target = Path("/tmp/custom-project")
+        resolved = resolve_project_dir(str(target))
+        self.assertEqual(resolved, target.resolve())
+
+    def test_explicit_subfolder_falls_back_to_parent(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "my_project"
+            sub = proj / "images"
+            sub.mkdir(parents=True)
+            self.assertEqual(resolve_project_dir(sub), proj.resolve())
+
+    def test_current_dir_when_already_project(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td)
+            (proj / "spec_lock.md").touch()
+            self.assertEqual(resolve_project_dir(".", base_dir=proj), proj.resolve())
+
+    def test_subfolder_in_current_dir_falls_back_to_parent(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td)
+            sub = proj / "cards"
+            sub.mkdir(parents=True)
+            (proj / "spec_lock.md").touch()
+            self.assertEqual(resolve_project_dir(None, base_dir=sub), proj.resolve())
+
+    def test_discovers_unique_project_under_projects_folder(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            projects_dir = root / "projects"
+            p1 = projects_dir / "alpha"
+            (p1 / "images").mkdir(parents=True)
+            self.assertEqual(resolve_project_dir(".", base_dir=root), p1.resolve())
+
+    def test_multiple_projects_raises_value_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            projects_dir = root / "projects"
+            p1 = projects_dir / "alpha"
+            p2 = projects_dir / "beta"
+            (p1 / "images").mkdir(parents=True)
+            (p2 / "cards").mkdir(parents=True)
+            with self.assertRaises(ValueError) as ctx:
+                resolve_project_dir(".", base_dir=root)
+            self.assertIn("发现多个项目", str(ctx.exception))
 
 
 if __name__ == "__main__":
