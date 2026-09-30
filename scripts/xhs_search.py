@@ -12,6 +12,7 @@ Cookie 只从 ~/.config/ppt-studio/xiaohongshu.json 读取（600 权限），
 用法：
     python3 scripts/xhs_search.py "2026秋冬穿搭" --max 10
     python3 scripts/xhs_search.py "关键词" --max 10 -o out.json
+    python3 scripts/xhs_search.py "关键词" --api   # 签名 API 模式（需 xhshow）
 
 注意：控制请求频率，勿高频调用触发风控。
 """
@@ -152,8 +153,15 @@ def parse_notes(state: dict, max_n: int) -> list:
     return out
 
 
-def search(keyword: str, max_n: int = 10) -> list:
+def search(keyword: str, max_n: int = 10, use_api: bool = False) -> list:
+    """use_api=True 时走带 x-s/x-t 签名的真实 API，失败回退 SSR 解析。"""
     cookies = load_cookies()
+    if use_api:
+        try:
+            from xhs_sign import api_search_notes
+            return api_search_notes(keyword, max_n, cookies)
+        except Exception as e:
+            print("[warn] 签名 API 失败，回退 SSR：%s" % e, file=sys.stderr)
     html = fetch_search_html(keyword, cookies)
     state = extract_state(html)
     return parse_notes(state, max_n)
@@ -164,9 +172,10 @@ def main() -> None:
     ap.add_argument("keyword", help="搜索关键词")
     ap.add_argument("--max", type=int, default=10, help="最大返回条数")
     ap.add_argument("-o", "--output", help="输出 JSON 文件")
+    ap.add_argument("--api", action="store_true", help="签名 API 模式（需 xhshow 库）")
     a = ap.parse_args()
     try:
-        results = search(a.keyword, a.max)
+        results = search(a.keyword, a.max, use_api=a.api)
     except CookieExpiredError as e:
         sys.exit("[error] %s" % e)
     if a.output:
