@@ -5,15 +5,25 @@ research_to_spec.py -- 三段式研究→spec（gpt-researcher 方法论落地�
 ====================================================================
 借鉴 gpt-researcher（~28k stars）三段式 prompt 链：
   1. 子查询生成：主题 → 3-5 个子查询（覆盖 What/Why/How/数据/案例）
-  2. 来源策展：Tavily（英文专业）+ B站（中文社媒）双源搜索 → source_trust 打分 → 分级
+  2. 来源策展：第 15 轮 search_router 统一路由（多后端独立查询并合并）
+     → source_trust 打分 → 分级
   3. 报告生成：按可信度加权，输出带 in-text citation 的研究简报 JSON
 
-本脚本做 1+2（确定性部分）；第 3 段的 LLM 撰写由调用方（Agnes）完成，
+第 18 轮改动：来源策展从直连 tavily_search/bili_search 改为走 search_router。
+- 广度语义：每个启用的后端独立查询、结果合并（research 要的是多视角覆盖，
+  与 router.search() 的"首个有产出即停"的 fallback 冗余语义不同）。
+- 单个后端异常只 warn 跳过，不中断其他后端（fail-isolated）。
+- xhs 后端默认关闭：其 Cookie 登录态已过期（第 13 轮补记），红线要求拿到
+  新 Cookie 前不再发真实请求；用 --with-xhs 显式开启。
+
+本脚本做 1+2（确定性部分）；第 3 段的 LLM 撰写由调用方（Agnes，经 brief_writer.py）完成，
 输入即本脚本输出的 JSON。
 
 用法：
     python3 scripts/research_to_spec.py "2026秋冬时尚趋势" -o brief.json
-    python3 scripts/research_to_spec.py "query" --no-bili  # 只用 Tavily
+    python3 scripts/research_to_spec.py "query" --no-bili        # 只用 Tavily
+    python3 scripts/research_to_spec.py "query" --with-xhs       # 额外启用小红书
+    python3 scripts/research_to_spec.py "query" --backends tavily,xhs,bili
 """
 from __future__ import annotations
 import argparse
@@ -23,6 +33,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from source_trust import score_sources
+from search_router import search as router_search, resolve_backends, BACKENDS
 
 # 子查询模板（What/Why/How/数据/案例五维）
 SUBQUERY_TEMPLATES = [
@@ -33,77 +44,72 @@ SUBQUERY_TEMPLATES = [
     "{topic} 案例与实例",
 ]
 
+# 默认后端：tavily（英文专业）+ bili（中文社媒，免凭证）。
+# xhs 默认关闭——见模块 docstring（Cookie 过期 + 红线禁真实请求）。
+DEFAULT_BACKENDS: tuple[str, ...] = ("tavily", "bili")
+
 
 def gen_subqueries(topic: str, n: int = 5) -> list[str]:
     """确定性子查询生成（模板法；LLM 增强版由 Agnes 在第 3 段做）。"""
     return [t.format(topic=topic) for t in SUBQUERY_TEMPLATES[:n]]
 
 
-def search_tavily(query: str, max_results: int = 5) -> list[dict]:
-    """调 tavily_search；失败返回 []（不阻塞 B站）。"""
-    try:
-        from tavily_search import search as _tsearch, load_keys
-        keys = load_keys()
-        last = None
-        for k in keys:
-            try:
-                r = _tsearch(query, k, "advanced", max_results)
-                last = r
-                break
-            except Exception as e:
-                last = e
-        if isinstance(last, dict):
-            out = []
-            for x in last.get("results", [])[:max_results]:
-                out.append({
-                    "title": x.get("title", ""),
-                    "url": x.get("url", ""),
-                    "published_at": x.get("published_date", ""),
-                    "snippet": (x.get("content", "") or "")[:300],
-                    "source": "tavily",
-                })
-            return out
-    except SystemExit:
-        pass
-    except Exception as e:
-        print("[warn] Tavily 搜索失败: %s" % e, file=sys.stderr)
-    return []
+def search_all_backends(query: str, backends: list[str],
+                        max_results: int = 5) -> list[dict]:
+    """广度语义：每个后端独立查询并合并，单后端异常隔离。
+
+    与 search_router.search(allow_fallback=True) 的"首个有产出即停"不同，
+    research 需要多后端视角并存。每条结果标注 backend_used。
+    """
+    out: list[dict] = []
+    for name in backends:
+        try:
+            res = router_search(query, backends=[name],
+                                max_results=max_results, allow_fallback=False)
+        except Exception as e:  # noqa: BLE001 -- 单后端失败不阻塞其他后端
+            print("[warn] 后端 %s 失败，已跳过: %s" % (name, e), file=sys.stderr)
+            continue
+        used = res.get("backend_used") or name
+        for r in res.get("results", []) or []:
+            if not isinstance(r, dict):
+                continue
+            r = dict(r)
+            r["backend_used"] = used
+            out.append(r)
+    return out
 
 
-def search_bili(query: str, max_results: int = 5) -> list[dict]:
-    try:
-        from bili_search import search as _bsearch
-        return _bsearch(query, max_results)
-    except Exception as e:
-        print("[warn] B站搜索失败: %s" % e, file=sys.stderr)
-        return []
+def _to_scorable(r: dict) -> dict:
+    """router 归一化结果 -> source_trust 可打分格式。
+
+    published_at 在各后端的 extra 里字段名不同（tavily: published；
+    bili: published_at；xhs: 无），逐个回退。
+    """
+    extra = r.get("extra") or {}
+    published = (r.get("published_at") or extra.get("published")
+                 or extra.get("published_at") or "")
+    return {"url": r.get("url", ""), "title": r.get("title", ""),
+            "published_at": published,
+            "snippet": r.get("snippet", "") or ""}
 
 
-def research(topic: str, use_tavily: bool = True, use_bili: bool = True,
+def research(topic: str, backends: tuple[str, ...] | list[str] = DEFAULT_BACKENDS,
              per_query: int = 5) -> dict:
+    # 未知后端名直接抛 ValueError（fail-fast，不静默吞掉拼写错误）
+    chain = resolve_backends(list(backends))
+    names = [b.name for b in chain]
     subqueries = gen_subqueries(topic)
     raw: list[dict] = []
     seen_urls: set[str] = set()
     for sq in subqueries:
-        if use_tavily:
-            for r in search_tavily(sq, per_query):
-                if r["url"] and r["url"] not in seen_urls:
-                    seen_urls.add(r["url"])
-                    r["subquery"] = sq
-                    raw.append(r)
-        if use_bili:
-            for r in search_bili(sq, per_query):
-                if r["url"] and r["url"] not in seen_urls:
-                    seen_urls.add(r["url"])
-                    r["subquery"] = sq
-                    raw.append(r)
+        for r in search_all_backends(sq, names, per_query):
+            url = r.get("url", "")
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                r["subquery"] = sq
+                raw.append(r)
     # source_trust 打分 + 分级
-    scored = score_sources([
-        {"url": r["url"], "title": r["title"],
-         "published_at": r.get("published_at", ""),
-         "snippet": r.get("snippet", r.get("description", ""))}
-        for r in raw
-    ])
+    scored = score_sources([_to_scorable(r) for r in raw])
     for r, s in zip(raw, scored):
         r["trust"] = s["trust"]
         r["grade"] = s["grade"]
@@ -115,6 +121,7 @@ def research(topic: str, use_tavily: bool = True, use_bili: bool = True,
         by_grade[r["grade"]] = by_grade.get(r["grade"], 0) + 1
     return {
         "topic": topic,
+        "backends": names,
         "subqueries": subqueries,
         "source_count": len(raw),
         "grade_histogram": by_grade,
@@ -125,19 +132,36 @@ def research(topic: str, use_tavily: bool = True, use_bili: bool = True,
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="三段式研究→spec（1+2段）")
+    backend_names = ", ".join(b.name for b in BACKENDS)
+    ap = argparse.ArgumentParser(description="三段式研究→spec（1+2段，走 search_router 统一路由）")
     ap.add_argument("topic")
+    ap.add_argument("--backends", default=None,
+                    help="逗号分隔的后端名（可选: %s）；默认 tavily,bili" % backend_names)
     ap.add_argument("--no-tavily", action="store_true")
     ap.add_argument("--no-bili", action="store_true")
+    ap.add_argument("--with-xhs", action="store_true",
+                    help="显式启用小红书后端（需有效 Cookie；默认关闭）")
     ap.add_argument("--per-query", type=int, default=5)
     ap.add_argument("-o", "--output")
     a = ap.parse_args()
-    brief = research(a.topic, use_tavily=not a.no_tavily,
-                     use_bili=not a.no_bili, per_query=a.per_query)
+    if a.backends:
+        backend_list = [s.strip() for s in a.backends.split(",") if s.strip()]
+    else:
+        backend_list = list(DEFAULT_BACKENDS)
+        if a.no_tavily and "tavily" in backend_list:
+            backend_list.remove("tavily")
+        if a.no_bili and "bili" in backend_list:
+            backend_list.remove("bili")
+        if a.with_xhs and "xhs" not in backend_list:
+            backend_list.append("xhs")
+    if not backend_list:
+        ap.error("至少启用一个搜索后端")
+    brief = research(a.topic, backends=backend_list, per_query=a.per_query)
     out = json.dumps(brief, ensure_ascii=False, indent=2)
     if a.output:
         Path(a.output).write_text(out, encoding="utf-8")
-        print("[ok] %d 来源 → %s" % (brief["source_count"], a.output))
+        print("[ok] %d 来源（后端: %s）→ %s"
+              % (brief["source_count"], ",".join(brief["backends"]), a.output))
     else:
         print(out)
 
