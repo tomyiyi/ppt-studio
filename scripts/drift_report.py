@@ -14,6 +14,7 @@
 用法：
   python3 scripts/drift_report.py projects/fw2026-trends
   python3 scripts/drift_report.py projects/fw2026-trends -o /tmp/drift.html --spec path/to/spec_lock.md
+  python3 scripts/drift_report.py projects/fw2026-trends --format md   # 决策简报 Markdown（粘贴给用户做决策）
 """
 from __future__ import annotations
 
@@ -215,12 +216,71 @@ h1{{font-size:22px}} .meta{{color:#666;font-size:13px;margin-bottom:16px}}
 </body></html>"""
 
 
+def render_markdown(rep: dict) -> str:
+    """决策简报 Markdown（第 28 轮）：可直接粘贴给用户做决策的文本版报告。
+
+    与 render_html 同源（build_report），但面向"决策"而非"浏览"：
+    每页漂移给出 A（回齐 spec）/B（更新 spec）两个显式选项，并标注
+    实际字号是否在 spec 字阶内——在阶内 = 纯 statement 档位选择问题，
+    不在阶内 = 字号本身失控，建议先查来源再决策。
+    """
+    ramp_set = set(rep["ramp"])
+    out = [f"# Spec 漂移决策简报 — {rep['project']}", "",
+           f"- spec 文件：{rep['spec_file']}",
+           f"- spec statement 字号：{rep['expected_statement']}px",
+           f"- spec 字阶：[{', '.join(map(str, rep['ramp']))}]"]
+    drifts = [p for p in rep["pages"] if p.get("drift")]
+    oks = [p for p in rep["pages"]
+           if not p.get("cover") and not p.get("drift") and p.get("statement_size")]
+    if drifts:
+        out.append(f"- 结论：{rep['n_drift']} 页主句漂移"
+                   f"（{', '.join(rep['drift_pages'])}），需逐页决策。")
+    else:
+        out.append("- 结论：无主句漂移，无需决策。")
+    out.append("")
+
+    if drifts:
+        out.append("## 需决策")
+        out.append("")
+        for p in drifts:
+            sz, exp, delta = p["statement_size"], rep["expected_statement"], p["delta"]
+            ramp_note = ("在 spec 字阶内（纯 statement 档位选择问题）"
+                         if sz in ramp_set else
+                         "⚠️ 不在 spec 字阶内（字号本身失控，建议先查来源再决策）")
+            out.append(f"### {p['page']} —— 「{p['statement_text']}」")
+            out.append(f"- 实际 {sz}px vs 期望 {exp}px（{delta:+d}px）；{ramp_note}。")
+            out.append(f"- 选项 A（回齐 spec）：把本页主句字号改回 {exp}px"
+                       "（改 SVG → 重新导出 pptx → 回读验证）。")
+            out.append(f"- 选项 B（更新 spec）：接受 {sz}px 为本页设计，"
+                       f"在 {rep['spec_file']} 中为本页备注例外，或调整 statement 定义。")
+            out.append("")
+
+    if oks:
+        out.append("## 无需决策（主句合规）")
+        out.append("")
+        out.append("、".join(f"{p['page']}（{p['statement_size']}px）" for p in oks) + "。")
+        out.append("")
+
+    if rep["off_ramp_sizes"]:
+        out.append("## ⚠️ 脱离字阶的字号")
+        out.append("")
+        out.append("、".join(map(str, rep["off_ramp_sizes"]))
+                   + "px 未在 spec 字阶中，建议先查来源再决策。")
+        out.append("")
+    else:
+        out.append("脱离字阶的字号：无。")
+        out.append("")
+    return "\n".join(out)
+
+
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="生成 spec 漂移可视化对比报告（HTML）")
+    ap = argparse.ArgumentParser(description="生成 spec 漂移对比报告（HTML 可视化 / Markdown 决策简报）")
     ap.add_argument("project_dir", nargs="?", default=".",
                     help="项目目录（缺省当前目录）")
     ap.add_argument("--spec", help="显式指定 spec_lock 文件")
-    ap.add_argument("-o", "--output", help="输出 HTML 路径（缺省 <项目>/output/drift-report.html）")
+    ap.add_argument("-o", "--output", help="输出路径（缺省 <项目>/output/drift-report.<html|md>，随 --format）")
+    ap.add_argument("--format", choices=["html", "md"], default="html",
+                    help="html=可视化对比报告（默认），md=决策简报 Markdown（可直接粘贴给用户做决策）")
     a = ap.parse_args(argv)
 
     proj = Path(a.project_dir).resolve()
@@ -229,9 +289,11 @@ def main(argv: list[str] | None = None) -> int:
     except (FileNotFoundError, ValueError) as e:
         print(f"[fail] {e}", file=sys.stderr)
         return 1
-    out = Path(a.output).resolve() if a.output else proj / "output" / "drift-report.html"
+    default_name = "drift-report.html" if a.format == "html" else "drift-report.md"
+    out = Path(a.output).resolve() if a.output else proj / "output" / default_name
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(render_html(rep), encoding="utf-8")
+    body = render_html(rep) if a.format == "html" else render_markdown(rep)
+    out.write_text(body, encoding="utf-8")
     print(f"[ok] 漂移报告已生成: {out}")
     print(f"     主句漂移 {rep['n_drift']} 页: {', '.join(rep['drift_pages']) or '无'}；"
           f"脱离字阶字号: {', '.join(map(str, rep['off_ramp_sizes'])) or '无'}")

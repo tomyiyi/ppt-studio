@@ -6,7 +6,7 @@ import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from scripts.drift_report import build_report, page_statement, render_html
+from scripts.drift_report import build_report, main, page_statement, render_html, render_markdown
 
 SPEC = """# Execution Lock -- test
 ## canvas
@@ -107,6 +107,88 @@ class TestRenderHtml(DriftReportTestBase):
             self.assertNotIn("http://", h)
             self.assertNotIn("https://", h)
             self.assertIn("<!DOCTYPE html>", h)
+
+
+class TestRenderMarkdown(DriftReportTestBase):
+    def test_md_has_decision_options_per_drift_page(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = self.make_project(td)
+            rep = build_report(proj)
+            md = render_markdown(rep)
+            # 决策简报头 + 结论
+            self.assertIn("# Spec 漂移决策简报", md)
+            self.assertIn("1 页主句漂移（03_drift）", md)
+            # 每页漂移：原文、实际 vs 期望、A/B 显式选项
+            self.assertIn("### 03_drift", md)
+            self.assertIn("「漂移的主句」", md)
+            self.assertIn("实际 72px vs 期望 56px（+16px）", md)
+            self.assertIn("选项 A（回齐 spec）", md)
+            self.assertIn("选项 B（更新 spec）", md)
+            self.assertIn("56px", md)  # A 选项回齐到期望字号
+            self.assertIn("spec_lock.md", md)
+
+    def test_md_ramp_note_distinguishes_on_vs_off_ramp(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = self.make_project(td)
+            rep = build_report(proj)
+            md = render_markdown(rep)
+            # 72px 不在字阶 [20,26,56,84] → 必须提示先查来源
+            self.assertIn("不在 spec 字阶内", md)
+
+    def test_md_on_ramp_drift_note(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = self.make_project(td)
+            svg_dir = proj / "svg_output"
+            # 84px 在字阶内但不是 statement(56) → 纯档位选择问题
+            (svg_dir / "05_onramp.svg").write_text(
+                SVG_TMPL.format(texts=_text(100, 500, 84, "在阶漂移")), encoding="utf-8")
+            rep = build_report(proj)
+            md = render_markdown(rep)
+            self.assertIn("2 页主句漂移", md)
+            self.assertIn("05_onramp", md)
+            self.assertIn("在 spec 字阶内（纯 statement 档位选择问题）", md)
+
+    def test_md_no_drift_verdict(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "proj"
+            svg_dir = proj / "svg_output"
+            svg_dir.mkdir(parents=True)
+            (proj / "spec_lock.md").write_text(SPEC, encoding="utf-8")
+            (svg_dir / "02_ok.svg").write_text(
+                SVG_TMPL.format(texts=_text(100, 500, 56, "对齐的主句")), encoding="utf-8")
+            rep = build_report(proj)
+            md = render_markdown(rep)
+            self.assertIn("无主句漂移，无需决策", md)
+            self.assertNotIn("## 需决策", md)
+
+    def test_md_off_ramp_section(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = self.make_project(td)
+            rep = build_report(proj)
+            md = render_markdown(rep)
+            self.assertIn("脱离字阶的字号", md)
+            self.assertIn("72", md)
+
+    def test_md_ok_pages_listed(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = self.make_project(td)
+            rep = build_report(proj)
+            md = render_markdown(rep)
+            self.assertIn("无需决策（主句合规）", md)
+            self.assertIn("02_ok（56px）", md)
+            # 封面不进合规清单
+            self.assertNotIn("01_cover", md.split("## 无需决策（主句合规）")[1])
+
+    def test_cli_format_md_writes_markdown_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = self.make_project(td)
+            out = Path(td) / "brief.md"
+            rc = main([str(proj), "--format", "md", "-o", str(out)])
+            self.assertEqual(rc, 0)
+            self.assertTrue(out.is_file())
+            body = out.read_text(encoding="utf-8")
+            self.assertIn("# Spec 漂移决策简报", body)
+            self.assertNotIn("<!DOCTYPE html>", body)
 
 
 if __name__ == "__main__":
