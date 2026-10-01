@@ -70,6 +70,7 @@ def check(project_dir: Path) -> tuple[bool, list[str], dict]:
     from scripts.spec_resolve import resolve_spec
 
     spec = resolve_spec(project_dir)
+    ctx["spec"] = str(spec) if spec else ""
     if spec is None:
         return False, ["找不到 spec_lock（已按 版本>基线 规则查找）"], ctx
     svg_dir = find_svg_dir(project_dir)
@@ -112,6 +113,7 @@ def main() -> None:
     a = ap.parse_args()
     proj = Path(a.project_dir)
     ok, issues, ctx = check(proj)
+    print("[i] 采用 spec: %s" % (ctx.get("spec") or "未找到"))
     if ok:
         print("[ok] spec 与 SVG 无漂移（viewBox=%s）" % ctx.get("svg_vb"))
         return

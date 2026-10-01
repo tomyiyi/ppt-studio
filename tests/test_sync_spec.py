@@ -88,5 +88,18 @@ class TestSyncSpec(unittest.TestCase):
             self.assertEqual(spec_viewbox(p), "0 0 1920 1080")
 
 
+"""第 25 轮测试 B：sync_spec.check() 的 ctx 携带所用 spec 路径。"""
+
+
+class CtxSpecTest(unittest.TestCase):
+    def test_ctx_carries_spec_path(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            proj = _make_proj(d, {"P01.svg": "0 0 1920 1080"}, "0 0 1920 1080")
+            ok, issues, ctx = check(proj)
+            self.assertIn("spec", ctx)
+            self.assertTrue(ctx["spec"].endswith("spec_lock.md"), ctx["spec"])
+
+
 if __name__ == "__main__":
     unittest.main()

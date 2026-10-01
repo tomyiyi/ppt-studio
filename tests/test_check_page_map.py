@@ -91,5 +91,33 @@ class TestCheck(unittest.TestCase):
             self.assertTrue(ok)
 
 
+"""第 25 轮测试 A：check_page_map.main() 打印采用的 spec。"""
+
+
+class MainSpecVisibilityTest(unittest.TestCase):
+    def test_main_prints_adopted_spec(self):
+        import io
+        import tempfile
+        from contextlib import redirect_stdout
+        from unittest import mock
+        from scripts import check_page_map as _cpm
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td)
+            (proj / "spec_lock.md").write_text(
+                "## page_map\n- P01: role=Cover, rhythm=anchor\n",
+                encoding="utf-8")
+            (proj / "P01.svg").write_text("<svg/>", encoding="utf-8")
+            buf = io.StringIO()
+            with redirect_stdout(buf), \
+                    mock.patch.object(sys, "argv",
+                                      ["check_page_map.py", str(proj)]):
+                with self.assertRaises(SystemExit) as cm:
+                    _cpm.main()
+            self.assertEqual(cm.exception.code, 0)
+            out = buf.getvalue()
+            self.assertIn("[i] 采用 spec:", out)
+            self.assertIn("spec_lock.md", out)
+
+
 if __name__ == "__main__":
     unittest.main()

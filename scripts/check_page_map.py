@@ -100,8 +100,13 @@ def main() -> None:
     ap.add_argument("project_dir", help="项目目录")
     ap.add_argument("--spec", help="显式指定 spec_lock.md")
     a = ap.parse_args()
-    ok, issues = check(Path(a.project_dir),
-                       Path(a.spec) if a.spec else None)
+    proj = Path(a.project_dir)
+    spec = Path(a.spec) if a.spec else None
+    if spec is None:
+        from scripts.spec_resolve import resolve_spec
+        spec = resolve_spec(proj)
+    print("[i] 采用 spec: %s" % (spec if spec else "未找到"))
+    ok, issues = check(proj, spec)
     if ok:
         print("[ok] roster 完整")
     else:
