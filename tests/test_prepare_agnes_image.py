@@ -40,6 +40,7 @@ from scripts.prepare_agnes_image import (
     parse_size,
     detect_seam,
     fix_seam,
+    remove_seam,
     prepare,
     resolve_image_targets,
     resolve_manifest_target,
@@ -59,6 +60,7 @@ from scripts.prepare_agnes_image import (
     FAILURE_ITEM_KEYS,
     main,
 )
+from scripts.boost_ink import boost_image
 
 
 def create_test_image(
@@ -337,6 +339,124 @@ class TestFixSeam(unittest.TestCase):
         self.assertEqual(fixed.size, (100, 50))
         fixed2 = fix_seam(im, 200)
         self.assertEqual(fixed2.size, (100, 50))
+
+    @staticmethod
+    def _seam_step(im: Image.Image, x: int) -> float:
+        """x 处接缝残差：逐行取左右 5 列均值差的中位数（左窗钳制在边界内）。"""
+        g = np.asarray(im.convert("L"), dtype=np.float32)
+        lo = max(0, x - 5)
+        per_row = g[:, x:x + 5].mean(axis=1) - g[:, lo:x].mean(axis=1)
+        return float(np.median(np.abs(per_row)))
+
+    def test_fix_seam_asymmetric_content(self):
+        """第 32 轮回归：内容左右不对称时，补偿量不能被内容带偏。
+
+        旧实现取整图左右半区均值差——右侧亮色块会把 delta 带偏，
+        修复后跳变反而放大（实测 8.4 → 62.1）。正确估计量是
+        detect_seam 的检测口径本身：全行列均值曲线在 x 处的跳变，
+        内容噪声被 H 行平均掉，只剩系统性台阶。
+        """
+        arr = np.full((60, 100, 3), 100, dtype=np.uint8)
+        arr[:, 50:] += 30  # 接缝：x=50 处 +30 台阶（贯穿全高）
+        arr[10:40, 70:90] = 200  # 非对称内容：只在右侧的亮色块
+        im = Image.fromarray(arr, "RGB")
+        before = self._seam_step(im, 50)
+        self.assertGreater(before, 20)  # 确认合成图确有接缝
+        fixed = fix_seam(im, 50)
+        after = self._seam_step(fixed, 50)
+        self.assertLess(after, 3.0, f"接缝未抹平，残差={after}")
+        # 亮色块内容不受影响（仍在原位、仍亮）
+        farr = np.asarray(fixed.convert("L"))
+        self.assertGreater(farr[10:40, 70:90].mean(), 180)
+
+    def test_fix_seam_band_clamped_near_edge(self):
+        """x 贴边时采样带宽钳制在边界内，不报错。"""
+        arr = np.full((40, 100, 3), 50, dtype=np.uint8)
+        arr[:, 3:] = 80
+        im = Image.fromarray(arr, "RGB")
+        fixed = fix_seam(im, 3, band=24)  # 左侧只有 3 列可用
+        self.assertEqual(fixed.size, (100, 40))
+        self.assertLess(self._seam_step(fixed, 3), 3.0)
+
+
+class TestRemoveSeam(unittest.TestCase):
+    """第 32 轮：缓坡型接缝必须迭代 nibble，不能单次硬阶跃了事。"""
+
+    @staticmethod
+    def _boosted_detect(im: Image.Image):
+        boosted, *_ = boost_image(im)
+        return detect_seam(boosted)
+
+    def test_remove_seam_hard_step_single_iter(self):
+        """硬台阶：一次迭代精确清零。"""
+        arr = np.full((60, 100, 3), 100, dtype=np.uint8)
+        arr[:, 50:] = 140
+        im = Image.fromarray(arr, "RGB")
+        self.assertIsNotNone(self._boosted_detect(im))
+        fixed, cols, converged = remove_seam(im)
+        self.assertTrue(converged)
+        self.assertEqual(cols, [50])
+        self.assertIsNone(self._boosted_detect(fixed))
+
+    def test_remove_seam_ramp(self):
+        """缓坡（4 列宽、每列 +10）：迭代 nibble 直到无检出。
+
+        这是 05_essentials_bg 的合成复刻——单次 fix_seam(band=1) 只能
+        清掉峰值列，修完一处又冒出一处。
+        """
+        arr = np.full((60, 100, 3), 100, dtype=np.uint8)
+        for i, add in enumerate((10, 20, 30, 40)):
+            arr[:, 48 + i] = np.clip(
+                arr[:, 48 + i].astype(np.int16) + add, 0, 255)
+        im = Image.fromarray(arr, "RGB")
+        self.assertIsNotNone(self._boosted_detect(im))
+        fixed, cols, converged = remove_seam(im)
+        self.assertTrue(converged, f"未收敛，已修列={cols}")
+        self.assertGreater(len(cols), 1, "缓坡应触发多次迭代")
+        self.assertTrue(all(abs(c - 50) <= 4 for c in cols))
+        self.assertIsNone(self._boosted_detect(fixed))
+
+    def test_remove_seam_no_seam(self):
+        """无接缝：原样返回，不碰图像。"""
+        arr = np.full((60, 100, 3), 100, dtype=np.uint8)
+        im = Image.fromarray(arr, "RGB")
+        fixed, cols, converged = remove_seam(im)
+        self.assertTrue(converged)
+        self.assertEqual(cols, [])
+        self.assertTrue(np.array_equal(np.asarray(fixed), arr))
+
+    def test_remove_seam_explicit_x(self):
+        """显式给 x：只修该条接缝附近。"""
+        arr = np.full((60, 100, 3), 100, dtype=np.uint8)
+        arr[:, 50:] = 140
+        im = Image.fromarray(arr, "RGB")
+        fixed, cols, converged = remove_seam(im, x=50)
+        self.assertTrue(converged)
+        self.assertEqual(cols, [50])
+        self.assertIsNone(self._boosted_detect(fixed))
+
+    def test_no_circular_import_degradation(self):
+        """第 32 轮回归：top-level 导入 prepare_agnes_image 再导入 boost_ink，
+        不能因循环导入把 boost_ink.detect_seam 静默置为 None
+        （否则 QA 门禁的接缝检查被静默跳过——此前 /tmp 实验脚本
+        正是因此漏检了 777 接缝）。子进程隔离，复刻当时的导入顺序。"""
+        scripts_dir = str(REPO_ROOT / "scripts")
+        code = (
+            "import sys; sys.path.insert(0, %r);"
+            "from prepare_agnes_image import remove_seam;"
+            "import boost_ink;"
+            "assert boost_ink.detect_seam is not None,"
+            " 'detect_seam 被循环导入静默置为 None';"
+            "print('CIRCULAR_IMPORT_OK')"
+        ) % scripts_dir
+        r = subprocess.run(
+            [str(PYTHON_BIN), "-c", code],
+            capture_output=True, text=True, timeout=180,
+        )
+        self.assertIn(
+            "CIRCULAR_IMPORT_OK", r.stdout,
+            f"循环导入导致静默降级，stderr={r.stderr[-800:]}",
+        )
 
 
 class TestPrepare(unittest.TestCase):

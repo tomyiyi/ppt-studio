@@ -92,10 +92,10 @@ def detect_seam(im: Image.Image, margin: float = 0.10,
     return x
 
 
-def fix_seam(im: Image.Image, x: int, band: int = 0) -> Image.Image:
+def fix_seam(im: Image.Image, x: int, band: int = 2) -> Image.Image:
     """抹平 x 处的竖向亮度台阶。
 
-    ⚠️ 两个反直觉但关键的结论（都经实测验证，别再改回去）：
+    三个反直觉但关键的结论（都经实测验证，别再改回去）：
 
     1) 必须「加偏移」而不是「乘增益」。乘增益会把台阶同比例放大
        （实测跳变 14 → 18.6，越修越糟）。
@@ -106,30 +106,103 @@ def fix_seam(im: Image.Image, x: int, band: int = 0) -> Image.Image:
        只有在 x 处做一个等量反向硬阶跃，两者才精确抵消（跳变 → 0）。
        实测：加过渡带后残差 13.05；硬阶跃后残差 ~0.2（仅噪声）。
 
-    band 参数保留仅为兼容旧调用，当前实现不使用。
+    3) 补偿量必须等于 **detect_seam 测到的那个台阶**：全行列均值曲线
+       在 x 处的跳变（分通道取，b 列平均降噪）。H 行平均把无规内容
+       噪声压到 ~0.16，只剩系统性台阶；估计口径与检测口径一致，
+       两者才不会打架。备选估计量都经实测证伪：
+       ① 整图左右半区均值差——混入内容不对称（05 上 8.4 → 62.1，越修越糟）；
+       ② 全行逐行中位数——01 在 x=761 处 24 列带内有 -19 的内容渐变，
+          中位数被带偏到负值；
+       ③ 暗行逐行中位数——05 的豹纹污染了暗行（暗行台阶分布 [-58,+106]），
+          中位数 +20 而真实台阶只有 +8，严重过补偿（8.4 → 11.5）。
+       只有列均值曲线能把「每行随机位置的内容边缘」平均掉，留下
+       「每行同一位置的接缝」。
+
+    4) 接缝可能是缓坡而非硬台阶（05：宽约 8 列，单列跳变分散）。
+       单次 fix_seam 只能清掉峰值列——此时不要调大 band 去"抹平"，
+       而是用 remove_seam() 以 detector 为 oracle 迭代 nibble：
+       每次 band=1 精确清零当前最大单列跳变，单调收敛。
+
+    :param band: 台阶高度估计时两侧各取的列数（默认 2），钳制在边界内；
+        只影响估计，不影响补偿形状。
     """
     a = np.asarray(im, dtype=np.float32).copy()
-    w = a.shape[1]
+    h, w = a.shape[0], a.shape[1]
     x = int(np.clip(x, 1, w - 1))
+    b = max(1, min(int(band), x, w - x))  # 两侧采样带宽，钳制在边界内
 
+    # 台阶高度 = detect_seam 测到的那个量：全行列均值曲线在 x 处的跳变，
+    # 分通道估计（RGBA 只动 RGB，alpha 不动）。
     if a.ndim == 2:
-        left_mean = a[:, :x].mean()
-        right_mean = a[:, x:].mean()
-        delta = right_mean - left_mean
+        col = a.mean(axis=0)
+        delta = float(col[x:x + b].mean() - col[x - b:x].mean())
         a[:, :x] += delta
-    elif a.ndim == 3 and a.shape[2] == 4:
-        left_mean = a[:, :x, :3].reshape(-1, 3).mean(axis=0)
-        right_mean = a[:, x:, :3].reshape(-1, 3).mean(axis=0)
-        delta = (right_mean - left_mean).astype(np.float32)
-        a[:, :x, :3] += delta
     else:
-        left_mean = a[:, :x].reshape(-1, a.shape[2]).mean(axis=0)
-        right_mean = a[:, x:].reshape(-1, a.shape[2]).mean(axis=0)
-        delta = (right_mean - left_mean).astype(np.float32)
-        a[:, :x] += delta
+        nch = 3 if a.shape[2] == 4 else a.shape[2]
+        col = a[:, :, :nch].mean(axis=0)  # (w, nch)
+        delta = (col[x:x + b].mean(axis=0)
+                 - col[x - b:x].mean(axis=0)).astype(np.float32)
+        a[:, :x, :nch] += delta
 
     mode = im.mode if im.mode in ("RGB", "RGBA", "L") else None
     return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8), mode=mode)
+
+
+def remove_seam(im: Image.Image, x: int | None = None,
+                max_iter: int = 10, radius: int = 24
+                ) -> tuple[Image.Image, list[int], bool]:
+    """以 detect_seam 为 oracle，迭代抹平 x 附近的接缝（含缓坡型）。
+
+    背景（第 32 轮实测）：05_essentials 的"接缝"不是硬台阶，而是宽约
+    8 列的缓坡（提亮后单列跳变 6.4/6.75/8.35…排布在 734~742）。
+    单次硬阶跃只能清掉峰值列——修完 740 又冒出 736。
+    教训：补偿形状必须匹配接缝形状，而最可靠的形状就是 detector
+    每次看到的"当前最大单列跳变"。
+
+    每次迭代：在提亮图上 detect → 用 fix_seam(band=1) 精确清零该列。
+    band=1 的硬阶跃只改变 x 处的单列跳变（其余列的列均值差严格不变），
+    所以每次迭代消灭恰好一个超标列 → 单调收敛，不会震荡。
+    显式指定 x 时只修与之相距 ±radius 的列（同一条接缝，不误伤别处）；
+    x=None 的全自动模式则修掉所有检出的接缝（否则修完一条、
+    另一条仍让 QA 失败，修复失去意义）。max_iter 兜底防死循环。
+
+    :param x: 已知的接缝列；为 None 时自己检测、无接缝则原样返回，
+        有多条接缝则逐条修复。
+    :return: (修复后图像, 实际修复的列, 是否收敛到无检出)。
+    """
+    # 延迟导入：顶层导入 boost_ink 会形成循环
+    # (prepare_agnes_image → boost_ink → analyze_image → prepare_agnes_image)，
+    # 在 top-level 导入模式下被 except ImportError 静默吞掉，导致
+    # boost_ink.detect_seam = None、QA 门禁的接缝检查被静默跳过。
+    # 函数调用时本模块已加载完毕，无循环问题。
+    try:
+        from scripts.boost_ink import boost_image
+    except ImportError:  # 直接以 scripts/ 为工作目录运行时
+        from boost_ink import boost_image
+
+    if x is None:
+        boosted, *_ = boost_image(im)
+        x = detect_seam(boosted)
+        if x is None:
+            return im, [], True
+        auto = True
+    else:
+        auto = False
+    x0 = int(x)
+    fixed_cols: list[int] = []
+    cur = im
+    for _ in range(max_iter):
+        boosted, *_ = boost_image(cur)
+        xi = detect_seam(boosted)
+        if xi is None:
+            return cur, fixed_cols, True
+        if not auto and abs(xi - x0) > radius:
+            break  # 另一条接缝：不动，交还给调用方决定
+        cur = fix_seam(cur, xi, band=1)
+        fixed_cols.append(xi)
+    boosted, *_ = boost_image(cur)
+    converged = detect_seam(boosted) is None
+    return cur, fixed_cols, converged
 
 
 # ---------------------------------------------------------------- 主流程
@@ -181,11 +254,14 @@ def prepare(
     if seam_norm == "off":
         pass
     elif seam_norm == "auto":
-        x = detect_seam(im)
-        if x is not None:
-            report["seam"] = x
-            im = fix_seam(im, x)
+        # 与 QA 门禁同口径：remove_seam 内部在提亮图上检测
+        # （弱接缝原图上不可见，实测 01_cover/05_essentials 的接缝只在提亮后浮现）
+        im, fixed_cols, converged = remove_seam(im)
+        if fixed_cols:
+            report["seam"] = fixed_cols[0]
             report["fixed"] = True
+            report["fixed_cols"] = fixed_cols
+            report["seam_converged"] = converged
     else:
         parts = [p.strip() for p in seam.split(",") if p.strip()]
         if not parts:
