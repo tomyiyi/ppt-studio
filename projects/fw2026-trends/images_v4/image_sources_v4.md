@@ -12,7 +12,7 @@
 | real_runway1.jpg | 同名 | 1920×2880 | 待核实 | v3 即为 1920 宽版本，沿用；P08 图注已去品牌化 |
 | real_runway2.jpg | 同名 | 1920×1372 | 待核实 | 同上 |
 | real_runway3.jpg | 同名 | 1920×1280 | 待核实 | 同上 |
-| real_street.jpg | real_street.jpg（500×750） | 500×750 | 待核实 | 仅有 500×750 版本（= images_v3/new_street_src.jpg，RMSE 一致）；P02 作 0.1 透明底纹、P06 右图 315×720（轻微降采样），可用 |
+| real_street.jpg | 新拍（Pexels photo 19329361） | 3441×5161（工作副本 2667×4000） | Samed S. | 2026-10-01 替换旧 500×750 版本。内容：金发女子穿优雅大衣走过秋日历史街区 （街拍主题，P06 右图 315×720 / P02 0.1 透明底纹）；真原图归档 real_street.fullres.jpg；Pexels 免费许可 https://www.pexels.com/license/ |
 
 ## AI 生成（Agnes agnes-image-2.5-flash）
 

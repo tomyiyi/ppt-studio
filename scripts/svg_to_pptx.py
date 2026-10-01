@@ -26,6 +26,7 @@ svg_to_pptx.py —— SVG 画布 → 可编辑 PPTX 导出（对应 docs/workflo
 from __future__ import annotations
 
 import argparse
+import hashlib
 import re
 import shutil
 import subprocess
@@ -59,8 +60,18 @@ try:
 except Exception:  # pragma: no cover
     _measure_text = None
 
+try:
+    from PIL import Image as _PILImage
+    _PIL_OK = True
+except ImportError:  # pragma: no cover
+    _PILImage = None
+    _PIL_OK = False
+
 SVG_NS = "http://www.w3.org/2000/svg"
+XLINK_NS = "http://www.w3.org/1999/xlink"
 ET.register_namespace("", SVG_NS)
+# 不注册 xlink 会导致 ET 把 xlink:href 序列化成 ns1:href，rsvg 认不出 → 图片丢失
+ET.register_namespace("xlink", XLINK_NS)
 
 FORMATS = {
     "ppt169": (13.333333, 7.5),   # 16:9
@@ -160,14 +171,70 @@ def strip_body_texts(svg_path: Path) -> bytes:
     return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
-def render_background(svg_bytes: bytes, png_path: Path, width: int, height: int) -> None:
+# rsvg 在本机解码 JPEG 失败（gdk-pixbuf loader 缺失，PNG 可解）→ 需要转 PNG 的后缀
+_JPEG_SUFFIXES = {".jpg", ".jpeg"}
+
+_IMAGE_HREF_RE = re.compile(
+    r'(<image\b[^>]*?\b(?:href|xlink:href)\s*=\s*["\'])([^"\']+)(["\'])',
+    re.IGNORECASE,
+)
+
+
+def _materialize_images(svg_bytes: bytes, svg_dir: Path, work_dir: Path) -> bytes:
+    """把 <image> 的本地 href 改写为绝对路径；JPEG 先转 PNG 再引用。
+
+    原因有二：(1) 背景 SVG 经 stdin 喂给 rsvg-convert，没有 base URI，
+    相对路径必然解析失败；(2) 本机 rsvg 解码 JPEG 失败（loader 缺失），
+    只有 PNG 能被可靠解码。data: URI 原样保留；缺失文件保留原 href
+    并打印警告（rsvg 会跳过该图，不中断整页）。
+    """
+    svg_dir = Path(svg_dir)
+    work_dir = Path(work_dir)
+    work_dir.mkdir(parents=True, exist_ok=True)
+    text = svg_bytes.decode("utf-8")
+
+    def repl(m: re.Match) -> str:
+        href = m.group(2).strip()
+        if href.startswith("data:"):
+            return m.group(0)
+        src = (svg_dir / href).resolve() if not Path(href).is_absolute() else Path(href).resolve()
+        if not src.is_file():
+            print(f"    [warn] 背景图片缺失，rsvg 将跳过: {href}")
+            return m.group(0)
+        if src.suffix.lower() in _JPEG_SUFFIXES:
+            if not _PIL_OK:
+                raise RuntimeError(f"需要 Pillow 才能转换 JPEG 背景图: {src}")
+            dst = work_dir / (hashlib.sha256(str(src).encode()).hexdigest()[:16] + ".png")
+            if not dst.is_file():
+                with _PILImage.open(src) as im:
+                    im.convert("RGB").save(dst, "PNG")
+            target = dst
+        else:
+            target = src
+        return f"{m.group(1)}{target.as_uri()}{m.group(3)}"
+
+    return _IMAGE_HREF_RE.sub(repl, text).encode("utf-8")
+
+
+def render_background(svg_bytes: bytes, png_path: Path, width: int, height: int,
+                      svg_dir: Path | None = None, work_dir: Path | None = None) -> None:
     if not rsvg_available():
         raise RuntimeError("缺少 rsvg-convert（背景层渲染依赖），请安装 librsvg")
-    proc = subprocess.run(
-        ["rsvg-convert", "-w", str(width), "-h", str(height), "-o", str(png_path)],
-        input=svg_bytes,
-        capture_output=True,
-    )
+    if svg_dir is not None:
+        if work_dir is None:
+            raise ValueError("传入 svg_dir 时必须同时传入 work_dir（图片物化目录）")
+        svg_bytes = _materialize_images(svg_bytes, svg_dir, work_dir)
+        # rsvg 从 stdin 读取 SVG 时拒绝加载外部资源（即使 file:// 绝对路径），
+        # 必须落盘为文件再渲染；.bg.svg 与 .bg.png 同目录，方便 --bg-dir 调试
+        staged_svg = Path(work_dir) / (Path(png_path).stem + ".bg.svg")
+        staged_svg.write_bytes(svg_bytes)
+        argv = ["rsvg-convert", "-w", str(width), "-h", str(height),
+                "-o", str(png_path), str(staged_svg)]
+        input_data = None
+    else:
+        argv = ["rsvg-convert", "-w", str(width), "-h", str(height), "-o", str(png_path)]
+        input_data = svg_bytes
+    proc = subprocess.run(argv, input=input_data, capture_output=True)
     if proc.returncode != 0 or not png_path.is_file() or png_path.stat().st_size == 0:
         raise RuntimeError(f"rsvg-convert 渲染失败: {proc.stderr.decode()[:300]}")
 
@@ -255,7 +322,8 @@ def build_pptx(
 
             bg_png = bg_root / (svg_path.stem + ".bg.png")
             render_background(
-                strip_body_texts(svg_path), bg_png, int(vb_w), int(vb_h))
+                strip_body_texts(svg_path), bg_png, int(vb_w), int(vb_h),
+                svg_dir=svg_path.parent, work_dir=bg_root)
 
             slide = prs.slides.add_slide(blank)
             slide.shapes.add_picture(

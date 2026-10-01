@@ -36,12 +36,20 @@ from scripts.svg_to_pptx import (
     strip_body_texts,
     build_pptx,
     PX_TO_PT,
+    _materialize_images,
 )
 
 try:
     from scripts.svg_to_pptx import _PPTX_OK
 except ImportError:  # pragma: no cover
     _PPTX_OK = False
+
+try:
+    from PIL import Image as _PILImage
+    _PIL_TEST_OK = True
+except ImportError:  # pragma: no cover
+    _PILImage = None
+    _PIL_TEST_OK = False
 
 try:
     from scripts.qa_pptx import run_qa_pptx
@@ -292,6 +300,61 @@ class TestBuildEndToEnd(unittest.TestCase):
                 code = main([str(tdp), "-o", str(out)])
             self.assertEqual(code, 0)
             self.assertTrue(out.is_file())
+
+
+@unittest.skipUnless(_PPTX_OK and shutil_which_rsvg() and _PIL_TEST_OK,
+                     "需要 python-pptx + rsvg-convert + Pillow")
+class TestBackgroundPhotoRegression(unittest.TestCase):
+    """背景照片回归：第 16 轮照片丢失事故的门禁。"""
+
+    PHOTO_SVG = """<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1920 1080" width="1920" height="1080">
+<rect x="0" y="0" width="1920" height="1080" fill="#F5F2EC"/>
+<image xlink:href="probe.jpg" x="100" y="100" width="120" height="90" preserveAspectRatio="xMidYMid slice"/>
+</svg>"""
+
+    def _write_photo_fixture(self, tmp: Path) -> Path:
+        _PILImage.new("RGB", (120, 90), (210, 30, 30)).save(tmp / "probe.jpg", "JPEG", quality=90)
+        p = tmp / "photo.svg"
+        p.write_text(self.PHOTO_SVG, encoding="utf-8")
+        return p
+
+    def test_strip_keeps_xlink_href(self):
+        """ET 序列化不得把 xlink:href 改写成 ns1:href（否则 rsvg 认不出图片）。"""
+        with tempfile.TemporaryDirectory() as td:
+            p = self._write_photo_fixture(Path(td))
+            out = strip_body_texts(p).decode("utf-8")
+            self.assertIn("xlink:href", out)
+            self.assertNotIn("ns1:href", out)
+
+    def test_materialize_converts_jpeg_to_png(self):
+        """JPEG 物化为 PNG 并改写为绝对 file:// URI；PNG 文件真实存在。"""
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            p = self._write_photo_fixture(tdp)
+            work = tdp / "work"
+            out = _materialize_images(strip_body_texts(p), tdp, work).decode("utf-8")
+            self.assertIn(".png", out)
+            self.assertNotIn("probe.jpg", out)
+            pngs = list(work.glob("*.png"))
+            self.assertEqual(len(pngs), 1)
+            self.assertEqual(pngs[0].read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
+
+    def test_render_background_includes_photo(self):
+        """端到端：背景 PNG 里照片区域的像素必须是照片色，而非底色。"""
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            p = self._write_photo_fixture(tdp)
+            png = tdp / "bg.png"
+            render_background(strip_body_texts(p), png, 480, 270,
+                              svg_dir=tdp, work_dir=tdp / "work")
+            im = _PILImage.open(png).convert("RGB")
+            # 照片槽位中心 (100+60, 100+45) 按 480/1920 缩放 → (40, 36)
+            r, g, b = im.getpixel((40, 36))
+            self.assertGreater(r, 150, f"照片未渲染，中心像素={(r, g, b)}")
+            self.assertGreater(r - b, 80, f"照片未渲染，中心像素={(r, g, b)}")
+            # 底色区保持米色
+            br, bg_, bb = im.getpixel((400, 200))
+            self.assertGreater(br, 230)
 
 
 if __name__ == "__main__":
