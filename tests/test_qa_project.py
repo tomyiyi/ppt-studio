@@ -19,9 +19,10 @@ from scripts.qa_project import (
 
 
 class TestProjectQA(unittest.TestCase):
-    def _patch_all(self, stack, image=True, layout=True, cards=True, long_card=True):
+    def _patch_all(self, stack, image=True, assets=True, layout=True, cards=True, long_card=True):
         return [
             stack.enter_context(patch("scripts.qa_project.run_image_qa", return_value={"ok": image})),
+            stack.enter_context(patch("scripts.qa_project.run_qa_assets", return_value={"ok": assets})),
             stack.enter_context(patch("scripts.qa_project.run_qa_layout", return_value=layout)),
             stack.enter_context(patch("scripts.qa_project.run_qa_cards", return_value=cards)),
             stack.enter_context(patch("scripts.qa_project.run_qa_long_card", return_value=long_card)),
@@ -46,20 +47,33 @@ class TestProjectQA(unittest.TestCase):
         mocks[1].assert_not_called()
         mocks[2].assert_not_called()
         mocks[3].assert_not_called()
+        mocks[4].assert_not_called()
+
+    def test_assets_failure_is_located(self):
+        with ExitStack() as stack:
+            mocks = self._patch_all(stack, assets=False)
+            result = run_project_qa("/tmp/project", image_targets=["a.png"])
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["failed_stage"], "assets")
+        self.assertTrue(result["stages"]["image"]["ok"])
+        mocks[2].assert_not_called()
+        mocks[3].assert_not_called()
+        mocks[4].assert_not_called()
 
     def test_layout_failure_is_located(self):
         with ExitStack() as stack:
             mocks = self._patch_all(stack, layout=False)
             result = run_project_qa("/tmp/project", image_targets=["a.png"])
         self.assertEqual(result["failed_stage"], "layout")
-        mocks[2].assert_not_called()
+        mocks[3].assert_not_called()
+        mocks[4].assert_not_called()
 
     def test_cards_failure_is_located(self):
         with ExitStack() as stack:
             mocks = self._patch_all(stack, cards=False)
             result = run_project_qa("/tmp/project", image_targets=["a.png"])
         self.assertEqual(result["failed_stage"], "cards")
-        mocks[3].assert_not_called()
+        mocks[4].assert_not_called()
 
     def test_long_card_failure_is_located(self):
         with ExitStack() as stack:
@@ -72,13 +86,14 @@ class TestProjectQA(unittest.TestCase):
             mocks = self._patch_all(stack)
             run_project_qa("/tmp/project", image_targets=["a.png"], layout_target="l", cards_target="c", long_card_target="d")
         mocks[0].assert_called_once_with(["a.png"], verbose=False)
-        mocks[1].assert_called_once_with("l", verbose=False)
-        mocks[2].assert_called_once_with("c", verbose=False)
-        mocks[3].assert_called_once_with("d", verbose=False)
+        mocks[1].assert_called_once_with(Path("/tmp/project"))
+        mocks[2].assert_called_once_with("l", verbose=False)
+        mocks[3].assert_called_once_with("c", verbose=False)
+        mocks[4].assert_called_once_with("d", verbose=False)
 
     def test_attestation_success_is_derived_from_all_stages(self):
         result = {"ok": True, "failed_stage": None, "stages": {
-            "image": {"ok": True}, "layout": {"ok": True},
+            "image": {"ok": True}, "assets": {"ok": True}, "layout": {"ok": True},
             "cards": {"ok": True}, "long_card": {"ok": True},
         }}
         attestation = build_qa_attestation(result)
@@ -96,13 +111,13 @@ class TestProjectQA(unittest.TestCase):
 
     def test_attestation_round_trips_through_json(self):
         result = {"ok": True, "failed_stage": None, "stages": {
-            name: {"ok": True} for name in ("image", "layout", "cards", "long_card")
+            name: {"ok": True} for name in ("image", "assets", "layout", "cards", "long_card")
         }}
         self.assertEqual(json.loads(json.dumps(build_qa_attestation(result))), build_qa_attestation(result))
 
     def test_write_attestation_is_readable_and_matches_memory(self):
         result = {"ok": True, "failed_stage": None, "stages": {
-            name: {"ok": True} for name in ("image", "layout", "cards", "long_card")
+            name: {"ok": True} for name in ("image", "assets", "layout", "cards", "long_card")
         }}
         output = Path(self.id().replace(".", "_") + ".json")
         try:
@@ -113,14 +128,14 @@ class TestProjectQA(unittest.TestCase):
 
     def test_failed_result_never_becomes_success_attestation(self):
         result = {"ok": True, "failed_stage": "cards", "stages": {
-            "image": {"ok": True}, "layout": {"ok": True},
+            "image": {"ok": True}, "assets": {"ok": True}, "layout": {"ok": True},
             "cards": {"ok": False}, "long_card": {"ok": True},
         }}
         self.assertFalse(build_qa_attestation(result)["overall"])
 
     def test_write_failure_does_not_leave_partial_destination(self):
         result = {"ok": True, "failed_stage": None, "stages": {
-            name: {"ok": True} for name in ("image", "layout", "cards", "long_card")
+            name: {"ok": True} for name in ("image", "assets", "layout", "cards", "long_card")
         }}
         with self.assertRaises((NotADirectoryError, FileNotFoundError, FileExistsError)):
             write_qa_attestation(result, "/dev/null/qa-attestation.json")

@@ -16,6 +16,7 @@ if __package__ in (None, ""):
         sys.path.insert(0, str(repo_root))
 
 from scripts.qa_image_pipeline import run_image_qa
+from scripts.qa_assets import run_qa_assets
 from scripts.qa_layout import run_qa_layout
 from scripts.qa_cards import run_qa_cards
 from scripts.qa_long_card import run_qa_long_card
@@ -111,7 +112,7 @@ def run_project_qa(
     long_card_target: str | Path | None = None,
     verbose: bool = False,
 ) -> dict[str, Any]:
-    """按 image -> layout -> cards -> long_card 顺序执行项目验收。"""
+    """按 image -> assets -> layout -> cards -> long_card 顺序执行项目验收。"""
     root = resolve_project_dir(project)
     image_input = image_targets if image_targets is not None else root / "images"
     stages: dict[str, Any] = {}
@@ -119,6 +120,11 @@ def run_project_qa(
     stages["image"] = image_result
     if not image_result["ok"]:
         return {"ok": False, "failed_stage": "image", "stages": stages}
+
+    assets_result = run_qa_assets(root)
+    stages["assets"] = assets_result
+    if not assets_result["ok"]:
+        return {"ok": False, "failed_stage": "assets", "stages": stages}
 
     for name, runner, target in (
         ("layout", run_qa_layout, layout_target if layout_target is not None else root),
@@ -143,11 +149,11 @@ def build_qa_attestation(result: dict[str, Any]) -> dict[str, Any]:
         "schema_version": 1,
         "overall": bool(result.get("ok")) and all(
             bool(stages.get(name, {}).get("ok"))
-            for name in ("image", "layout", "cards", "long_card")
+            for name in ("image", "assets", "layout", "cards", "long_card")
         ),
         "stages": {
             name: {"ok": bool(stages.get(name, {}).get("ok"))}
-            for name in ("image", "layout", "cards", "long_card")
+            for name in ("image", "assets", "layout", "cards", "long_card")
         },
     }
     if result.get("failed_stage") is not None:
