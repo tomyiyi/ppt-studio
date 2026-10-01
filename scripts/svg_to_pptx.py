@@ -210,10 +210,21 @@ def _materialize_images(svg_bytes: bytes, svg_dir: Path, work_dir: Path) -> byte
         if src.suffix.lower() in _JPEG_SUFFIXES:
             if not _PIL_OK:
                 raise RuntimeError(f"需要 Pillow 才能转换 JPEG 背景图: {src}")
-            dst = work_dir / (hashlib.sha256(str(src).encode()).hexdigest()[:16] + ".png")
-            if not dst.is_file():
-                with _PILImage.open(src) as im:
-                    im.convert("RGB").save(dst, "PNG")
+            try:
+                # 缓存 key 混入体积 + mtime：源文件被替换后不得复用过期 PNG
+                #（第 31 轮：此前 key 只有路径 hash，换图不换名=静默错误输出）
+                st = src.stat()
+                key = hashlib.sha256(
+                    f"{src}|{st.st_size}|{st.st_mtime_ns}".encode()).hexdigest()[:16]
+                dst = work_dir / (key + ".png")
+                if not dst.is_file():
+                    with _PILImage.open(src) as im:
+                        im.convert("RGB").save(dst, "PNG")
+            except Exception as e:
+                # 坏 JPEG（截断/损坏）：不炸掉整页构建，与"缺失文件"同策略——
+                # 保留原 href 并警告，rsvg 跳过该图；真正的门禁是 qa_assets（第 29 轮）
+                print(f"    [warn] 背景图转换失败，rsvg 将跳过: {href}（{e}）")
+                return m.group(0)
             target = dst
         else:
             target = src

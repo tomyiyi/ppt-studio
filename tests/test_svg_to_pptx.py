@@ -438,6 +438,44 @@ class TestBackgroundPhotoRegression(unittest.TestCase):
             self.assertEqual(len(pngs), 1)
             self.assertEqual(pngs[0].read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
 
+    def test_materialize_corrupt_jpeg_warns_and_keeps_going(self):
+        """坏 JPEG（截断/损坏）：不抛异常炸掉构建，保留原 href 并警告，
+        与"缺失文件"同策略（第 31 轮；真正的门禁是 qa_assets）。"""
+        import io
+        from contextlib import redirect_stdout
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            (tdp / "probe.jpg").write_bytes(b"\xff\xd8\xff\xe0garbage-not-jpeg")
+            p = tdp / "photo.svg"
+            p.write_text(self.PHOTO_SVG, encoding="utf-8")
+            work = tdp / "work"
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                out = _materialize_images(strip_body_texts(p), tdp, work).decode("utf-8")
+            self.assertIn("probe.jpg", out)  # 原 href 保留，rsvg 会跳过该图
+            self.assertIn("转换失败", buf.getvalue())
+
+    def test_materialize_cache_invalidated_on_source_change(self):
+        """转换缓存 key 混入体积+mtime：源文件被替换后不得复用过期 PNG。"""
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            p = self._write_photo_fixture(tdp)
+            work = tdp / "work"
+            _materialize_images(strip_body_texts(p), tdp, work)
+            first = list(work.glob("*.png"))
+            self.assertEqual(len(first), 1)
+            # 替换源文件（不同尺寸 + 强制刷新 mtime）
+            _PILImage.new("RGB", (60, 45), (30, 30, 210)).save(
+                tdp / "probe.jpg", "JPEG", quality=90)
+            import os, time
+            new_mtime = time.time() + 5
+            os.utime(tdp / "probe.jpg", (new_mtime, new_mtime))
+            _materialize_images(strip_body_texts(p), tdp, work)
+            second = list(work.glob("*.png"))
+            self.assertEqual(len(second), 2, "源文件变化后应生成新的缓存 PNG，而非复用旧的")
+            names = {q.name for q in second}
+            self.assertNotEqual(first[0].name, (names - {first[0].name}).pop())
+
     def test_render_background_includes_photo(self):
         """端到端：背景 PNG 里照片区域的像素必须是照片色，而非底色。"""
         with tempfile.TemporaryDirectory() as td:
