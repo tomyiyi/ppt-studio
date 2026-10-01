@@ -32,11 +32,11 @@ def item(title):
 class ResolveBackendsTest(unittest.TestCase):
     def test_auto_returns_all_in_priority_order(self):
         bs = R.resolve_backends("auto")
-        self.assertEqual([b.name for b in bs], ["tavily", "xhs", "bili", "wiki"])
+        self.assertEqual([b.name for b in bs], ["tavily", "xhs", "bili", "wiki", "commons"])
 
     def test_none_is_auto(self):
         self.assertEqual([b.name for b in R.resolve_backends(None)],
-                         ["tavily", "xhs", "bili", "wiki"])
+                         ["tavily", "xhs", "bili", "wiki", "commons"])
 
     def test_string_list_and_order(self):
         bs = R.resolve_backends("bili,xhs")
@@ -207,7 +207,7 @@ class RealBackendWiringTest(unittest.TestCase):
 
     def test_registry_names_and_priority(self):
         self.assertEqual([b.name for b in R.BACKENDS],
-                         ["tavily", "xhs", "bili", "wiki"])
+                         ["tavily", "xhs", "bili", "wiki", "commons"])
 
     def test_each_backend_has_run_and_check(self):
         for b in R.BACKENDS:
@@ -302,6 +302,108 @@ class WikiRetryTest(unittest.TestCase):
             with patch("time.sleep", return_value=None):
                 with self.assertRaises(RuntimeError):
                     R._wiki_api_search("q", "zh", 5)
+
+class NormalizeCommonsTest(unittest.TestCase):
+    SAMPLE = {"query": {"pages": [
+        {"title": "File:Pantone 448 C.png",
+         "imageinfo": [{"url": "https://upload.wikimedia.org/x/Pantone_448_C.png?utm_source=commons.wikimedia.org",
+                        "thumburl": "https://upload.wikimedia.org/x/800px-Pantone_448_C.png?utm_source=a",
+                        "width": 1600, "height": 900, "mime": "image/png",
+                        "extmetadata": {
+                            "LicenseShortName": {"value": "Public domain"},
+                            "Artist": {"value": '<a href="//x">Ali</a>'},
+                            "ImageDescription": {"value": "Pantone 448 C"}}}]},
+        "not-a-dict",
+        {"title": "File:Broken.jpg"},  # 无 imageinfo：仍归一化，字段为空
+    ]}}
+
+    def test_normalize_commons(self):
+        out = R.normalize_commons(self.SAMPLE)
+        self.assertEqual(len(out), 2)
+        self.assertEqual(out[0]["backend"], "commons")
+        self.assertEqual(out[0]["source"], "wikimedia-commons")
+        self.assertEqual(out[0]["title"], "Pantone 448 C.png")
+        self.assertIn("commons.wikimedia.org/wiki/File%3APantone_448_C.png",
+                      out[0]["url"])  # quote 编码冒号，与 wiki 后端行为一致
+        self.assertIn("Public domain", out[0]["snippet"])
+        self.assertNotIn("<a", out[0]["snippet"])  # Artist HTML 已剥离
+        self.assertEqual(out[0]["extra"]["thumburl"],
+                         "https://upload.wikimedia.org/x/800px-Pantone_448_C.png")
+        self.assertEqual(out[0]["extra"]["width"], 1600)
+        self.assertEqual(out[0]["extra"]["filetitle"], "File:Pantone 448 C.png")
+
+    def test_utm_stripped_and_missing_imageinfo(self):
+        out = R.normalize_commons(self.SAMPLE)
+        broken = out[1]
+        self.assertEqual(broken["extra"]["thumburl"], "")
+        self.assertEqual(broken["extra"]["license"], "未知授权")
+        self.assertIn("未知授权", broken["snippet"])  # 缺失授权信息时显式标注，而非空值
+
+    def test_normalize_commons_empty(self):
+        self.assertEqual(R.normalize_commons({}), [])
+        self.assertEqual(R.normalize_commons({"query": {}}), [])
+
+    def test_html_entities_unescaped(self):
+        raw = {"query": {"pages": [{"title": "File:E.png",
+                                    "imageinfo": [{"extmetadata": {
+                                        "ImageDescription": {"value": "Square &amp; Fruit"},
+                                        "Artist": {"value": "A &amp; B"}}}]}]}}
+        out = R.normalize_commons(raw)
+        self.assertIn("Square & Fruit", out[0]["snippet"])
+        self.assertNotIn("&amp;", out[0]["snippet"])
+
+
+class CommonsRunTest(unittest.TestCase):
+    def test_run_returns_normalized(self):
+        payload = {"query": {"pages": [{"title": "File:A.png",
+                                        "imageinfo": [{"thumburl": "http://x/t",
+                                                       "width": 10, "height": 5,
+                                                       "extmetadata": {}}]}]}}
+        with patch.object(R, "_commons_api_search", return_value=payload):
+            out = R._commons_run("q", 5)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["backend"], "commons")
+
+
+class CommonsRetryTest(unittest.TestCase):
+    def _fake_resp(self, payload):
+        import json as _j
+        m = MagicMock()
+        m.read.return_value = _j.dumps(payload).encode("utf-8")
+        m.__enter__.return_value = m
+        return m
+
+    def test_transient_ssl_eof_retried_once(self):
+        import ssl as _ssl
+        import urllib.error as _ue
+        payload = {"query": {"pages": [{"title": "File:R.png"}]}}
+        err = _ue.URLError(_ssl.SSLError(8, "[SSL: UNEXPECTED_EOF_WHILE_READING]"))
+        with patch("urllib.request.urlopen",
+                   side_effect=[err, self._fake_resp(payload)]) as uo:
+            with patch("time.sleep", return_value=None):
+                out = R._commons_api_search("q", 5)
+        self.assertEqual(uo.call_count, 2)
+        self.assertEqual(out["query"]["pages"][0]["title"], "File:R.png")
+
+    def test_two_failures_raise(self):
+        import urllib.error as _ue
+        with patch("urllib.request.urlopen",
+                   side_effect=_ue.URLError("boom")):
+            with patch("time.sleep", return_value=None):
+                with self.assertRaises(RuntimeError):
+                    R._commons_api_search("q", 5)
+
+    def test_commons_uses_shared_retry_helper(self):
+        # 共享重试逻辑与 wiki 同源：确认 wiki 抽取重构后重试语义未变
+        self.assertIs(R._wiki_api_search.__globals__["_wikimedia_get_json"],
+                      R._commons_api_search.__globals__["_wikimedia_get_json"])
+
+    def test_check_ok(self):
+        status, msg = R._commons_check()
+        self.assertEqual(status, "ok")
+        self.assertIn("免凭证", msg)
+
+
 
 
 if __name__ == "__main__":

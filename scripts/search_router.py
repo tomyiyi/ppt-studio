@@ -15,12 +15,13 @@ search_router.py -- 统一搜索路由：多后端 fallback + doctor 自检
    每个后端实现自检 check()，doctor() 聚合所有后端状态；单个后端
    自检抛异常时降级为 status="error"，绝不拖垮整份报告。
 
-后端注册表（默认优先级 tavily -> xhs -> bili -> wiki）：
+后端注册表（默认优先级 tavily -> xhs -> bili -> wiki -> commons）：
   - tavily：Tavily 全网搜索（load_keys 做 key 轮换，需 TAVILY_API_KEY 或
     ~/.config/ppt-studio/tavily.json）
   - xhs：小红书搜索（需 ~/.config/ppt-studio/xiaohongshu.json cookie）
   - bili：B站视频搜索（免凭证）
   - wiki：Wikipedia 搜索（免凭证，zh 无结果时回退 en）
+  - commons：Wikimedia Commons 图片搜索（免凭证，只取位图，附授权/作者/缩略图）
 
 归一化结果字段：title / url / snippet / source / backend / extra。
 
@@ -33,6 +34,7 @@ search_router.py -- 统一搜索路由：多后端 fallback + doctor 自检
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import re
 import sys
@@ -134,6 +136,106 @@ def normalize_wiki(raw: dict, lang: str = "zh") -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# MediaWiki 通用 GET（含瞬时故障重试）+ Commons 后端
+# ---------------------------------------------------------------------------
+
+
+def _wikimedia_get_json(url: str, label: str) -> dict:
+    """MediaWiki 系 API 通用 GET（免凭证）。
+
+    偶发 SSL EOF 属已知瞬时故障（第 23 轮实跑复现），URLError/SSLError/
+    TimeoutError/ConnectionError 最多重试 1 次（sleep 1s）；HTTPError
+    （4xx/5xx）直接抛，不重试。
+    """
+    import ssl  # noqa: E402 -- 延迟导入，保持模块顶层轻量
+    import time  # noqa: E402
+    import urllib.error  # noqa: E402
+    req = urllib.request.Request(
+        url, headers={"User-Agent": "ppt-studio/search_router (research use)"})
+    last: Exception | None = None
+    for attempt in (1, 2):
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except (urllib.error.URLError, ssl.SSLError, TimeoutError,
+                ConnectionError) as e:  # noqa: BLE001 -- 瞬时故障才重试
+            last = e
+            if attempt == 1:
+                time.sleep(1)
+    raise RuntimeError("%s 2 次尝试均失败: %s" % (label, last))
+
+
+def _strip_utm(url: str) -> str:
+    """Commons imageinfo 返回的直链自带 ?utm_source=… 跟踪参数，剥离得干净直链。"""
+    return url.split("?", 1)[0] if url else ""
+
+
+def normalize_commons(raw: dict) -> list[dict]:
+    """Commons API generator=search（文件命名空间）响应 -> 统一结果列表。"""
+    out = []
+    q = raw.get("query") or {}
+    for page in q.get("pages", []) or []:
+        if not isinstance(page, dict):
+            continue
+        title = page.get("title") or ""
+        infos = page.get("imageinfo") or []
+        ii = infos[0] if infos and isinstance(infos[0], dict) else {}
+        em = ii.get("extmetadata") or {}
+        lic = (em.get("LicenseShortName") or {}).get("value", "") or "未知授权"
+        artist = html.unescape(re.sub(
+            r"<[^>]+>", "", (em.get("Artist") or {}).get("value", "") or ""))[:80]
+        desc = html.unescape(re.sub(
+            r"<[^>]+>", "", (em.get("ImageDescription") or {}).get("value", "")
+            or ""))[:120]
+        w, h = ii.get("width"), ii.get("height")
+        snippet = "%s · %s · %sx%s" % (lic, artist or "作者未知",
+                                      w or "?", h or "?")
+        if desc:
+            snippet = "%s | %s" % (desc, snippet)
+        url = ("https://commons.wikimedia.org/wiki/%s"
+               % urllib.parse.quote(title.replace(" ", "_")))
+        out.append({
+            "title": title.replace("File:", "", 1),
+            "url": url,
+            "snippet": snippet,
+            "source": "wikimedia-commons",
+            "backend": "commons",
+            "extra": {
+                "thumburl": _strip_utm(ii.get("thumburl") or ""),
+                "imageurl": _strip_utm(ii.get("url") or ""),
+                "license": lic,
+                "artist": artist,
+                "width": w, "height": h, "mime": ii.get("mime"),
+                "filetitle": title,
+            },
+        })
+    return out
+
+
+def _commons_api_search(query: str, limit: int) -> dict:
+    """调 Wikimedia Commons API（免凭证）：只取位图，附 800px 缩略图与授权信息。"""
+    params = urllib.parse.urlencode({
+        "action": "query", "format": "json", "formatversion": 2,
+        "generator": "search", "gsrsearch": "filetype:bitmap %s" % query,
+        "gsrnamespace": 6, "gsrlimit": limit,
+        "prop": "imageinfo", "iiprop": "url|size|extmetadata|mime",
+        "iiurlwidth": 800, "utf8": 1,
+    })
+    url = "https://commons.wikimedia.org/w/api.php?%s" % params
+    return _wikimedia_get_json(url, "commons api")
+
+
+def _commons_run(query: str, max_results: int) -> list[dict]:
+    """Wikimedia Commons 图片搜索：免凭证；只取位图，附 800px 缩略图与授权信息。"""
+    return normalize_commons(_commons_api_search(query, max_results))
+
+
+def _commons_check() -> tuple[str, str]:
+    # 免凭证公开 API：模块可导入即视为可用（不做真实网络探活，保持 doctor 轻量）
+    return "ok", "免凭证（Wikimedia Commons API，只取位图）"
+
+
+# ---------------------------------------------------------------------------
 # 后端适配器
 # ---------------------------------------------------------------------------
 
@@ -189,31 +291,14 @@ def _bili_check() -> tuple[str, str]:
 
 
 def _wiki_api_search(query: str, lang: str, limit: int) -> dict:
-    """调 Wikipedia API list=search（免凭证）。
-
-    偶发 SSL EOF 属已知瞬时故障（第 23 轮实跑复现），最多重试 1 次。
-    """
-    import ssl  # noqa: E402 -- 延迟导入，保持模块顶层轻量
-    import time  # noqa: E402
-    import urllib.error  # noqa: E402
+    """调 Wikipedia API list=search（免凭证）。瞬时故障重试逻辑见
+    _wikimedia_get_json（第 26 轮抽取的共享实现，原 _wiki_api_search 内联逻辑）。"""
     params = urllib.parse.urlencode({
         "action": "query", "list": "search", "srsearch": query,
         "srlimit": limit, "format": "json", "utf8": 1,
     })
     url = "https://%s.wikipedia.org/w/api.php?%s" % (lang, params)
-    req = urllib.request.Request(
-        url, headers={"User-Agent": "ppt-studio/search_router (research use)"})
-    last: Exception | None = None
-    for attempt in (1, 2):
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                return json.loads(resp.read().decode("utf-8"))
-        except (urllib.error.URLError, ssl.SSLError, TimeoutError,
-                ConnectionError) as e:  # noqa: BLE001 -- 瞬时故障才重试
-            last = e
-            if attempt == 1:
-                time.sleep(1)
-    raise RuntimeError("wikipedia api 2 次尝试均失败: %s" % last)
+    return _wikimedia_get_json(url, "wikipedia api")
 
 
 def _wiki_run(query: str, max_results: int) -> list[dict]:
@@ -242,6 +327,8 @@ BACKENDS: list[Backend] = [
     Backend("xhs", _xhs_run, _xhs_check, "小红书笔记搜索（cookie）"),
     Backend("bili", _bili_run, _bili_check, "B站视频搜索（免凭证）"),
     Backend("wiki", _wiki_run, _wiki_check, "Wikipedia 搜索（免凭证，zh→en 回退）"),
+    Backend("commons", _commons_run, _commons_check,
+            "Wikimedia Commons 图片搜索（免凭证，只取位图，附授权/作者/缩略图）"),
 ]
 
 _BACKEND_MAP = {b.name: b for b in BACKENDS}
