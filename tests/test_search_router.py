@@ -8,7 +8,7 @@
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
@@ -32,11 +32,11 @@ def item(title):
 class ResolveBackendsTest(unittest.TestCase):
     def test_auto_returns_all_in_priority_order(self):
         bs = R.resolve_backends("auto")
-        self.assertEqual([b.name for b in bs], ["tavily", "xhs", "bili"])
+        self.assertEqual([b.name for b in bs], ["tavily", "xhs", "bili", "wiki"])
 
     def test_none_is_auto(self):
         self.assertEqual([b.name for b in R.resolve_backends(None)],
-                         ["tavily", "xhs", "bili"])
+                         ["tavily", "xhs", "bili", "wiki"])
 
     def test_string_list_and_order(self):
         bs = R.resolve_backends("bili,xhs")
@@ -206,12 +206,102 @@ class RealBackendWiringTest(unittest.TestCase):
     """验证真实 BACKENDS 注册表结构（不调用网络）。"""
 
     def test_registry_names_and_priority(self):
-        self.assertEqual([b.name for b in R.BACKENDS], ["tavily", "xhs", "bili"])
+        self.assertEqual([b.name for b in R.BACKENDS],
+                         ["tavily", "xhs", "bili", "wiki"])
 
     def test_each_backend_has_run_and_check(self):
         for b in R.BACKENDS:
             self.assertTrue(callable(b.run))
             self.assertTrue(callable(b.check))
+
+
+class NormalizeWikiTest(unittest.TestCase):
+    SAMPLE = {"query": {"search": [
+        {"pageid": 1, "title": "Pantone",
+         "snippet": '色彩 <span class="searchmatch">标准</span>'},
+        "not-a-dict",
+        {"pageid": 2, "title": "", "snippet": ""},
+    ]}}
+
+    def test_normalize_wiki(self):
+        out = R.normalize_wiki(self.SAMPLE, "zh")
+        self.assertEqual(len(out), 2)
+        self.assertEqual(out[0]["backend"], "wiki")
+        self.assertEqual(out[0]["source"], "wikipedia(zh)")
+        self.assertIn("Pantone", out[0]["url"])
+        self.assertNotIn("<span", out[0]["snippet"])  # HTML 已剥离
+        self.assertEqual(out[0]["extra"]["pageid"], 1)
+
+    def test_normalize_wiki_empty(self):
+        self.assertEqual(R.normalize_wiki({}), [])
+        self.assertEqual(R.normalize_wiki({"query": {}}), [])
+
+
+class WikiRunTest(unittest.TestCase):
+    def _fake_resp(self, payload):
+        import io  # noqa: F401 -- 占位，保持结构清晰
+        import json as _j
+        m = MagicMock()
+        m.read.return_value = _j.dumps(payload).encode("utf-8")
+        m.__enter__.return_value = m
+        return m
+
+    def test_zh_hit_no_en_call(self):
+        payload = {"query": {"search": [{"pageid": 1, "title": "A",
+                                         "snippet": "x"}]}}
+        with patch("urllib.request.urlopen",
+                   return_value=self._fake_resp(payload)) as uo:
+            out = R._wiki_run("q", 5)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(uo.call_count, 1)
+
+    def test_zh_empty_falls_back_to_en(self):
+        empty = {"query": {"search": []}}
+        en = {"query": {"search": [{"pageid": 2, "title": "B",
+                                    "snippet": "y"}]}}
+        with patch("urllib.request.urlopen",
+                   side_effect=[self._fake_resp(empty),
+                                self._fake_resp(en)]) as uo:
+            out = R._wiki_run("q", 5)
+        self.assertEqual(uo.call_count, 2)
+        self.assertEqual(out[0]["source"], "wikipedia(en)")
+
+    def test_wiki_check_ok(self):
+        status, _ = R._wiki_check()
+        self.assertEqual(status, "ok")
+
+
+"""第 23 轮测试补丁：_wiki_api_search 瞬时故障重试 1 次后成功。"""
+
+
+class WikiRetryTest(unittest.TestCase):
+    def _fake_resp(self, payload):
+        import json as _j
+        m = MagicMock()
+        m.read.return_value = _j.dumps(payload).encode("utf-8")
+        m.__enter__.return_value = m
+        return m
+
+    def test_transient_ssl_eof_retried_once(self):
+        import ssl as _ssl
+        import urllib.error as _ue
+        payload = {"query": {"search": [{"pageid": 9, "title": "R",
+                                         "snippet": "s"}]}}
+        err = _ue.URLError(_ssl.SSLError(8, "[SSL: UNEXPECTED_EOF_WHILE_READING]"))
+        with patch("urllib.request.urlopen",
+                   side_effect=[err, self._fake_resp(payload)]) as uo:
+            with patch("time.sleep", return_value=None):
+                out = R._wiki_api_search("q", "zh", 5)
+        self.assertEqual(uo.call_count, 2)
+        self.assertEqual(out["query"]["search"][0]["title"], "R")
+
+    def test_two_failures_raise(self):
+        import urllib.error as _ue
+        with patch("urllib.request.urlopen",
+                   side_effect=_ue.URLError("boom")):
+            with patch("time.sleep", return_value=None):
+                with self.assertRaises(RuntimeError):
+                    R._wiki_api_search("q", "zh", 5)
 
 
 if __name__ == "__main__":

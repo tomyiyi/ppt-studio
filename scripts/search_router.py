@@ -15,11 +15,12 @@ search_router.py -- 统一搜索路由：多后端 fallback + doctor 自检
    每个后端实现自检 check()，doctor() 聚合所有后端状态；单个后端
    自检抛异常时降级为 status="error"，绝不拖垮整份报告。
 
-后端注册表（默认优先级 tavily -> xhs -> bili）：
+后端注册表（默认优先级 tavily -> xhs -> bili -> wiki）：
   - tavily：Tavily 全网搜索（load_keys 做 key 轮换，需 TAVILY_API_KEY 或
     ~/.config/ppt-studio/tavily.json）
   - xhs：小红书搜索（需 ~/.config/ppt-studio/xiaohongshu.json cookie）
   - bili：B站视频搜索（免凭证）
+  - wiki：Wikipedia 搜索（免凭证，zh 无结果时回退 en）
 
 归一化结果字段：title / url / snippet / source / backend / extra。
 
@@ -33,7 +34,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -107,6 +111,28 @@ def normalize_bili(raw: list) -> list[dict]:
     return out
 
 
+def normalize_wiki(raw: dict, lang: str = "zh") -> list[dict]:
+    """Wikipedia API list=search 响应 -> 统一结果列表。"""
+    out = []
+    q = raw.get("query") or {}
+    for item in q.get("search", []) or []:
+        if not isinstance(item, dict):
+            continue
+        title = item.get("title") or ""
+        url = ("https://%s.wikipedia.org/wiki/%s"
+               % (lang, urllib.parse.quote(title.replace(" ", "_"))))
+        snippet = re.sub(r"<[^>]+>", "", item.get("snippet") or "")[:500]
+        out.append({
+            "title": title,
+            "url": url,
+            "snippet": snippet,
+            "source": "wikipedia(%s)" % lang,
+            "backend": "wiki",
+            "extra": {"pageid": item.get("pageid"), "lang": lang},
+        })
+    return out
+
+
 # ---------------------------------------------------------------------------
 # 后端适配器
 # ---------------------------------------------------------------------------
@@ -162,6 +188,47 @@ def _bili_check() -> tuple[str, str]:
     return "ok", "免凭证（模块可用）"
 
 
+def _wiki_api_search(query: str, lang: str, limit: int) -> dict:
+    """调 Wikipedia API list=search（免凭证）。
+
+    偶发 SSL EOF 属已知瞬时故障（第 23 轮实跑复现），最多重试 1 次。
+    """
+    import ssl  # noqa: E402 -- 延迟导入，保持模块顶层轻量
+    import time  # noqa: E402
+    import urllib.error  # noqa: E402
+    params = urllib.parse.urlencode({
+        "action": "query", "list": "search", "srsearch": query,
+        "srlimit": limit, "format": "json", "utf8": 1,
+    })
+    url = "https://%s.wikipedia.org/w/api.php?%s" % (lang, params)
+    req = urllib.request.Request(
+        url, headers={"User-Agent": "ppt-studio/search_router (research use)"})
+    last: Exception | None = None
+    for attempt in (1, 2):
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except (urllib.error.URLError, ssl.SSLError, TimeoutError,
+                ConnectionError) as e:  # noqa: BLE001 -- 瞬时故障才重试
+            last = e
+            if attempt == 1:
+                time.sleep(1)
+    raise RuntimeError("wikipedia api 2 次尝试均失败: %s" % last)
+
+
+def _wiki_run(query: str, max_results: int) -> list[dict]:
+    """Wikipedia：免凭证；zh 无结果时回退 en。"""
+    items = normalize_wiki(_wiki_api_search(query, "zh", max_results), "zh")
+    if not items:
+        items = normalize_wiki(_wiki_api_search(query, "en", max_results), "en")
+    return items
+
+
+def _wiki_check() -> tuple[str, str]:
+    # 免凭证公开 API：模块可导入即视为可用（不做真实网络探活，保持 doctor 轻量）
+    return "ok", "免凭证（Wikipedia API，zh→en 回退）"
+
+
 @dataclass
 class Backend:
     name: str
@@ -174,6 +241,7 @@ BACKENDS: list[Backend] = [
     Backend("tavily", _tavily_run, _tavily_check, "Tavily 全网搜索（key 轮换）"),
     Backend("xhs", _xhs_run, _xhs_check, "小红书笔记搜索（cookie）"),
     Backend("bili", _bili_run, _bili_check, "B站视频搜索（免凭证）"),
+    Backend("wiki", _wiki_run, _wiki_check, "Wikipedia 搜索（免凭证，zh→en 回退）"),
 ]
 
 _BACKEND_MAP = {b.name: b for b in BACKENDS}
