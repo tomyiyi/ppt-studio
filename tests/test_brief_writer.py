@@ -150,5 +150,34 @@ class TestBriefWriter(unittest.TestCase):
                 write_brief(str(bp), None)
 
 
+REAL_BRIEF = {'topic': '2026秋冬时尚趋势', 'sources': [{'title': 'Pantone 官方 FW2026 色板', 'url': 'https://www.pantone.com/color-finder/19-1521', 'snippet': 'Red Mahogany 19-1521 领衔 2026 秋冬色板，深酒红调成为核心流行色。', 'trust': 0.95, 'grade': 'A'}, {'title': 'W Magazine：Celine Hiver 2026', 'url': 'https://www.wmagazine.com/celine-hiver-2026', 'snippet': 'Celine 2026 冬季系列首推爵士鞋款，成为秀场焦点单品。', 'trust': 0.88, 'grade': 'A'}, {'title': 'Coveteur：BioFluff 皮草替代品', 'url': 'https://coveteur.com/biofluff-fur-alternative', 'snippet': 'BioFluff 植物基皮草替代品受关注，fur-trim 装饰细节出现在多个品牌秋冬系列。', 'trust': 0.8, 'grade': 'B'}, {'title': 'Elle：2026 秋冬配饰趋势', 'url': 'https://www.elle.com/fashion/fw2026-accessories', 'snippet': '爵士鞋与宽肩廓形西装成为 2026 秋冬关键单品，配饰强调复古运动混搭。', 'trust': 0.78, 'grade': 'B'}, {'title': 'Grazia 街拍观察', 'url': 'https://www.grazia.com/fw2026-street-style', 'snippet': '街拍中深色系大衣出现频率上升，约占受访造型的六成。', 'trust': 0.62, 'grade': 'C'}, {'title': '某论坛爆料帖', 'url': 'https://forum.example.com/fw2026-rumor', 'snippet': '据传 2026 秋冬将流行霓虹绿，相关搜索热度暴涨 300%，多家大牌秘密备货。', 'trust': 0.25, 'grade': 'D'}, {'title': '营销号小道消息', 'url': 'https://blog.example.com/glow-down-jacket', 'snippet': '小道消息称某大牌将推出夜间会发光的羽绒服，定价或超 5 万元。', 'trust': 0.18, 'grade': 'D'}]}
+
+REAL_AGNES_OUTPUT = '## 核心结论\n\n1. 色彩趋势方面，深酒红调（Red Mahogany 19-1521）被确立为 2026 秋冬季节的核心流行色 [1]。\n2. 鞋履成为本季焦点，爵士鞋款由 Celine 2026 冬季系列首推，并进一步被确认为该季度关键单品之一 [2][4]。\n3. 面料与细节上，植物基皮草替代品（如 BioFluff）受到关注，fur-trim 装饰细节出现在多个品牌的秋冬系列中 [3]。\n4. 廓形与混搭风格上，宽肩廓形西装与复古运动混搭的配饰风格构成 2026 秋冬的重要搭配特征 [4]。\n5. 街拍数据显示，深色系大衣在实际穿搭中占比较高，受访造型中约有六成呈现深色系 [5]。\n\n## 分项趋势\n\n**色彩趋势**\nRed Mahogany 19-1521 在 Pantone 官方发布的 2026 秋冬色板中占据领衔位置，深酒红调成为核心流行色 [1]。\n\n**鞋履与关键单品**\nCeline 2026 冬季系列将爵士鞋款作为首推单品，使其成为秀场焦点 [2]。后续配饰趋势分析亦将爵士鞋与宽肩廓形西装并列为 2026 秋冬关键单品 [4]。\n\n**面料与细节**\n植物基皮草替代品 BioFluff 受到行业关注，且 fur-trim 装饰细节出现在多个品牌的秋冬系列中 [3]。\n\n**廓形与配饰风格**\n配饰趋势强调复古运动混搭风格，同时宽肩廓形西装成为关键单品之一 [4]。\n\n**街拍验证**\nGrazia 的街拍观察显示，深色系大衣在 2026 秋冬街头造型中占据主流，约占受访造型的六成 [5]。\n\n## 数据一览表\n\n| 趋势领域 | 关键观察 | 来源等级 | 来源编号 |\n| :--- | :--- | :--- | :--- |\n| 色彩 | Red Mahogany 19-1521 为核心流行色（深酒红调） | A | [1] |\n| 鞋履 | Celine 首推爵士鞋款，为秀场焦点 | A | [2] |\n| 面料/细节 | BioFluff 植物基皮草替代品受关注，fur-trim 细节普及 | B | [3] |\n| 廓形/配饰 | 爵士鞋、宽肩廓形西装为关键单品；复古运动混搭配饰 | B | [4] |\n| 街拍验证 | 深色系大衣占比约 60% | C | [5] |\n\n## 来源清单\n\n[1] Pantone 官方 FW2026 色板\nURL: https://www.pantone.com/color-finder/19-1521\n[2] W Magazine：Celine Hiver 2026\nURL: https://www.wmagazine.com/celine-hiver-2026\n[3] Coveteur：BioFluff 皮草替代品\nURL: https://coveteur.com/biofluff-fur-alternative\n[4] Elle：2026 秋冬配饰趋势\nURL: https://www.elle.com/fashion/fw2026-accessories\n[5] Grazia 街拍观察\nURL: https://www.grazia.com/fw2026-street-style'
+
+class TestBriefWriterRealE2EBaseline(unittest.TestCase):
+    """第 14 轮真实端到端回归：prompt 不含 D 级，真实输出引用合规（不调网络）。"""
+
+    def test_real_prompt_excludes_D_grade(self):
+        cs = citable_sources(REAL_BRIEF)
+        self.assertEqual(len(cs), 5)
+        p = build_brief_prompt(REAL_BRIEF["topic"], cs)
+        for decoy in ["霓虹绿", "300%", "发光", "forum.example.com",
+                      "blog.example.com"]:
+            self.assertNotIn(decoy, p)
+
+    def test_real_output_citations_valid(self):
+        r = validate_citations(REAL_AGNES_OUTPUT, 5)
+        self.assertTrue(r["ok"], r["problems"])
+        self.assertEqual(r["cited_count"], 5)
+
+    def test_real_output_no_D_leakage(self):
+        for decoy in ["霓虹绿", "300%", "发光", "据传", "小道消息"]:
+            self.assertNotIn(decoy, REAL_AGNES_OUTPUT)
+
+    def test_real_output_structure(self):
+        for h in ["## 核心结论", "## 分项趋势", "## 数据一览表", "## 来源清单"]:
+            self.assertIn(h, REAL_AGNES_OUTPUT)
+
+
 if __name__ == "__main__":
     unittest.main()
