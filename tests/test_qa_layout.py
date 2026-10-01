@@ -365,6 +365,41 @@ class TestStatementConsistency(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("主句字号漂移", msg)
 
+    def test_decorative_watermark_excluded(self):
+        """装饰水印（如 225px 页码）不是主句：两页主句同为 56px 时应判一致。"""
+        mk = lambda wm: (
+            '<svg xmlns="http://www.w3.org/2000/svg">'
+            '<text font-size="56">页面主句</text>'
+            f'<text font-size="225" data-decorative="true" opacity="0.08">{wm}</text>'
+            "</svg>"
+        )
+        svg_slides = [
+            ("01_cover", ET.fromstring('<svg xmlns="http://www.w3.org/2000/svg"><text font-size="96">封面</text></svg>')),
+            ("02_slide", ET.fromstring(mk("02"))),
+            ("03_slide", ET.fromstring(mk("03"))),
+        ]
+        ok, msg = check_statement_consistency(svg_slides, expected_sz=56)
+        self.assertTrue(ok, msg)
+        self.assertIn("严格对齐 (56px)", msg)
+
+    def test_decorative_watermark_does_not_mask_drift(self):
+        """水印不得掩盖真实漂移：主句 56px vs 44px 即使都有 225px 水印也要报漂移。"""
+        mk = lambda txt, wm: (
+            '<svg xmlns="http://www.w3.org/2000/svg">'
+            f'<text font-size="{txt[0]}">{txt[1]}</text>'
+            f'<text font-size="225" data-decorative="true" opacity="0.08">{wm}</text>'
+            "</svg>"
+        )
+        svg_slides = [
+            ("01_cover", ET.fromstring('<svg xmlns="http://www.w3.org/2000/svg"><text font-size="96">封面</text></svg>')),
+            ("02_slide", ET.fromstring(mk(("56", "第二页主句"), "02"))),
+            ("03_slide", ET.fromstring(mk(("44", "第三页主句漂移"), "03"))),
+        ]
+        ok, msg = check_statement_consistency(svg_slides, expected_sz=56)
+        self.assertFalse(ok)
+        self.assertIn("主句字号漂移", msg)
+        self.assertIn("03_slide", msg)
+
 
 class TestResolveLayoutDirs(unittest.TestCase):
     """测试待质检目录与文件的自适应安全探查。"""

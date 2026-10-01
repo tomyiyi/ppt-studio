@@ -226,6 +226,8 @@ def check_statement_consistency(svg_slides: list[tuple[str, ET.Element]], expect
         for t, anc in _iter_with_parents(root):
             if t.tag != NS + "text":
                 continue
+            if t.get("data-decorative") == "true":
+                continue  # 装饰性水印（如 225px 页码）不是主句，不参与跨页一致性比对
             txt = "".join(t.itertext()).strip()
             if not txt:
                 continue
