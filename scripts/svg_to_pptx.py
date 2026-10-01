@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import re
 import shutil
 import subprocess
@@ -291,6 +292,53 @@ def _set_run_style(run, item: TextItem) -> None:
         pass
 
 
+def _atomic_save(prs, out_path: Path) -> Path:
+    """原子落盘：先写同目录临时文件，成功后 os.replace 覆盖目标。
+
+    save 中途失败（磁盘满/被 kill/OOM）时目标路径不受影响——不会留下
+    一个"看起来很新但已截断"的坏 pptx（第 27 轮：此前直接 prs.save 到
+    目标，写坏即污染交付物）。
+    """
+    out_path = Path(out_path)
+    tmp = out_path.with_name("%s.tmp-%d.pptx" % (out_path.stem, os.getpid()))
+    try:
+        prs.save(str(tmp))
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+    os.replace(tmp, out_path)
+    return out_path
+
+
+def verify_pptx(path: Path | str, expected_pages: int,
+                min_bytes: int = 4096) -> dict:
+    """回读验证：重新打开产物做可观测断言，任一项失败抛 RuntimeError。
+
+    检查：① 文件体积 ≥ min_bytes（防截断/空写）；② 页数 == expected_pages；
+    ③ 每页至少含 1 个图片形（背景层）。第 27 轮把"三重回读"从人工仪式
+    变成代码强制门。
+    """
+    if not _PPTX_OK:  # pragma: no cover
+        raise RuntimeError(f"缺少 python-pptx: {_PPTX_ERR}")
+    path = Path(path)
+    size = path.stat().st_size
+    if size < min_bytes:
+        raise RuntimeError("产物过小（%d 字节 < %d），疑似写坏: %s"
+                           % (size, min_bytes, path))
+    prs = Presentation(str(path))
+    n = len(prs.slides)
+    if n != expected_pages:
+        raise RuntimeError("页数不符：期望 %d，实际 %d: %s"
+                           % (expected_pages, n, path))
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+    pic_less = [i for i, slide in enumerate(prs.slides, 1)
+                if not any(s.shape_type == MSO_SHAPE_TYPE.PICTURE
+                           for s in slide.shapes)]
+    if pic_less:
+        raise RuntimeError("以下页面缺少背景图片层: %s（%s）" % (pic_less, path))
+    return {"path": str(path), "bytes": size, "pages": n}
+
+
 def build_pptx(
     svg_files: list[Path],
     out_path: Path,
@@ -368,7 +416,8 @@ def build_pptx(
 
         out_path = Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        prs.save(str(out_path))
+        _atomic_save(prs, out_path)
+        verified = verify_pptx(out_path, len(svg_files))
     finally:
         if tmp is not None:
             tmp.cleanup()
@@ -379,6 +428,7 @@ def build_pptx(
         "format": fmt,
         "slide_size_in": (slide_w_in, slide_h_in),
         "output": str(out_path),
+        "verified": verified,
     }
 
 
@@ -468,6 +518,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"已生成: {stats['output']}")
     print(f"  页面: {stats['pages']}  文本框: {stats['texts']}  画幅: {stats['format']}")
+    v = stats["verified"]
+    print(f"  [ok] 原子落盘 + 回读验证: {v['pages']} 页 / 每页含图片层 / {v['bytes']/1024:.0f}KB")
     print("下一步回读验证: python3 scripts/qa_pptx.py", stats["output"])
     return 0
 

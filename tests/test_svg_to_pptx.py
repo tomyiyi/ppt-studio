@@ -15,6 +15,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
+from unittest.mock import patch
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -35,6 +36,8 @@ from scripts.svg_to_pptx import (
     rsvg_available,
     strip_body_texts,
     build_pptx,
+    verify_pptx,
+    _atomic_save,
     PX_TO_PT,
     _materialize_images,
 )
@@ -300,6 +303,102 @@ class TestBuildEndToEnd(unittest.TestCase):
                 code = main([str(tdp), "-o", str(out)])
             self.assertEqual(code, 0)
             self.assertTrue(out.is_file())
+
+    def test_atomic_save_keeps_old_file_on_save_failure(self):
+        """save 中途抛错：旧产物原样保留，临时文件被清理。"""
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            files = _write_fixture(tdp)
+            out = tdp / "out.pptx"
+            sentinel = b"SENTINEL-OLD-GOOD-FILE"
+            out.write_bytes(sentinel)
+            with patch("scripts.svg_to_pptx.Presentation") as MP:
+                MP.return_value.save.side_effect = OSError("disk full")
+                with self.assertRaises(OSError):
+                    build_pptx(files, out)
+            self.assertEqual(out.read_bytes(), sentinel)  # 旧文件未被截断
+            self.assertEqual(list(tdp.glob("*.tmp-*.pptx")), [])  # 无残留
+
+    def test_no_tmp_files_after_success(self):
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            files = _write_fixture(tdp)
+            out = tdp / "out.pptx"
+            build_pptx(files, out)
+            self.assertEqual(list(tdp.glob("*.tmp-*.pptx")), [])
+
+    def test_build_stats_include_verified(self):
+        """build_pptx 内置回读验证：verified 字段真实回读产物。"""
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            files = _write_fixture(tdp)
+            out = tdp / "out.pptx"
+            stats = build_pptx(files, out)
+            self.assertEqual(stats["verified"]["pages"], 3)
+            self.assertEqual(stats["verified"]["path"], str(out))
+            self.assertGreater(stats["verified"]["bytes"], 4096)
+
+    def test_main_cli_prints_verified(self):
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            _write_fixture(tdp)
+            out = tdp / "cli2.pptx"
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = main([str(tdp), "-o", str(out)])
+            self.assertEqual(code, 0)
+            self.assertIn("回读验证", buf.getvalue())
+
+
+@unittest.skipUnless(_PPTX_OK and _PIL_TEST_OK, "需要 python-pptx + Pillow")
+class TestVerifyPptx(unittest.TestCase):
+    """verify_pptx 回读门：页数/图片层/体积三项可观测断言。"""
+
+    def _make(self, tdp, slides=2, with_picture=True):
+        from pptx import Presentation as _P
+        from pptx.util import Inches as _In
+        img = tdp / "one.png"
+        _PILImage.new("RGB", (8, 8), (1, 2, 3)).save(img, "PNG")
+        prs = _P()
+        blank = prs.slide_layouts[6]
+        for _ in range(slides):
+            sl = prs.slides.add_slide(blank)
+            if with_picture:
+                sl.shapes.add_picture(str(img), _In(0), _In(0),
+                                      width=_In(1), height=_In(1))
+        p = tdp / "v.pptx"
+        prs.save(str(p))
+        return p
+
+    def test_verify_positive(self):
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            p = self._make(tdp, slides=2, with_picture=True)
+            v = verify_pptx(p, 2)
+            self.assertEqual(v["pages"], 2)
+            self.assertGreater(v["bytes"], 4096)
+
+    def test_verify_page_count_mismatch(self):
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            p = self._make(tdp, slides=2, with_picture=True)
+            with self.assertRaisesRegex(RuntimeError, "页数不符"):
+                verify_pptx(p, 3)
+
+    def test_verify_missing_picture(self):
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            p = self._make(tdp, slides=2, with_picture=False)
+            with self.assertRaisesRegex(RuntimeError, "缺少背景图片层"):
+                verify_pptx(p, 2)
+
+    def test_verify_too_small(self):
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            p = tdp / "tiny.pptx"
+            p.write_bytes(b"x" * 100)
+            with self.assertRaisesRegex(RuntimeError, "过小"):
+                verify_pptx(p, 1, min_bytes=4096)
 
 
 @unittest.skipUnless(_PPTX_OK and shutil_which_rsvg() and _PIL_TEST_OK,

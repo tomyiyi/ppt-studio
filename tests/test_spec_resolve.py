@@ -103,6 +103,10 @@ class TestSvgToPptxSoftDep(unittest.TestCase):
 
         # 模拟无 pptx 环境：阻止 pptx 导入后重载模块
         saved = {k: v for k, v in sys.modules.items() if k == "pptx" or k.startswith("pptx.")}
+        # 第 27 轮：记住原模块对象；finally 必须恢复，否则 sys.modules 里
+        # scripts.svg_to_pptx 悬空，后续 patch("scripts.svg_to_pptx.…") 会打到
+        # 新 import 出来的模块对象上，对已绑定的旧函数引用无效（测试间污染）。
+        orig_svg2pptx = sys.modules.get("scripts.svg_to_pptx")
         for k in saved:
             del sys.modules[k]
         sys.modules["pptx"] = None  # type: ignore[assignment]
@@ -119,11 +123,17 @@ class TestSvgToPptxSoftDep(unittest.TestCase):
                 del sys.modules[mod]
             del sys.modules["pptx"]
             sys.modules.update(saved)
+            if orig_svg2pptx is not None:
+                sys.modules["scripts.svg_to_pptx"] = orig_svg2pptx
 
     def test_build_raises_clear_error_without_pptx(self):
         import sys
 
         saved = {k: v for k, v in sys.modules.items() if k == "pptx" or k.startswith("pptx.")}
+        # 第 27 轮：记住原模块对象；finally 必须恢复，否则 sys.modules 里
+        # scripts.svg_to_pptx 悬空，后续 patch("scripts.svg_to_pptx.…") 会打到
+        # 新 import 出来的模块对象上，对已绑定的旧函数引用无效（测试间污染）。
+        orig_svg2pptx = sys.modules.get("scripts.svg_to_pptx")
         for k in saved:
             del sys.modules[k]
         sys.modules["pptx"] = None  # type: ignore[assignment]
@@ -140,6 +150,8 @@ class TestSvgToPptxSoftDep(unittest.TestCase):
                 del sys.modules[mod]
             del sys.modules["pptx"]
             sys.modules.update(saved)
+            if orig_svg2pptx is not None:
+                sys.modules["scripts.svg_to_pptx"] = orig_svg2pptx
 
 
 if __name__ == "__main__":
