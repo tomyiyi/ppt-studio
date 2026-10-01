@@ -12,6 +12,15 @@ SVG 页面渲染器（视觉验证用）
   python3 render_svg.py <project>/svg_output [--scale 1]
   python3 render_svg.py                                    # 自动发现项目与渲染目录
   python3 render_svg.py --check                            # 渲染后自动执行质量门禁校验
+  python3 render_svg.py <svg_or_dir> --engine cli           # 强制 chromium CLI 引擎
+
+渲染引擎（--engine auto|playwright|cli，默认 auto）：
+  - playwright：经 Playwright CDP 置入 HTML 并截图（规范链路）；
+  - cli：把 HTML 落盘为临时文件，直接调 `chromium --headless --screenshot`
+    渲染。第 19 轮实测：omarchy 的 Chromium 152（VMware 虚拟机，
+    SwiftShader 软渲染）在 1920x1080 viewport 下经 Playwright 截图必现
+    renderer 崩溃（viz CopyOutputResultSender 被拒 + GPU 进程 exit 9），
+    而 chromium CLI 同内容一次成功；auto 模式 playwright 失败自动降级 cli。
 
 依赖：playwright + 本机 Google Chrome / Chromium。
 """
@@ -24,6 +33,7 @@ import mimetypes
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -269,10 +279,8 @@ def resolve_targets(
     return files, out_path
 
 
-def render_one(svg_path: Path, out_path: Path, scale: float = 1.0) -> bool:
-    if sync_playwright is None:
-        raise RuntimeError("未安装 playwright，且未在 .venv 中找到该依赖")
-
+def _build_html(svg_path: Path, scale: float = 1.0) -> tuple[str, int, int]:
+    """SVG -> 自包含 HTML（图片已内联为 data URI）；返回 (html, 输出宽, 输出高)。"""
     text = inline_images(svg_path.read_text(encoding="utf-8"), svg_path.parent)
     w, h = svg_size(text)
     ow, oh = int(w * scale), int(h * scale)
@@ -282,10 +290,39 @@ def render_one(svg_path: Path, out_path: Path, scale: float = 1.0) -> bool:
         f"svg{{display:block;width:{ow}px;height:{oh}px}}</style></head><body>"
         f"{text}</body></html>"
     )
+    return html, ow, oh
+
+
+def _warn_if_tmp_full() -> None:
+    """第 19 轮教训：omarchy /tmp 是 tmpfs，陈旧产物塞满（曾实测 80%）
+    会导致 chromium 渲染进程异常退出。只告警，不阻断。"""
+    try:
+        usage = shutil.disk_usage(tempfile.gettempdir())
+        if usage.used / usage.total > 0.85:
+            print(f"  [warn] {tempfile.gettempdir()} 已用 "
+                  f"{usage.used / usage.total:.0%}，可能影响 chromium 渲染，"
+                  "建议清理 /tmp 下的陈旧产物", flush=True)
+    except OSError:
+        pass
+
+
+def _stage_png(out_path: Path) -> Path:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fd, staged_name = tempfile.mkstemp(prefix=f".{out_path.name}.", dir=out_path.parent, suffix=".png")
     os.close(fd)
-    staged_path = Path(staged_name)
+    return Path(staged_name)
+
+
+def render_one(svg_path: Path, out_path: Path, scale: float = 1.0) -> bool:
+    """Playwright 引擎：经 CDP 置入 HTML 并截图（规范渲染链路）。
+
+    保持原有契约：失败直接抛异常（不做引擎降级），调用方按需用 _render_page。
+    """
+    if sync_playwright is None:
+        raise RuntimeError("未安装 playwright，且未在 .venv 中找到该依赖")
+
+    html, ow, oh = _build_html(svg_path, scale)
+    staged_path = _stage_png(out_path)
     chrome = resolve_chrome()
     try:
         with sync_playwright() as p:
@@ -305,6 +342,73 @@ def render_one(svg_path: Path, out_path: Path, scale: float = 1.0) -> bool:
     return True
 
 
+# Chromium CLI 截图的最小 PNG 体积 sanity（1920x1080 空白 PNG 约 8KB；
+# 低于此值视为渲染失败，而非合法输出）
+_CLI_MIN_PNG_BYTES = 1024
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
+def render_one_cli(svg_path: Path, out_path: Path, scale: float = 1.0,
+                   timeout: int = 180) -> bool:
+    """Chromium CLI 引擎：HTML 落盘 -> `chromium --headless --screenshot`。
+
+    绕过 Playwright CDP（set_content 大 payload / 大 viewport 截图崩溃时用）。
+    输出 PNG 做魔数 + 最小体积校验，失败抛 RuntimeError。
+    """
+    chrome = resolve_chrome()
+    if not chrome:
+        raise RuntimeError("未找到 Chromium/Chrome 可执行文件（CLI 引擎不可用）")
+    html, ow, oh = _build_html(svg_path, scale)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, html_name = tempfile.mkstemp(prefix=".render.", suffix=".html", dir=out_path.parent)
+    html_path = Path(html_name)
+    staged_path = _stage_png(out_path)
+    # 独立 user-data-dir：不与用户桌面 Chromium 共享默认 profile，
+    # 避开单例锁/DevTools 端口(9222)争用导致的挂起（第 19 轮实测）。
+    profile_dir = Path(tempfile.mkdtemp(prefix=".render-profile.", dir=out_path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(html)
+        proc = subprocess.run(
+            [chrome, "--headless", "--disable-gpu", "--no-sandbox",
+             "--hide-scrollbars", f"--window-size={ow},{oh}",
+             f"--user-data-dir={profile_dir}",
+             "--virtual-time-budget=5000",
+             f"--screenshot={staged_path}", html_path.as_uri()],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        if not staged_path.exists():
+            raise RuntimeError(
+                "chromium CLI 未生成截图 (rc=%d): %s" % (proc.returncode, proc.stderr[-500:]))
+        data = staged_path.read_bytes()
+        if len(data) < _CLI_MIN_PNG_BYTES or not data.startswith(_PNG_MAGIC):
+            raise RuntimeError(
+                "chromium CLI 截图无效 (%d bytes, 非 PNG): %s" % (len(data), proc.stderr[-300:]))
+        os.replace(staged_path, out_path)
+    except Exception:
+        staged_path.unlink(missing_ok=True)
+        raise
+    finally:
+        html_path.unlink(missing_ok=True)
+        shutil.rmtree(profile_dir, ignore_errors=True)
+    return True
+
+
+def _render_page(svg_path: Path, out_path: Path, scale: float = 1.0,
+                 engine: str = "auto") -> bool:
+    """引擎调度：playwright 主链路；auto 下失败自动降级到 chromium CLI。"""
+    if engine == "cli":
+        return render_one_cli(svg_path, out_path, scale)
+    try:
+        return render_one(svg_path, out_path, scale)
+    except Exception as e:
+        if engine == "playwright":
+            raise
+        print(f"  [warn] playwright 引擎失败 ({type(e).__name__})，降级到 chromium CLI",
+              file=sys.stderr)
+        return render_one_cli(svg_path, out_path, scale)
+
+
 def render_svg(
     src: str | Path | None = None,
     out: str | Path | None = None,
@@ -313,6 +417,7 @@ def render_svg(
     check: bool = False,
     spec_path: str | Path | None = None,
     base_dir: str | Path | None = None,
+    engine: str = "auto",
 ) -> list[Path]:
     """渲染 PPT Master SVG 或卡片 SVG 为 PNG，并可选执行客观质量门禁校验。
 
@@ -323,9 +428,11 @@ def render_svg(
     :param check: 是否在渲染完成后执行客观质量门禁校验 (qa_layout.py / qa_cards.py)
     :param spec_path: 可选指定的规范文件 (spec_lock.md 或 card_spec.md)
     :param base_dir: 基础目录（默认当前工作目录）
+    :param engine: 渲染引擎 auto|playwright|cli（默认 auto，playwright 失败自动降级 cli）
     :return: 渲染生成的 PNG 文件 Path 列表
     """
     files, out_dir = resolve_targets(src, out, base_dir=base_dir)
+    _warn_if_tmp_full()
 
     if only:
         files = [f for f in files if only in f.name]
@@ -343,7 +450,7 @@ def render_svg(
     for f in files:
         dst = out_dir if is_single_png_out else out_dir / (f.stem + ".png")
         try:
-            render_one(f, dst, scale)
+            _render_page(f, dst, scale, engine)
             size_kb = dst.stat().st_size // 1024 if dst.exists() else 0
             print(f"✓ {f.name} → {dst}  ({size_kb}KB)")
             ok += 1
@@ -392,6 +499,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--only", help="只渲染文件名包含该串的页")
     ap.add_argument("--check", action="store_true", help="渲染完成后执行客观质量门禁校验 (qa_layout.py / qa_cards.py)")
     ap.add_argument("--spec", default=None, help="可选指定规范文件 (spec_lock.md 或 card_spec.md)")
+    ap.add_argument("--engine", default="auto", choices=("auto", "playwright", "cli"),
+                    help="渲染引擎：auto=playwright 失败自动降级 chromium CLI（默认）")
     args = ap.parse_args(argv)
 
     try:
@@ -402,6 +511,7 @@ def main(argv: list[str] | None = None) -> int:
             only=args.only,
             check=args.check,
             spec_path=args.spec,
+            engine=args.engine,
         )
         return 0
     except (FileNotFoundError, ValueError) as err:

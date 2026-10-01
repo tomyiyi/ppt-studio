@@ -25,6 +25,9 @@ from scripts.render_svg import (
     resolve_targets,
     resolve_chrome,
     render_one,
+    render_one_cli,
+    _render_page,
+    _build_html,
     render_svg,
     main,
 )
@@ -357,16 +360,20 @@ class TestRenderSvgProgrammatic(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 render_svg(src=td, only="not_found")
 
+    @patch("scripts.render_svg.render_one_cli")
     @patch("scripts.render_svg.render_one")
-    def test_render_svg_failure_raises_runtime_error(self, mock_render_one):
+    def test_render_svg_failure_raises_runtime_error(self, mock_render_one, mock_cli):
+        # auto 模式契约：playwright 失败后降级 CLI，双引擎都失败才抛 RuntimeError
         mock_render_one.side_effect = RuntimeError("Playwright error")
+        mock_cli.side_effect = RuntimeError("CLI error")
         with tempfile.TemporaryDirectory() as tmp_dir:
             td = Path(tmp_dir)
             svg = td / "01_cover.svg"
             create_minimal_svg(svg)
             with self.assertRaises(RuntimeError) as ctx:
                 render_svg(src=td)
-            self.assertIn("Playwright error", str(ctx.exception))
+            mock_cli.assert_called_once()  # 确认降级确实被触发
+            self.assertIn("CLI error", str(ctx.exception))
 
     def test_render_one_replaces_existing_png_atomically(self):
         class FakePage:
@@ -514,3 +521,135 @@ class TestRenderSvgQualityGates(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+class TestBuildHtml(unittest.TestCase):
+    def test_build_html_inlines_and_sizes(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            svg = td / "01.svg"
+            create_minimal_svg(svg, 1920, 1080)
+            html, w, h = _build_html(svg)
+            self.assertEqual((w, h), (1920, 1080))
+            self.assertIn("width:1920px;height:1080px", html)
+
+    def test_build_html_scale(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            svg = td / "01.svg"
+            create_minimal_svg(svg, 1280, 720)
+            _, w, h = _build_html(svg, scale=2.0)
+            self.assertEqual((w, h), (2560, 1440))
+
+
+def _fake_chromium_run(screenshot_bytes):
+    """mock subprocess.run：解析 --screenshot= 参数并写入假 PNG。"""
+    def _run(cmd, **kwargs):
+        shot = [a for a in cmd if a.startswith("--screenshot=")][0].split("=", 1)[1]
+        Path(shot).write_bytes(screenshot_bytes)
+        m = MagicMock()
+        m.returncode = 0
+        m.stderr = ""
+        return m
+    return _run
+
+
+FAKE_PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 2048
+
+
+class TestRenderOneCli(unittest.TestCase):
+    def test_cli_success(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            svg = td / "01.svg"
+            out = td / "render" / "01.png"
+            create_minimal_svg(svg)
+            with patch("scripts.render_svg.resolve_chrome", return_value="/usr/bin/chromium"), \
+                 patch("scripts.render_svg.subprocess.run", side_effect=_fake_chromium_run(FAKE_PNG)):
+                self.assertTrue(render_one_cli(svg, out))
+            self.assertEqual(out.read_bytes(), FAKE_PNG)
+            # 临时 html 与 staged 文件已清理
+            self.assertFalse(list(td.rglob(".render.*.html")))
+            self.assertFalse(list((td / "render").glob(".01.png.*")))
+
+    def test_cli_no_chrome_raises(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            svg = td / "01.svg"
+            create_minimal_svg(svg)
+            with patch("scripts.render_svg.resolve_chrome", return_value=None):
+                with self.assertRaises(RuntimeError):
+                    render_one_cli(svg, td / "01.png")
+
+    def test_cli_invalid_png_raises(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            svg = td / "01.svg"
+            out = td / "01.png"
+            create_minimal_svg(svg)
+            with patch("scripts.render_svg.resolve_chrome", return_value="/usr/bin/chromium"), \
+                 patch("scripts.render_svg.subprocess.run",
+                       side_effect=_fake_chromium_run(b"not-a-png")):
+                with self.assertRaises(RuntimeError):
+                    render_one_cli(svg, out)
+            self.assertFalse(out.exists())
+
+    def test_cli_subprocess_timeout_raises(self):
+        import subprocess as _sp
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            svg = td / "01.svg"
+            create_minimal_svg(svg)
+            with patch("scripts.render_svg.resolve_chrome", return_value="/usr/bin/chromium"), \
+                 patch("scripts.render_svg.subprocess.run",
+                       side_effect=_sp.TimeoutExpired("chromium", 180)):
+                with self.assertRaises(_sp.TimeoutExpired):
+                    render_one_cli(svg, td / "01.png")
+
+
+class TestRenderPageEngine(unittest.TestCase):
+    def test_auto_falls_back_to_cli(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            svg = td / "01.svg"
+            create_minimal_svg(svg)
+            with patch("scripts.render_svg.render_one",
+                       side_effect=RuntimeError("pw crashed")) as m_pw, \
+                 patch("scripts.render_svg.render_one_cli",
+                       return_value=True) as m_cli:
+                self.assertTrue(_render_page(svg, td / "01.png", engine="auto"))
+            m_pw.assert_called_once()
+            m_cli.assert_called_once()
+
+    def test_playwright_engine_reraises_no_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            svg = td / "01.svg"
+            create_minimal_svg(svg)
+            with patch("scripts.render_svg.render_one",
+                       side_effect=RuntimeError("pw crashed")), \
+                 patch("scripts.render_svg.render_one_cli") as m_cli:
+                with self.assertRaises(RuntimeError):
+                    _render_page(svg, td / "01.png", engine="playwright")
+            m_cli.assert_not_called()
+
+    def test_cli_engine_direct(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            svg = td / "01.svg"
+            create_minimal_svg(svg)
+            with patch("scripts.render_svg.render_one") as m_pw, \
+                 patch("scripts.render_svg.render_one_cli",
+                       return_value=True) as m_cli:
+                self.assertTrue(_render_page(svg, td / "01.png", engine="cli"))
+            m_pw.assert_not_called()
+            m_cli.assert_called_once()
+
+    def test_main_engine_flag_forwarded(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            svg = td / "01.svg"
+            create_minimal_svg(svg)
+            with patch("scripts.render_svg.render_svg") as m_render:
+                m_render.return_value = []
+                rc = main([str(td), "--engine", "cli"])
+            self.assertEqual(rc, 0)
+            self.assertEqual(m_render.call_args.kwargs.get("engine"), "cli")
