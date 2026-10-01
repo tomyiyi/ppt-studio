@@ -15,13 +15,14 @@ search_router.py -- 统一搜索路由：多后端 fallback + doctor 自检
    每个后端实现自检 check()，doctor() 聚合所有后端状态；单个后端
    自检抛异常时降级为 status="error"，绝不拖垮整份报告。
 
-后端注册表（默认优先级 tavily -> xhs -> bili -> wiki -> commons）：
+后端注册表（默认优先级 tavily -> xhs -> bili -> wiki -> commons -> openverse）：
   - tavily：Tavily 全网搜索（load_keys 做 key 轮换，需 TAVILY_API_KEY 或
     ~/.config/ppt-studio/tavily.json）
   - xhs：小红书搜索（需 ~/.config/ppt-studio/xiaohongshu.json cookie）
   - bili：B站视频搜索（免凭证）
   - wiki：Wikipedia 搜索（免凭证，zh 无结果时回退 en）
   - commons：Wikimedia Commons 图片搜索（免凭证，只取位图，附授权/作者/缩略图）
+  - openverse：Openverse CC 图片搜索（免凭证匿名：20/min · 200/day，附授权/作者/直链）
 
 归一化结果字段：title / url / snippet / source / backend / extra。
 
@@ -236,6 +237,78 @@ def _commons_check() -> tuple[str, str]:
 
 
 # ---------------------------------------------------------------------------
+# openverse 后端（第 30 轮）
+# ---------------------------------------------------------------------------
+
+_OPENVERSE_LICENSE_NAMES = {
+    "by": "CC BY", "by-sa": "CC BY-SA", "by-nd": "CC BY-ND",
+    "by-nc": "CC BY-NC", "by-nc-sa": "CC BY-NC-SA", "by-nc-nd": "CC BY-NC-ND",
+    "pdm": "Public Domain Mark", "cc0": "CC0",
+}
+
+
+def normalize_openverse(raw: dict) -> list[dict]:
+    """Openverse /v1/images/ 响应 -> 统一结果列表。
+
+    过滤 mature 内容（PPT 素材安全）；url 指向来源落地页，
+    extra.imageurl 为可直接下载的原图直链。
+    """
+    out = []
+    for r in raw.get("results", []) or []:
+        if not isinstance(r, dict) or r.get("mature"):
+            continue
+        img_url = r.get("url") or ""
+        if not img_url:
+            continue
+        lic = r.get("license") or ""
+        lic_name = _OPENVERSE_LICENSE_NAMES.get(lic, lic.upper() or "未知授权")
+        if r.get("license_version"):
+            lic_name = "%s %s" % (lic_name, r["license_version"])
+        creator = (r.get("creator") or "作者未知")[:80]
+        title = r.get("title") or "(无标题)"
+        w, h = r.get("width"), r.get("height")
+        snippet = "%s · %s · %sx%s" % (lic_name, creator, w or "?", h or "?")
+        out.append({
+            "title": title,
+            "url": r.get("foreign_landing_url") or img_url,
+            "snippet": snippet,
+            "source": "openverse",
+            "backend": "openverse",
+            "extra": {
+                "imageurl": img_url,
+                "thumburl": r.get("thumbnail") or "",
+                "license": lic_name,
+                "license_url": r.get("license_url") or "",
+                "attribution": r.get("attribution") or "",
+                "artist": creator,
+                "width": w, "height": h,
+                "provider": r.get("provider") or "",
+            },
+        })
+    return out
+
+
+def _openverse_api_search(query: str, limit: int) -> dict:
+    """调 Openverse 图片搜索（免凭证匿名；匿名端每页最多 20 条）。"""
+    params = urllib.parse.urlencode({
+        "q": query, "page_size": max(1, min(limit, 20)),
+    })
+    url = "https://api.openverse.org/v1/images/?%s" % params
+    # 复用通用免凭证 GET：瞬时故障重试 1 次；HTTPError（含 429 限流）直接抛，不重试
+    return _wikimedia_get_json(url, "openverse api")
+
+
+def _openverse_run(query: str, max_results: int) -> list[dict]:
+    """Openverse CC 图片搜索：免凭证匿名（20/min · 200/day），过滤 mature 内容。"""
+    return normalize_openverse(_openverse_api_search(query, max_results))
+
+
+def _openverse_check() -> tuple[str, str]:
+    # 免凭证公开 API：模块可导入即视为可用（不做真实网络探活，保持 doctor 轻量）
+    return "ok", "免凭证匿名（Openverse API，20/min · 200/day）"
+
+
+# ---------------------------------------------------------------------------
 # 后端适配器
 # ---------------------------------------------------------------------------
 
@@ -329,6 +402,8 @@ BACKENDS: list[Backend] = [
     Backend("wiki", _wiki_run, _wiki_check, "Wikipedia 搜索（免凭证，zh→en 回退）"),
     Backend("commons", _commons_run, _commons_check,
             "Wikimedia Commons 图片搜索（免凭证，只取位图，附授权/作者/缩略图）"),
+    Backend("openverse", _openverse_run, _openverse_check,
+            "Openverse CC 图片搜索（免凭证匿名，附授权/作者/直链）"),
 ]
 
 _BACKEND_MAP = {b.name: b for b in BACKENDS}

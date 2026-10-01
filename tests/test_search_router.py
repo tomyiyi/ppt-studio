@@ -32,11 +32,11 @@ def item(title):
 class ResolveBackendsTest(unittest.TestCase):
     def test_auto_returns_all_in_priority_order(self):
         bs = R.resolve_backends("auto")
-        self.assertEqual([b.name for b in bs], ["tavily", "xhs", "bili", "wiki", "commons"])
+        self.assertEqual([b.name for b in bs], ["tavily", "xhs", "bili", "wiki", "commons", "openverse"])
 
     def test_none_is_auto(self):
         self.assertEqual([b.name for b in R.resolve_backends(None)],
-                         ["tavily", "xhs", "bili", "wiki", "commons"])
+                         ["tavily", "xhs", "bili", "wiki", "commons", "openverse"])
 
     def test_string_list_and_order(self):
         bs = R.resolve_backends("bili,xhs")
@@ -207,7 +207,7 @@ class RealBackendWiringTest(unittest.TestCase):
 
     def test_registry_names_and_priority(self):
         self.assertEqual([b.name for b in R.BACKENDS],
-                         ["tavily", "xhs", "bili", "wiki", "commons"])
+                         ["tavily", "xhs", "bili", "wiki", "commons", "openverse"])
 
     def test_each_backend_has_run_and_check(self):
         for b in R.BACKENDS:
@@ -400,6 +400,81 @@ class CommonsRetryTest(unittest.TestCase):
 
     def test_check_ok(self):
         status, msg = R._commons_check()
+        self.assertEqual(status, "ok")
+        self.assertIn("免凭证", msg)
+
+
+class NormalizeOpenverseTest(unittest.TestCase):
+    SAMPLE = {"results": [
+        {"title": "Knitwear", "url": "https://live.staticflickr.com/x/a_b.jpg",
+         "foreign_landing_url": "https://www.flickr.com/photos/x/1",
+         "license": "by-nc-sa", "license_version": "2.0",
+         "license_url": "https://creativecommons.org/licenses/by-nc-sa/2.0/",
+         "creator": "Hans-J\u00f6rg Aleff", "width": 1024, "height": 683,
+         "thumbnail": "https://api.openverse.org/v1/images/abc/thumb/",
+         "attribution": '"Knitwear" by Hans is licensed under CC BY-NC-SA 2.0.',
+         "provider": "flickr", "mature": False},
+        {"title": "Mature Pic", "url": "https://x/m.jpg", "mature": True},  # 过滤
+        {"title": "No URL", "mature": False},  # 无直链：跳过
+        "not-a-dict",
+    ]}
+
+    def test_normalize_openverse(self):
+        out = R.normalize_openverse(self.SAMPLE)
+        self.assertEqual(len(out), 1)
+        r = out[0]
+        self.assertEqual(r["backend"], "openverse")
+        self.assertEqual(r["source"], "openverse")
+        self.assertEqual(r["title"], "Knitwear")
+        self.assertEqual(r["url"], "https://www.flickr.com/photos/x/1")
+        self.assertIn("CC BY-NC-SA 2.0", r["snippet"])
+        self.assertIn("1024x683", r["snippet"])
+        self.assertEqual(r["extra"]["imageurl"],
+                         "https://live.staticflickr.com/x/a_b.jpg")
+        self.assertEqual(r["extra"]["license"], "CC BY-NC-SA 2.0")
+        self.assertEqual(r["extra"]["provider"], "flickr")
+        self.assertIn("CC BY-NC-SA 2.0", r["extra"]["attribution"])
+
+    def test_unknown_license_marked(self):
+        out = R.normalize_openverse({"results": [
+            {"title": "T", "url": "https://x/t.jpg", "mature": False}]})
+        self.assertEqual(out[0]["extra"]["license"], "未知授权")
+        self.assertIn("未知授权", out[0]["snippet"])
+
+    def test_normalize_openverse_empty(self):
+        self.assertEqual(R.normalize_openverse({}), [])
+        self.assertEqual(R.normalize_openverse({"results": []}), [])
+
+
+class OpenverseRunTest(unittest.TestCase):
+    def test_run_returns_normalized(self):
+        payload = {"results": [{"title": "A", "url": "https://x/a.jpg",
+                                "license": "by", "license_version": "4.0",
+                                "mature": False}]}
+        with patch.object(R, "_openverse_api_search", return_value=payload):
+            out = R._openverse_run("q", 5)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["backend"], "openverse")
+        self.assertEqual(out[0]["extra"]["license"], "CC BY 4.0")
+
+    def test_page_size_capped_at_20(self):
+        seen = {}
+
+        def fake_get(url, label):
+            seen["url"] = url
+            return {"results": []}
+
+        with patch.object(R, "_wikimedia_get_json", side_effect=fake_get):
+            R._openverse_api_search("q", 100)
+        self.assertIn("page_size=20", seen["url"])
+
+    def test_openverse_uses_shared_get_helper(self):
+        # 与 wiki/commons 同源的免凭证 GET：瞬时故障重试 1 次，HTTPError 直接抛
+        self.assertIs(R._openverse_api_search.__globals__["_wikimedia_get_json"],
+                      R._commons_api_search.__globals__["_wikimedia_get_json"])
+
+    def test_check_ok(self):
+        status, msg = R._openverse_check()
         self.assertEqual(status, "ok")
         self.assertIn("免凭证", msg)
 
