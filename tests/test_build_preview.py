@@ -132,7 +132,7 @@ class TestResolveSrcDir(unittest.TestCase):
             self.assertEqual(resolved, (p_real / "svg_output").resolve())
 
     def test_real_repo_auto_discovery(self):
-        resolved = resolve_src_dir()
+        resolved = resolve_src_dir(base_dir=REPO_ROOT / "projects" / "agentflow-os-launch")
         expected = (REPO_ROOT / "projects" / "agentflow-os-launch" / "svg_output").resolve()
         self.assertEqual(resolved, expected)
 

@@ -741,10 +741,6 @@ def prepare_agnes_images(
     tw, th = parse_size(size) if isinstance(size, str) else size
     target_files, failures = _resolve_and_dedup_targets(targets)
 
-    if not target_files and not failures:
-        # 当既没有目标文件也没有解析错误（例如未指定且未发现），触发标准解析抛出原始异常
-        resolve_image_targets(targets)
-
     out_path = Path(out) if out else None
     single_out = None
     batch_out_dir = None

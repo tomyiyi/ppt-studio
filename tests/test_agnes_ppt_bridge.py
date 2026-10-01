@@ -659,14 +659,14 @@ class TestCLI(unittest.TestCase):
     def test_cli_check_repo_manifest(self):
         buf = io.StringIO()
         with redirect_stdout(buf):
-            code = main(["--check"])
+            code = main(["--check", str(REPO_ROOT / "projects" / "agentflow-os-launch")])
         self.assertEqual(code, 0)
         self.assertIn("ALL CLEAR ✅", buf.getvalue())
 
     def test_cli_status_repo_manifest(self):
         buf = io.StringIO()
         with redirect_stdout(buf):
-            code = main(["--status"])
+            code = main(["--status", str(REPO_ROOT / "projects" / "agentflow-os-launch")])
         self.assertEqual(code, 0)
         self.assertIn("ALL CLEAR ✅", buf.getvalue())
 

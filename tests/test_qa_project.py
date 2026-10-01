@@ -181,10 +181,10 @@ class TestProjectQA(unittest.TestCase):
 
     def test_cli_subprocess_invocation_default_auto_discovery(self):
         script = Path(__file__).resolve().parent.parent / "scripts" / "qa_project.py"
-        root = Path(__file__).resolve().parent.parent
+        fixture = Path(__file__).resolve().parent.parent / "projects" / "agentflow-os-launch"
         completed = subprocess.run(
             [sys.executable, str(script), "--json"],
-            cwd=root,
+            cwd=fixture,
             capture_output=True,
             text=True,
         )
