@@ -261,8 +261,18 @@ def check_font_ramp(z: zipfile.ZipFile, slide_names: list[str], ramp: list[int])
     return True, f"{total_runs} 处文本全部合规于阶梯 {px_ramp_detected} px", slide_text_map
 
 
-def check_role_consistency(slide_text_map: dict[str, list[tuple[int, str]]], expected_stmt_sz: int = 56) -> tuple[bool, str]:
-    """验证主句在各个正文页的字号是否严格一致，并与 spec_lock 期望对齐。"""
+def check_role_consistency(
+    slide_text_map: dict[str, list[tuple[int, str]]],
+    expected_stmt_sz: int | None = None,
+) -> tuple[bool, str]:
+    """验证主句在各个正文页的字号是否与 spec 期望对齐。
+
+    第 24 轮重写：旧逻辑用硬编码白名单 (44, 56, 72) 判定"档位漂移"，
+    且 expected 不在实测分布中时退化为"内部一致性"——v4 字阶下
+    （如全页 225px vs spec statement 84）会被静默放过，
+    第 21 轮的真实漂移（P04/P06/P07）正属此类漏检。
+    新逻辑：有 spec 期望时逐页硬对齐；无 spec 时才退化为内部一致性。
+    """
     # 提取第 2 页到倒数第 1 页的正文页主句 (排除第 1 页封面/封底等特殊页)
     slides = list(slide_text_map.keys())
     if len(slides) < 3:
@@ -273,40 +283,40 @@ def check_role_consistency(slide_text_map: dict[str, list[tuple[int, str]]], exp
     statement_slides = {}
 
     for s in content_slides:
-        entries = slide_text_map.get(s, [])
-        if not entries:
-            continue
+        entries = slide_text_map.get(s, []) or []
         large_entries = [e for e in entries if round(e[0] / 75.0) >= 40]
         if not large_entries:
             continue
         # 排序取该页最高字号（一般为 statement 或 headline）
         top_sz, top_txt = max(large_entries, key=lambda x: x[0])
-        px = round(top_sz / 75.0)
-        statement_slides[s] = (px, top_txt[:15])
+        statement_slides[s] = (round(top_sz / 75.0), top_txt[:15])
 
-    # 聚类正文页的 statement 尺寸（通常为 56px / 42pt = 4200）
     if not statement_slides:
         return True, "未检测到内联主句标记"
 
+    def _fmt(items):
+        return ", ".join("%s(%dpx: %s)" % (s, px, txt) for s, (px, txt) in items)
+
+    if expected_stmt_sz:
+        bad = [(s, v) for s, v in sorted(statement_slides.items())
+               if v[0] != expected_stmt_sz]
+        if bad:
+            return False, ("页面主句字号与 spec 期望 (%dpx) 不符，漂移页: %s"
+                           % (expected_stmt_sz, _fmt(bad)))
+        return True, ("各正文页主句字号与 spec 对齐 "
+                      "(%dpx / %dpt)" % (expected_stmt_sz, round(expected_stmt_sz * 0.75)))
+
+    # 无 spec 期望：内部一致性（旧逻辑保留）
     from collections import Counter
-    counts = Counter(v[0] for v in statement_slides.values())
-    dominant_px, dominant_count = counts.most_common(1)[0]
-
-    target_px = expected_stmt_sz if (expected_stmt_sz and expected_stmt_sz in counts) else dominant_px
-
-    # 如果 dominant_px 与规范预期发生档位漂移
-    if expected_stmt_sz and dominant_px != expected_stmt_sz and dominant_px in (44, 56, 72):
-        return False, f"页面主句字号 ({dominant_px}px) 与规范期望 ({expected_stmt_sz}px) 不符"
-
-    drifts = []
-    for s, (px, txt) in sorted(statement_slides.items()):
-        if px != target_px:
-            drifts.append(f"{s}({px}px: {txt})")
-
+    counts = Counter(px for px, _ in statement_slides.values())
+    dominant_px = counts.most_common(1)[0][0]
+    drifts = [(s, v) for s, v in sorted(statement_slides.items())
+              if v[0] != dominant_px]
     if drifts:
-        return False, f"页面主句字号不一致 (主流为 {target_px}px，漂移页: {', '.join(drifts)})"
-
-    return True, f"各正文页页面主句字号严格对齐 ({target_px}px / {target_px * 0.75:.0f}pt)"
+        return False, ("页面主句字号不一致 (主流为 %dpx，漂移页: %s)"
+                       % (dominant_px, _fmt(drifts)))
+    return True, ("各正文页页面主句字号严格对齐 "
+                  "(%dpx / %dpt)" % (dominant_px, round(dominant_px * 0.75)))
 
 
 def check_relationships(z: zipfile.ZipFile, slide_names: list[str]) -> tuple[bool, str]:
@@ -410,7 +420,8 @@ def qa_single_pptx(
             print(f"  [{'✓' if ok_ramp else '✗'}] 字号阶梯合规性     : {msg_ramp}")
 
         # 6. 跨页主句一致性
-        ok_consist, msg_consist = check_role_consistency(text_map, expected_stmt_sz)
+        ok_consist, msg_consist = check_role_consistency(
+            text_map, expected_stmt_sz if spec_p else None)
         if verbose:
             print(f"  [{'✓' if ok_consist else '✗'}] 跨页主句一致性     : {msg_consist}")
 

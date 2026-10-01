@@ -387,7 +387,7 @@ class TestCheckRoleConsistency(unittest.TestCase):
         }
         ok, msg = check_role_consistency(mapping, 56)
         self.assertTrue(ok)
-        self.assertIn("严格对齐", msg)
+        self.assertIn("与 spec 对齐", msg)
 
     def test_drifting_statement_detected(self):
         mapping = {
@@ -398,7 +398,7 @@ class TestCheckRoleConsistency(unittest.TestCase):
         }
         ok, msg = check_role_consistency(mapping, 56)
         self.assertFalse(ok)
-        self.assertIn("不一致", msg)
+        self.assertIn("不符", msg)
 
     def test_slide_with_only_small_elements_not_treated_as_statement(self):
         # 模拟如 06_before_after 仅有正文或指标标注（最大 24px = 1800），不误判为主句漂移
@@ -411,7 +411,7 @@ class TestCheckRoleConsistency(unittest.TestCase):
         }
         ok, msg = check_role_consistency(mapping, 56)
         self.assertTrue(ok)
-        self.assertIn("严格对齐", msg)
+        self.assertIn("与 spec 对齐", msg)
 
     def test_mismatch_with_expected_statement_size(self):
         mapping = {
@@ -422,7 +422,7 @@ class TestCheckRoleConsistency(unittest.TestCase):
         }
         ok, msg = check_role_consistency(mapping, 56)
         self.assertFalse(ok)
-        self.assertIn("与规范期望", msg)
+        self.assertIn("spec 期望", msg)
 
 
 class TestFindSpecLock(unittest.TestCase):
@@ -657,6 +657,62 @@ class TestMainCli(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(buf_out.getvalue(), "")
         self.assertEqual(buf_err.getvalue(), "")
+
+
+"""第 24 轮测试：check_role_consistency spec 优先硬对齐。"""
+
+
+def _smap(sizes):
+    """构造 slide_text_map：slide1..N，每页一个主句文本框。
+
+    sizes: [(页名, 字号px, 文本)]；内部按 emu 换算（px*75）。
+    """
+    m = {}
+    for name, px, txt in sizes:
+        m[name] = [(px * 75.0, txt)]
+    return m
+
+
+class CheckRoleConsistencyTest(unittest.TestCase):
+    PAGES = ["slide1", "slide2", "slide3", "slide4"]
+
+    def test_spec_aligned_passes(self):
+        m = _smap([(p, 84, "主句") for p in self.PAGES])
+        ok, msg = check_role_consistency(m, 84)
+        self.assertTrue(ok, msg)
+
+    def test_spec_mismatch_flagged(self):
+        # 第 21 轮真实漂移：P04=225, P06=72 vs spec 84
+        m = _smap([("slide1", 84, "封面"), ("slide2", 84, "主句"),
+                   ("slide3", 225, "廓形"), ("slide4", 72, "让人记住")])
+        ok, msg = check_role_consistency(m, 84)
+        self.assertFalse(ok)
+        self.assertIn("slide3(225px", msg)
+        self.assertIn("slide4(72px", msg)
+
+    def test_spec_mismatch_when_dominant_is_off_spec(self):
+        # 旧逻辑静默放过的 case：全页 225 vs spec 84
+        m = _smap([(p, 225, "主句") for p in self.PAGES])
+        ok, msg = check_role_consistency(m, 84)
+        self.assertFalse(ok, msg)
+        self.assertIn("84px", msg)
+
+    def test_no_spec_internal_consistency(self):
+        m = _smap([("slide1", 84, "a"), ("slide2", 84, "b"),
+                   ("slide3", 84, "c"), ("slide4", 225, "d")])
+        ok, msg = check_role_consistency(m, None)
+        self.assertFalse(ok)
+        self.assertIn("主流为 84px", msg)
+
+    def test_no_spec_uniform_passes(self):
+        m = _smap([(p, 225, "主句") for p in self.PAGES])
+        ok, msg = check_role_consistency(m, None)
+        self.assertTrue(ok, msg)
+
+    def test_too_few_slides_skipped(self):
+        m = _smap([("slide1", 84, "a"), ("slide2", 84, "b")])
+        ok, _ = check_role_consistency(m, 84)
+        self.assertTrue(ok)
 
 
 if __name__ == "__main__":
