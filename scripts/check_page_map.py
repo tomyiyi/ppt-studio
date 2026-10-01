@@ -19,6 +19,10 @@ import re
 import sys
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 
 def parse_page_map(spec_path: Path) -> dict:
     """解析 ## page_map 节，返回 {页码: {role, rhythm}}。页码如 P01。"""
@@ -59,9 +63,14 @@ def find_svg_dir(project_dir: Path) -> Path | None:
 def check(project_dir: Path, spec_path: Path | None = None) -> tuple[bool, list[str]]:
     """返回 (是否通过, 问题列表)。"""
     issues = []
-    spec = spec_path or (project_dir / "spec_lock.md")
-    if not spec.is_file():
-        return False, ["找不到 spec_lock.md: %s" % spec]
+    if spec_path:
+        spec = spec_path
+    else:
+        from scripts.spec_resolve import resolve_spec
+
+        spec = resolve_spec(project_dir)
+    if spec is None or not spec.is_file():
+        return False, ["找不到 spec_lock（已按 版本>基线 规则查找）: %s" % project_dir]
     page_map = parse_page_map(spec)
     if not page_map:
         return False, ["spec_lock.md 缺少 ## page_map 节（每页一行：- P01: role=Cover, rhythm=anchor）"]

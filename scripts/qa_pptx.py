@@ -29,6 +29,10 @@ import zipfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 # 确保在未显式激活 .venv 时也能从项目内 .venv 加载依赖
 try:
     from PIL import Image
@@ -361,6 +365,8 @@ def qa_single_pptx(
 
     spec_p = Path(spec_path).resolve() if spec_path else find_spec_lock(p)
     ramp, expected_stmt_sz = load_spec_typography(spec_p)
+    if verbose:
+        print(f"  [i] 采用 spec            : {spec_p if spec_p else '未找到，用默认阶梯'}")
 
     with zipfile.ZipFile(p, "r") as z:
         # 1. Zip 基础结构
@@ -497,37 +503,16 @@ run_qa_single_pptx = qa_single_pptx
 
 
 def find_spec_lock(target_path: Path | str | None = None) -> Path | None:
-    """在目标路径周边或默认项目路径中发现 spec_lock.md。"""
-    candidates: list[Path] = []
-    if target_path:
-        tp = Path(target_path).resolve()
-        if tp.is_file():
-            candidates.extend([
-                tp.parent / "spec_lock.md",
-                tp.parent.parent / "spec_lock.md",
-            ])
-        else:
-            candidates.extend([
-                tp / "spec_lock.md",
-                tp.parent / "spec_lock.md",
-                tp.parent.parent / "spec_lock.md",
-            ])
+    """在目标路径周边或默认项目路径中发现 spec 锁（版本感知）。
 
-    repo_root = Path(__file__).resolve().parent.parent
-    for candidate_dir in [Path.cwd(), repo_root]:
-        candidates.append(candidate_dir / "spec_lock.md")
+    同一目录存在多个 spec_lock 变体时按 版本 > 基线 选择
+    （spec_lock_v<N>.md 中 N 最大者胜出，无版本化文件时回退 spec_lock.md；
+    备份/草稿变体如 .bak-* 永远不被选中）。详见 scripts/spec_resolve.py。
+    显式 --spec 永远优先（由调用方在传入前处理）。
+    """
+    from scripts.spec_resolve import find_spec
 
-    for c in candidates:
-        if c and c.is_file():
-            return c.resolve()
-
-    # 动态扫描 projects/*/spec_lock.md，避免硬编码项目名
-    for candidate_dir in [Path.cwd(), repo_root]:
-        p_cands = sorted((candidate_dir / "projects").glob("*/spec_lock.md"))
-        if len(p_cands) == 1:
-            return p_cands[0].resolve()
-
-    return None
+    return find_spec(target_path)
 
 
 def find_pptx_files(target: Path | str | None = None, base_dir: Path | None = None) -> list[Path]:

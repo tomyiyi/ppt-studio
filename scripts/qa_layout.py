@@ -25,6 +25,10 @@ import sys
 import glob
 import argparse
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 from collections import Counter
 import xml.etree.ElementTree as ET
 
@@ -574,34 +578,18 @@ def qa_single_layout(
         _log("[!] 在 %s 未找到任何 .svg 文件" % svg_dir, file=sys.stderr)
         return False
 
-    # 查找 spec_lock.md
+    # 查找 spec（版本感知：同目录 spec_lock_vN.md 优先于 spec_lock.md，见 spec_resolve）
     if spec_path:
         spec = Path(spec_path).resolve()
         if not spec.exists():
             _log(f"[warn] 找不到指定的 spec_lock.md ({spec})，用默认阶梯", file=sys.stderr)
             spec = None
     else:
-        spec = None
-        for candidate in [
-            svg_dir / "spec_lock.md",
-            svg_dir.parent / "spec_lock.md",
-            svg_dir.parent.parent / "spec_lock.md",
-        ]:
-            if candidate and candidate.is_file():
-                spec = candidate.resolve()
-                break
+        from scripts.spec_resolve import find_spec
 
-        if not spec:
-            repo_root = Path(__file__).resolve().parent.parent
-            for candidate_dir in [Path.cwd(), repo_root]:
-                spec_cand = candidate_dir / "spec_lock.md"
-                if spec_cand.is_file():
-                    spec = spec_cand.resolve()
-                    break
-                p_cands = sorted((candidate_dir / "projects").glob("*/spec_lock.md"))
-                if len(p_cands) == 1:
-                    spec = p_cands[0].resolve()
-                    break
+        spec = find_spec(svg_dir)
+        if spec:
+            _log(f"[i] 采用 spec: {spec}", file=sys.stderr)
 
     ramp = load_ramp(str(spec)) if spec else DEFAULT_RAMP
 

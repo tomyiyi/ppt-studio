@@ -23,6 +23,10 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 
 def svg_viewboxes(svg_dir: Path) -> dict[str, str]:
     """{文件名: viewBox}。"""
@@ -63,9 +67,11 @@ def check(project_dir: Path) -> tuple[bool, list[str], dict]:
     """返回 (无漂移, 问题列表, 上下文{spec_vb, svg_vb, svg_dir})。"""
     issues: list[str] = []
     ctx: dict = {}
-    spec = project_dir / "spec_lock.md"
-    if not spec.is_file():
-        return False, ["找不到 spec_lock.md"], ctx
+    from scripts.spec_resolve import resolve_spec
+
+    spec = resolve_spec(project_dir)
+    if spec is None:
+        return False, ["找不到 spec_lock（已按 版本>基线 规则查找）"], ctx
     svg_dir = find_svg_dir(project_dir)
     if not svg_dir:
         return False, ["找不到 SVG 目录"], ctx
@@ -113,8 +119,8 @@ def main() -> None:
     for i in issues:
         print("  -", i)
     if a.fix and ctx.get("svg_vb") and ctx.get("spec_vb"):
-        spec = proj / "spec_lock.md"
-        if fix_canvas(spec, ctx["svg_vb"]):
+        spec = resolve_spec(proj)
+        if spec and fix_canvas(spec, ctx["svg_vb"]):
             print("[fix] spec viewBox 已更新为 %s" % ctx["svg_vb"])
         # 重新检查
         ok2, _, _ = check(proj)

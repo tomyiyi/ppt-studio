@@ -64,3 +64,13 @@
 - image_post: 去饱和 12% + 胶片颗粒 + 微对比度（9 页统一杂志感；SVG 层用滤镜近似，渲染后以 qa panel 门禁复核）
 - hero_bleed: hero 图必须出血至少一边
 - caption_rule: 每张配图配 20px 全大写图注（含来源：PEXELS 真实摄影 或 AGNES 生成；不标注品牌秀场）
+## page_map
+- P01: role=Cover, rhythm=anchor
+- P02: role=Swatch Essay, rhythm=dense
+- P03: role=Detail Macro, rhythm=dense
+- P04: role=Typographic Hero, rhythm=breathing
+- P05: role=Product Grid, rhythm=dense
+- P06: role=Pull Quote, rhythm=breathing
+- P07: role=Hero Number, rhythm=dense
+- P08: role=Runway Strip, rhythm=dense
+- P09: role=Closing, rhythm=anchor

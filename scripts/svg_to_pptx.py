@@ -80,7 +80,12 @@ FORMATS = {
 PX_TO_PT = 0.75          # SVG px（96dpi）→ pt
 ASCENT_RATIO = 0.88      # 文本框 top ≈ 基线 y - size * 0.88
 
-_ALIGN_MAP = {"start": PP_ALIGN.LEFT, "middle": PP_ALIGN.CENTER, "end": PP_ALIGN.RIGHT}
+if _PPTX_OK:
+    _ALIGN_MAP = {"start": PP_ALIGN.LEFT, "middle": PP_ALIGN.CENTER, "end": PP_ALIGN.RIGHT}
+else:
+    # 无 python-pptx 时允许 --help/--check 等非构建路径正常 import；
+    # 构建入口 build_pptx 会先报"缺少 python-pptx"（第 20 轮修复 NameError）。
+    _ALIGN_MAP = {}
 _BOLD_VALUES = {"700", "800", "900", "bold", "bolder"}
 
 
