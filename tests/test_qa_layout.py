@@ -418,6 +418,14 @@ class TestResolveLayoutDirs(unittest.TestCase):
             resolved = resolve_layout_dirs(str(proj))
             self.assertEqual(resolved, [(proj / "svg_output").resolve()])
 
+    def test_explicit_project_dir_prefers_latest_svg_version(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "my_proj"
+            create_test_svg(proj / "svg_output" / "01.svg")
+            create_test_svg(proj / "svg_output_v4" / "01.svg")
+            resolved = resolve_layout_dirs(str(proj))
+            self.assertEqual(resolved, [(proj / "svg_output_v4").resolve()])
+
     def test_explicit_single_svg_file(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             svg_file = Path(tmp_dir) / "slide.svg"
@@ -445,6 +453,15 @@ class TestResolveLayoutDirs(unittest.TestCase):
             create_test_svg(proj / "svg_output" / "01.svg")
             resolved = resolve_layout_dirs(None, base_dir=base)
             self.assertEqual(resolved, [(proj / "svg_output").resolve()])
+
+    def test_auto_discovery_from_projects_prefers_latest_svg_version(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir)
+            proj = base / "projects" / "test_p"
+            create_test_svg(proj / "svg_output" / "01.svg")
+            create_test_svg(proj / "svg_output_v4" / "01.svg")
+            resolved = resolve_layout_dirs(None, base_dir=base)
+            self.assertEqual(resolved, [(proj / "svg_output_v4").resolve()])
 
     def test_auto_discovery_ambiguous_projects_raises_value_error(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

@@ -852,12 +852,9 @@ def resolve_layout_dirs(
                 return [p]
             raise ValueError(f"指定的 target 文件不是 SVG 文件: {target_arg}")
 
-        svg_sub = p / "svg_output"
-        if svg_sub.is_dir() and list(svg_sub.glob("*.svg")):
-            return [svg_sub.resolve()]
-
-        if list(p.glob("*.svg")):
-            return [p.resolve()]
+        found = find_svg_dir(p)
+        if found:
+            return [found.resolve()]
 
         candidate_projects_dirs: list[Path] = []
         if (p / "projects").is_dir():
@@ -869,16 +866,14 @@ def resolve_layout_dirs(
         for s_dir in candidate_projects_dirs:
             for sub in sorted(s_dir.iterdir()):
                 if sub.is_dir():
-                    s_sub = sub / "svg_output"
-                    if s_sub.is_dir() and list(s_sub.glob("*.svg")):
-                        p_subprojects.append(s_sub.resolve())
-                    elif list(sub.glob("*.svg")):
-                        p_subprojects.append(sub.resolve())
+                    s_found = find_svg_dir(sub)
+                    if s_found:
+                        p_subprojects.append(s_found.resolve())
 
         if len(p_subprojects) == 1:
             return p_subprojects
         elif len(p_subprojects) > 1:
-            names = ", ".join(d.parent.name if d.name == "svg_output" else d.name for d in p_subprojects)
+            names = ", ".join(d.parent.name if d.name.startswith("svg_output") else d.name for d in p_subprojects)
             raise ValueError(
                 f"发现多个包含 SVG 的项目 ({names})，无法安全确定，请显式指定 target 参数"
             )
@@ -886,10 +881,9 @@ def resolve_layout_dirs(
         raise FileNotFoundError(f"在目录 {target_arg} 下未找到有效 SVG 文件或 svg_output/ 子目录")
 
     # 默认/自适应探测
-    if (base / "svg_output").is_dir() and list((base / "svg_output").glob("*.svg")):
-        return [(base / "svg_output").resolve()]
-    if base.name != "ppt-studio" and list(base.glob("*.svg")):
-        return [base.resolve()]
+    found_base = find_svg_dir(base)
+    if found_base and (base.name != "ppt-studio" or found_base != base):
+        return [found_base.resolve()]
 
     candidate_projects_dirs = []
     if base.is_dir() and base.name == "projects":
@@ -907,14 +901,9 @@ def resolve_layout_dirs(
     for p_dir in candidate_projects_dirs:
         for sub in sorted(p_dir.iterdir()):
             if sub.is_dir():
-                s_dir = sub / "svg_output"
-                if s_dir.is_dir() and list(s_dir.glob("*.svg")):
-                    r = s_dir.resolve()
-                    if r not in seen:
-                        seen.add(r)
-                        found_svgs.append(r)
-                elif list(sub.glob("*.svg")):
-                    r = sub.resolve()
+                s_found = find_svg_dir(sub)
+                if s_found:
+                    r = s_found.resolve()
                     if r not in seen:
                         seen.add(r)
                         found_svgs.append(r)
@@ -924,7 +913,7 @@ def resolve_layout_dirs(
     if len(found_svgs) == 1:
         return found_svgs
     elif len(found_svgs) > 1:
-        names = ", ".join(d.parent.name if d.name == "svg_output" else d.name for d in found_svgs)
+        names = ", ".join(d.parent.name if d.name.startswith("svg_output") else d.name for d in found_svgs)
         raise ValueError(
             f"发现多个包含 SVG 的项目 ({names})，无法安全确定，请显式指定 target 参数"
         )
@@ -977,7 +966,8 @@ def main(argv: list[str] | None = None) -> int:
             if verbose:
                 print(f"[!] 指定的目标路径不存在: {args.target}", file=sys.stderr)
             return 1
-        svg_dir = (t_path / "svg_output").resolve() if (t_path / "svg_output").is_dir() else t_path
+        found_dir = find_svg_dir(t_path)
+        svg_dir = found_dir.resolve() if found_dir else t_path
         success = qa_single_layout(svg_dir, render_dir, spec_path, verbose=verbose,
                                    stage=args.stage, early_n=args.early_n)
         return 0 if success else 1
