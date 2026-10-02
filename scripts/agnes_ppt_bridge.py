@@ -79,6 +79,12 @@ RATIO_SIZE = {
     "2:3":  "1200x1800",
 }
 
+# 请求分辨率档位：官方 size 只认 1K/2K/3K/4K 档位（传像素值会被服务器归一化
+# 到 1K，2026-10-02 实测 1920x1080 -> 1312x736；size=2K -> 2048x2048 方形）。
+# RATIO_SIZE 的值不再作为请求尺寸，仅保留宽高比语义，供 _crop_to_ratio 裁剪用。
+# 环境变量 AGNES_IMAGE_SIZE_TIER 可覆盖（1K/2K/3K/4K），默认 2K。
+SIZE_TIER = os.environ.get("AGNES_IMAGE_SIZE_TIER", "2K")
+
 RATIO_SUFFIX = {"16:9": "16x9", "21:9": "21x9", "4:3": "4x3", "3:4": "3x4", "1:1": "1x1"}
 
 
@@ -214,14 +220,54 @@ def resolve_manifest_path(
     raise FileNotFoundError("未在当前目录或 projects/*/images/ 下发现有效的 image_prompts.json 清单文件")
 
 
+def _png_dimensions(raw: bytes) -> tuple[int | None, int | None]:
+    if len(raw) >= 24 and raw[:8] == b"\x89PNG\r\n\x1a\n":
+        return int.from_bytes(raw[16:20], "big"), int.from_bytes(raw[20:24], "big")
+    return None, None
+
+
+def _crop_to_ratio(raw: bytes, ratio: str) -> bytes:
+    """把档位图（如 2K 方形 2048x2048）按 ratio center-crop 到目标宽高比。
+
+    背景：官方 size 只认档位，档位图恒为方形（ratio/aspect_ratio 字段被中继
+    忽略，2026-10-02 实测）；传像素值会被归一化到 1K。于是请求档位 + 本地裁剪。
+    依赖 ImageMagick convert；不可用或失败时原样返回 raw（不阻断流程）。
+    """
+    spec = RATIO_SIZE.get(ratio, "1920x1080")
+    try:
+        tw, th = (int(x) for x in spec.lower().split("x"))
+        sw, sh = _png_dimensions(raw)
+        if not sw or not sh or tw <= 0 or th <= 0:
+            return raw
+        if sw * th > sh * tw:      # 源更宽 -> 裁宽
+            cw, ch = sh * tw // th, sh
+        else:                      # 源更高（或等比） -> 裁高
+            cw, ch = sw, sw * th // tw
+        if cw <= 0 or ch <= 0 or (cw, ch) == (sw, sh):
+            return raw
+        import shutil
+        import subprocess
+        if not shutil.which("convert"):
+            return raw
+        pr = subprocess.run(
+            ["convert", "png:-", "-gravity", "center",
+             "-crop", f"{cw}x{ch}+0+0", "+repage", "png:-"],
+            input=raw, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            timeout=60)
+        if pr.returncode == 0 and _png_dimensions(pr.stdout) == (cw, ch):
+            return pr.stdout
+    except Exception:
+        pass
+    return raw
+
+
 # ---------------------------------------------------------------- 生成
 
 def generate(prompt: str, ratio: str = "16:9", model: str | None = None,
              retries: int = 2, timeout: int = 180) -> dict:
     """调 New API /v1/images/generations，返回 {ok, bytes, via, cost_s, error}。"""
     base, key = load_gateway()
-    size = RATIO_SIZE.get(ratio, "1920x1080")
-    payload_base = {"prompt": prompt, "n": 1, "size": size}
+    payload_base = {"prompt": prompt, "n": 1, "size": SIZE_TIER}
 
     last_err = None
     for m in candidate_models(ratio, model):
@@ -251,8 +297,9 @@ def generate(prompt: str, ratio: str = "16:9", model: str | None = None,
                 if not raw:
                     last_err = f"{m}: 无 b64_json 也无 url"
                     break
+                raw = _crop_to_ratio(raw, ratio)
                 return {"ok": True, "bytes": raw, "via": m,
-                        "cost_s": round(time.time() - t0, 1), "size": size}
+                        "cost_s": round(time.time() - t0, 1), "size": SIZE_TIER}
             except urllib.error.HTTPError as e:
                 detail = e.read().decode("utf-8", "ignore")[:200]
                 last_err = f"{m}: HTTP {e.code} {detail}"
