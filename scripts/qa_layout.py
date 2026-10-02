@@ -32,6 +32,8 @@ if str(REPO_ROOT) not in sys.path:
 from collections import Counter
 import xml.etree.ElementTree as ET
 
+from scripts.check_page_map import find_svg_dir
+
 # 确保在未显式激活 .venv 时也能从项目内 .venv 加载依赖
 try:
     import numpy as np
@@ -558,9 +560,10 @@ def qa_single_layout(
         svg_files = [target]
         svg_dir = target.parent
     else:
-        # 如果 target 包含 svg_output 子目录且当前目录无 svg，则自动切入 svg_output
-        if not list(target.glob("*.svg")) and (target / "svg_output").is_dir():
-            svg_dir = (target / "svg_output").resolve()
+        # 如果 target 为项目目录且当前目录无 svg，按版本优先级切入 svg_output*
+        found_dir = find_svg_dir(target)
+        if not list(target.glob("*.svg")) and found_dir and found_dir != target:
+            svg_dir = found_dir.resolve()
         else:
             svg_dir = target
         svg_files = sorted(svg_dir.glob("*.svg"))
@@ -619,12 +622,21 @@ def qa_single_layout(
         resolved_render = Path(render_dir).resolve()
     else:
         resolved_render = None
-        for candidate in [
+        candidates = []
+        m_v = re.search(r"(_v\d+)$", svg_dir.name, re.IGNORECASE)
+        if m_v:
+            v_sfx = m_v.group(1)
+            candidates.extend([
+                svg_dir.parent / f"render{v_sfx}",
+                svg_dir.parent / f"qa_render{v_sfx}",
+            ])
+        candidates.extend([
             svg_dir.parent / "render",
             svg_dir.parent / "qa_render",
             svg_dir.parent / "render_cards",
             svg_dir / "render",
-        ]:
+        ])
+        for candidate in candidates:
             if candidate.is_dir():
                 resolved_render = candidate.resolve()
                 break
