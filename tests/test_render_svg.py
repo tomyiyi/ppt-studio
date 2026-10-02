@@ -166,6 +166,41 @@ class TestResolveTargets(unittest.TestCase):
             self.assertEqual(files, [svg1.resolve()])
             self.assertEqual(out, (proj / "render").resolve())
 
+    def test_explicit_project_prefers_latest_svg_version(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            proj = td / "my-project"
+            svg_v1 = proj / "svg_output" / "cover.svg"
+            svg_v4 = proj / "svg_output_v4" / "cover.svg"
+            create_minimal_svg(svg_v1)
+            create_minimal_svg(svg_v4)
+
+            files, out = resolve_targets(str(proj), base_dir=td)
+            self.assertEqual(files, [svg_v4.resolve()])
+            self.assertEqual(out, (proj / "render").resolve())
+
+    def test_explicit_versioned_directory(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            proj = td / "my-project"
+            svg_v4 = proj / "svg_output_v4" / "cover.svg"
+            create_minimal_svg(svg_v4)
+
+            files, out = resolve_targets(str(proj / "svg_output_v4"), base_dir=td)
+            self.assertEqual(files, [svg_v4.resolve()])
+            self.assertEqual(out, (proj / "render").resolve())
+
+    def test_explicit_file_in_versioned_directory(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            proj = td / "my-project"
+            svg_v4 = proj / "svg_output_v4" / "cover.svg"
+            create_minimal_svg(svg_v4)
+
+            files, out = resolve_targets(str(svg_v4), base_dir=td)
+            self.assertEqual(files, [svg_v4.resolve()])
+            self.assertEqual(out, (proj / "render").resolve())
+
     def test_auto_discovery_from_projects_dir(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             td = Path(tmp_dir)
@@ -175,6 +210,19 @@ class TestResolveTargets(unittest.TestCase):
 
             files, out = resolve_targets(None, base_dir=td)
             self.assertEqual(files, [svg.resolve()])
+            self.assertEqual(out, (proj / "render").resolve())
+
+    def test_auto_discovery_prefers_latest_svg_version(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            td = Path(tmp_dir)
+            proj = td / "projects" / "unique-proj"
+            svg_v1 = proj / "svg_output" / "01.svg"
+            svg_v4 = proj / "svg_output_v4" / "01.svg"
+            create_minimal_svg(svg_v1)
+            create_minimal_svg(svg_v4)
+
+            files, out = resolve_targets(None, base_dir=td)
+            self.assertEqual(files, [svg_v4.resolve()])
             self.assertEqual(out, (proj / "render").resolve())
 
     def test_auto_discovery_multiple_projects_raises_value_error(self):

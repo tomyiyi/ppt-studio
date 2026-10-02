@@ -73,6 +73,32 @@ except ImportError:
             run_qa_cards = None
             qa_cards = None
 
+try:
+    from scripts.check_page_map import find_svg_dir
+except ImportError:
+    try:
+        from check_page_map import find_svg_dir
+    except ImportError:
+        find_svg_dir = None
+
+
+def _find_svg_dir(p: Path) -> Path | None:
+    if find_svg_dir is not None:
+        return find_svg_dir(p)
+    # fallback: 优先按数字版本最高 (svg_output_v4 > svg_output_v3 > svg_output)
+    cands = sorted(
+        [d for d in p.glob("svg_output*") if d.is_dir() and any(d.glob("*.svg"))],
+        key=lambda d: (
+            int(m.group(1)) if (m := re.match(r"^svg_output_v(\d+)$", d.name, re.I)) else (0 if d.name == "svg_output" else -1)
+        ),
+        reverse=True,
+    )
+    if cands:
+        return cands[0]
+    if any(p.glob("*.svg")):
+        return p
+    return None
+
 CHROME_CANDIDATES = [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "/Applications/Chromium.app/Contents/MacOS/Chromium",
@@ -188,24 +214,26 @@ def resolve_targets(
         if p.is_file():
             files = [p]
             parent_name = p.parent.name
-            if parent_name == "svg_output":
+            if parent_name == "svg_output" or parent_name.startswith("svg_output"):
                 default_out = p.parent.parent / "render"
             elif parent_name == "cards":
                 default_out = p.parent.parent / "render_cards"
             else:
                 default_out = p.parent / "render"
-        elif has_svgs(p):
+        elif has_svgs(p) and (p.name == "svg_output" or p.name.startswith("svg_output") or p.name == "cards"):
             files = sorted(p.glob("*.svg"))
-            if p.name == "svg_output":
-                default_out = p.parent / "render"
-            elif p.name == "cards":
+            if p.name == "cards":
                 default_out = p.parent / "render_cards"
             else:
-                default_out = p / "render"
+                default_out = p.parent / "render"
         else:
-            # 尝试探测是否为项目根目录
-            if has_svgs(p / "svg_output"):
-                files = sorted((p / "svg_output").glob("*.svg"))
+            # 尝试探测是否为项目根目录（按版本优先级查找 svg_output*）
+            svg_cand = _find_svg_dir(p)
+            if svg_cand and has_svgs(svg_cand):
+                files = sorted(svg_cand.glob("*.svg"))
+                default_out = p / "render"
+            elif has_svgs(p):
+                files = sorted(p.glob("*.svg"))
                 default_out = p / "render"
             elif has_svgs(p / "cards"):
                 files = sorted((p / "cards").glob("*.svg"))
@@ -214,58 +242,63 @@ def resolve_targets(
                 raise FileNotFoundError(f"在指定的目录 {src_arg} 下未找到任何 SVG 文件")
     else:
         # 自动发现
-        if base.name == "svg_output" and has_svgs(base):
+        if (base.name == "svg_output" or base.name.startswith("svg_output")) and has_svgs(base):
             files = sorted(base.glob("*.svg"))
             default_out = base.parent / "render"
         elif base.name == "cards" and has_svgs(base):
             files = sorted(base.glob("*.svg"))
             default_out = base.parent / "render_cards"
-        elif not (base / "projects").is_dir() and has_svgs(base / "svg_output"):
-            files = sorted((base / "svg_output").glob("*.svg"))
-            default_out = base / "render"
-        elif not (base / "projects").is_dir() and has_svgs(base / "cards"):
-            files = sorted((base / "cards").glob("*.svg"))
-            default_out = base / "render_cards"
         else:
-            candidate_projects_dirs: list[Path] = []
-            if base.is_dir() and base.name == "projects":
-                candidate_projects_dirs.append(base)
-            elif (base / "projects").is_dir():
-                candidate_projects_dirs.append(base / "projects")
-            elif base_dir is None:
-                repo_root = Path(__file__).resolve().parent.parent
-                p_cand = repo_root / "projects"
-                if p_cand.is_dir():
-                    candidate_projects_dirs.append(p_cand)
-
-            found_projs: list[tuple[Path, str]] = []
-            for p_dir in candidate_projects_dirs:
-                if not p_dir.is_dir():
-                    continue
-                for sub in sorted(p_dir.iterdir()):
-                    if sub.is_dir():
-                        if has_svgs(sub / "svg_output"):
-                            found_projs.append((sub, "svg_output"))
-                        elif has_svgs(sub / "cards"):
-                            found_projs.append((sub, "cards"))
-
-            if len(found_projs) == 1:
-                proj, kind = found_projs[0]
-                if kind == "svg_output":
-                    files = sorted((proj / "svg_output").glob("*.svg"))
-                    default_out = proj / "render"
-                else:
-                    files = sorted((proj / "cards").glob("*.svg"))
-                    default_out = proj / "render_cards"
-            elif len(found_projs) > 1:
-                names = ", ".join(p[0].name for p in found_projs)
-                raise ValueError(
-                    f"发现多个包含 SVG 的项目 ({names})，无法安全确定，请显式指定 src 参数"
-                )
+            base_svg = _find_svg_dir(base)
+            if not (base / "projects").is_dir() and base_svg and has_svgs(base_svg) and (base.name != "ppt-studio" or base_svg != base):
+                files = sorted(base_svg.glob("*.svg"))
+                default_out = base / "render"
+            elif not (base / "projects").is_dir() and has_svgs(base / "cards"):
+                files = sorted((base / "cards").glob("*.svg"))
+                default_out = base / "render_cards"
             else:
-                raise FileNotFoundError(
-                    "未在当前目录或 projects/ 下发现包含有效 SVG 的项目，请显式指定 src 参数"
-                )
+                candidate_projects_dirs: list[Path] = []
+                if base.is_dir() and base.name == "projects":
+                    candidate_projects_dirs.append(base)
+                elif (base / "projects").is_dir():
+                    candidate_projects_dirs.append(base / "projects")
+                elif base_dir is None:
+                    repo_root = Path(__file__).resolve().parent.parent
+                    p_cand = repo_root / "projects"
+                    if p_cand.is_dir():
+                        candidate_projects_dirs.append(p_cand)
+
+                seen_sub: set[Path] = set()
+                found_projs: list[tuple[Path, Path, str]] = []
+                for p_dir in candidate_projects_dirs:
+                    if not p_dir.is_dir():
+                        continue
+                    for sub in sorted(p_dir.iterdir()):
+                        if sub.is_dir() and sub.resolve() not in seen_sub:
+                            sub_svg = _find_svg_dir(sub)
+                            if sub_svg and has_svgs(sub_svg):
+                                seen_sub.add(sub.resolve())
+                                found_projs.append((sub, sub_svg, "svg"))
+                            elif has_svgs(sub / "cards"):
+                                seen_sub.add(sub.resolve())
+                                found_projs.append((sub, sub / "cards", "cards"))
+
+                if len(found_projs) == 1:
+                    proj, target_svg_dir, kind = found_projs[0]
+                    files = sorted(target_svg_dir.glob("*.svg"))
+                    if kind == "svg":
+                        default_out = proj / "render"
+                    else:
+                        default_out = proj / "render_cards"
+                elif len(found_projs) > 1:
+                    names = ", ".join(p[0].name for p in found_projs)
+                    raise ValueError(
+                        f"发现多个包含 SVG 的项目 ({names})，无法安全确定，请显式指定 src 参数"
+                    )
+                else:
+                    raise FileNotFoundError(
+                        "未在当前目录或 projects/ 下发现包含有效 SVG 的项目，请显式指定 src 参数"
+                    )
 
     if out_arg is not None and str(out_arg).strip() != "":
         out_path = Path(out_arg)
