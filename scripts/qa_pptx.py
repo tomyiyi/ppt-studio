@@ -214,9 +214,27 @@ def check_slide_layers(z: zipfile.ZipFile, slide_names: list[str], has_media: bo
     return True, f"{len(slide_names)} 页幻灯片图元与图层结构完整"
 
 
+def _px_to_pt_from_pptx(z: zipfile.ZipFile) -> float:
+    """从幻灯片宽度反推构建时的 px→pt 比例。
+
+    管线约定画布 1920×1080（spec_lock / qa_layout 同源），构建时
+    px_to_pt = 72 * slide_w_in / 1920。回读必须用同一比例，
+    不可用固定 96dpi（2026-10-02 根因：固定 0.75 在 1920 版式下偏差 1.5 倍）。
+    """
+    try:
+        pres = ET.fromstring(z.read("ppt/presentation.xml"))
+        sld_sz = pres.find(f".//{NS_P}sldSz")
+        cx = float(sld_sz.get("cx")) if sld_sz is not None else 12192000.0
+    except Exception:
+        cx = 12192000.0  # 13.333in EMU
+    slide_w_in = cx / 914400.0
+    return 72.0 * slide_w_in / 1920.0
+
+
 def check_font_ramp(z: zipfile.ZipFile, slide_names: list[str], ramp: list[int]) -> tuple[bool, str, dict]:
     """反查 DrawingML <a:rPr sz="..."> 换算回 px，验证是否落在阶梯内。"""
     ramp_set = set(ramp)
+    px_to_pt = _px_to_pt_from_pptx(z)
     total_runs = 0
     all_sz = set()
     off_ramp = []
@@ -231,7 +249,8 @@ def check_font_ramp(z: zipfile.ZipFile, slide_names: list[str], ramp: list[int])
             sp_text = "".join(sp.itertext()).strip()
             sz_vals = [int(r.get("sz")) for r in sp.findall(f".//{NS_A}rPr") if r.get("sz")]
             if sp_text and sz_vals:
-                slide_entries.append((max(sz_vals), sp_text))
+                slide_entries.append(
+                    (round(max(sz_vals) / 100.0 / px_to_pt), sp_text))
 
             for r in sp.findall(f".//{NS_A}rPr"):
                 sz_str = r.get("sz")
@@ -239,9 +258,8 @@ def check_font_ramp(z: zipfile.ZipFile, slide_names: list[str], ramp: list[int])
                     total_runs += 1
                     sz = int(sz_str)
                     all_sz.add(sz)
-                    # 1pt = 0.75px @1280x720, sz 是百分之一 pt (cents of pt)
-                    # pt = sz / 100, px = pt / 0.75 = sz / 75.0
-                    px = round(sz / 75.0)
+                    # sz 是百分之一 pt；px = pt / px_to_pt（与构建同比例）
+                    px = round(sz / 100.0 / px_to_pt)
                     if px not in ramp_set:
                         # 容差: 极小浮点取整偏差 (±1px)
                         matched = any(abs(px - authorized) <= 0.6 for authorized in ramp_set)
@@ -257,7 +275,7 @@ def check_font_ramp(z: zipfile.ZipFile, slide_names: list[str], ramp: list[int])
         err_samples = [f"{s} sz={sz}(~{px}px)" for s, sz, px, _ in off_ramp[:3]]
         return False, f"发现非规范字号: {', '.join(err_samples)} (允许阶梯: {ramp})", slide_text_map
 
-    px_ramp_detected = sorted(set(round(sz / 75.0) for sz in all_sz))
+    px_ramp_detected = sorted(set(round(sz / 100.0 / px_to_pt) for sz in all_sz))
     return True, f"{total_runs} 处文本全部合规于阶梯 {px_ramp_detected} px", slide_text_map
 
 
@@ -284,12 +302,13 @@ def check_role_consistency(
 
     for s in content_slides:
         entries = slide_text_map.get(s, []) or []
-        large_entries = [e for e in entries if round(e[0] / 75.0) >= 40]
+        # entries 已为 px（check_font_ramp 换算），直接比较
+        large_entries = [e for e in entries if e[0] >= 40]
         if not large_entries:
             continue
         # 排序取该页最高字号（一般为 statement 或 headline）
-        top_sz, top_txt = max(large_entries, key=lambda x: x[0])
-        statement_slides[s] = (round(top_sz / 75.0), top_txt[:15])
+        top_px, top_txt = max(large_entries, key=lambda x: x[0])
+        statement_slides[s] = (top_px, top_txt[:15])
 
     if not statement_slides:
         return True, "未检测到内联主句标记"
@@ -303,8 +322,8 @@ def check_role_consistency(
         if bad:
             return False, ("页面主句字号与 spec 期望 (%dpx) 不符，漂移页: %s"
                            % (expected_stmt_sz, _fmt(bad)))
-        return True, ("各正文页主句字号与 spec 对齐 "
-                      "(%dpx / %dpt)" % (expected_stmt_sz, round(expected_stmt_sz * 0.75)))
+        return True, ("各正文页主句字号与 spec 对齐 (%dpx)"
+                      % expected_stmt_sz)
 
     # 无 spec 期望：内部一致性（旧逻辑保留）
     from collections import Counter
@@ -315,8 +334,7 @@ def check_role_consistency(
     if drifts:
         return False, ("页面主句字号不一致 (主流为 %dpx，漂移页: %s)"
                        % (dominant_px, _fmt(drifts)))
-    return True, ("各正文页页面主句字号严格对齐 "
-                  "(%dpx / %dpt)" % (dominant_px, round(dominant_px * 0.75)))
+    return True, ("各正文页页面主句字号严格对齐 (%dpx)" % dominant_px)
 
 
 def check_relationships(z: zipfile.ZipFile, slide_names: list[str]) -> tuple[bool, str]:

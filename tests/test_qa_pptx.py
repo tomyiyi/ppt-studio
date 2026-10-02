@@ -57,7 +57,7 @@ def create_mock_pptx(
     corrupt_media: bool = False,
     include_pic: bool = True,
     include_sp: bool = True,
-    statement_sz: int = 4200,  # 42pt = 56px (4200 / 75 = 56)
+    statement_sz: int = 2800,  # 28pt = 56px @1920px->13.333in (2800/100/0.5)
     second_stmt_sz: int | None = None,
     off_ramp_sz: int | None = None,
     missing_required_entry: str | None = None,
@@ -351,7 +351,7 @@ class TestCheckFontRamp(unittest.TestCase):
 
     def test_compliant_ramp(self):
         with tempfile.TemporaryDirectory() as td:
-            p = create_mock_pptx(Path(td) / "test.pptx", statement_sz=4200)  # 56px
+            p = create_mock_pptx(Path(td) / "test.pptx", statement_sz=2800)  # 56px
             with zipfile.ZipFile(p, "r") as z:
                 slides = [f for f in z.namelist() if f.startswith("ppt/slides/slide") and f.endswith(".xml")]
                 ok, msg, text_map = check_font_ramp(z, slides, [11, 13, 16, 20, 24, 32, 44, 56, 96])
@@ -360,8 +360,8 @@ class TestCheckFontRamp(unittest.TestCase):
 
     def test_off_ramp_size_detected(self):
         with tempfile.TemporaryDirectory() as td:
-            # 3750 / 75 = 50px (不在阶梯内)
-            p = create_mock_pptx(Path(td) / "test.pptx", off_ramp_sz=3750)
+            # 2500/100/0.5 = 50px (不在阶梯内)
+            p = create_mock_pptx(Path(td) / "test.pptx", off_ramp_sz=2500)
             with zipfile.ZipFile(p, "r") as z:
                 slides = [f for f in z.namelist() if f.startswith("ppt/slides/slide") and f.endswith(".xml")]
                 ok, msg, _ = check_font_ramp(z, slides, [11, 13, 16, 20, 24, 32, 44, 56, 96])
@@ -373,17 +373,17 @@ class TestCheckRoleConsistency(unittest.TestCase):
     """测试跨页主句字号一致性。"""
 
     def test_fewer_than_3_slides_skipped(self):
-        mapping = {"ppt/slides/slide1.xml": [(4200, "封面")], "ppt/slides/slide2.xml": [(4200, "正文")]}
+        mapping = {"ppt/slides/slide1.xml": [(56, "封面")], "ppt/slides/slide2.xml": [(56, "正文")]}
         ok, msg = check_role_consistency(mapping, 56)
         self.assertTrue(ok)
         self.assertIn("跳过", msg)
 
     def test_consistent_statement(self):
         mapping = {
-            "ppt/slides/slide1.xml": [(7200, "封面大标题")],
-            "ppt/slides/slide2.xml": [(4200, "正文一主句")],
-            "ppt/slides/slide3.xml": [(4200, "正文二主句")],
-            "ppt/slides/slide4.xml": [(4200, "正文三主句")],
+            "ppt/slides/slide1.xml": [(96, "封面大标题")],
+            "ppt/slides/slide2.xml": [(56, "正文一主句")],
+            "ppt/slides/slide3.xml": [(56, "正文二主句")],
+            "ppt/slides/slide4.xml": [(56, "正文三主句")],
         }
         ok, msg = check_role_consistency(mapping, 56)
         self.assertTrue(ok)
@@ -391,23 +391,23 @@ class TestCheckRoleConsistency(unittest.TestCase):
 
     def test_drifting_statement_detected(self):
         mapping = {
-            "ppt/slides/slide1.xml": [(7200, "封面大标题")],
-            "ppt/slides/slide2.xml": [(4200, "正文一主句")],
-            "ppt/slides/slide3.xml": [(5400, "正文二变大主句")],  # 5400/75 = 72px
-            "ppt/slides/slide4.xml": [(4200, "正文三主句")],
+            "ppt/slides/slide1.xml": [(96, "封面大标题")],
+            "ppt/slides/slide2.xml": [(56, "正文一主句")],
+            "ppt/slides/slide3.xml": [(72, "正文二变大主句")],  # 72px
+            "ppt/slides/slide4.xml": [(56, "正文三主句")],
         }
         ok, msg = check_role_consistency(mapping, 56)
         self.assertFalse(ok)
         self.assertIn("不符", msg)
 
     def test_slide_with_only_small_elements_not_treated_as_statement(self):
-        # 模拟如 06_before_after 仅有正文或指标标注（最大 24px = 1800），不误判为主句漂移
+        # 模拟如 06_before_after 仅有正文或指标标注（最大 24px），不误判为主句漂移
         mapping = {
-            "ppt/slides/slide1.xml": [(7200, "封面大标题")],
-            "ppt/slides/slide2.xml": [(4200, "正文一主句")],
-            "ppt/slides/slide3.xml": [(4200, "正文二主句")],
-            "ppt/slides/slide4.xml": [(1800, "对比图表标注")],
-            "ppt/slides/slide5.xml": [(4200, "正文四主句")],
+            "ppt/slides/slide1.xml": [(96, "封面大标题")],
+            "ppt/slides/slide2.xml": [(56, "正文一主句")],
+            "ppt/slides/slide3.xml": [(56, "正文二主句")],
+            "ppt/slides/slide4.xml": [(24, "对比图表标注")],
+            "ppt/slides/slide5.xml": [(56, "正文四主句")],
         }
         ok, msg = check_role_consistency(mapping, 56)
         self.assertTrue(ok)
@@ -415,10 +415,10 @@ class TestCheckRoleConsistency(unittest.TestCase):
 
     def test_mismatch_with_expected_statement_size(self):
         mapping = {
-            "ppt/slides/slide1.xml": [(7200, "封面大标题")],
-            "ppt/slides/slide2.xml": [(5400, "正文一主句")],  # 72px
-            "ppt/slides/slide3.xml": [(5400, "正文二主句")],  # 72px
-            "ppt/slides/slide4.xml": [(5400, "正文三主句")],  # 72px
+            "ppt/slides/slide1.xml": [(96, "封面大标题")],
+            "ppt/slides/slide2.xml": [(72, "正文一主句")],  # 72px
+            "ppt/slides/slide3.xml": [(72, "正文二主句")],  # 72px
+            "ppt/slides/slide4.xml": [(72, "正文三主句")],  # 72px
         }
         ok, msg = check_role_consistency(mapping, 56)
         self.assertFalse(ok)
@@ -665,11 +665,11 @@ class TestMainCli(unittest.TestCase):
 def _smap(sizes):
     """构造 slide_text_map：slide1..N，每页一个主句文本框。
 
-    sizes: [(页名, 字号px, 文本)]；内部按 emu 换算（px*75）。
+    sizes: [(页名, 字号px, 文本)]；map 直接存 px（与 check_font_ramp 输出一致）。
     """
     m = {}
     for name, px, txt in sizes:
-        m[name] = [(px * 75.0, txt)]
+        m[name] = [(float(px), txt)]
     return m
 
 

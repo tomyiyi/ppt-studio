@@ -47,7 +47,20 @@ def _resolve_font(family: str | None) -> str | None:
     if family and Path(family).is_file():
         found = family
     else:
-        # 2. 按名称模糊匹配系统字体
+        # 2. fontconfig 精确解析（Linux 通用；硬编码路径在目标机不存在时兜底）
+        if family:
+            try:
+                import subprocess
+                r = subprocess.run(
+                    ["fc-match", family, "--format=%{file}"],
+                    capture_output=True, text=True, timeout=5)
+                cand = r.stdout.strip().split("\n")[0]
+                if cand and Path(cand).is_file():
+                    found = cand
+            except Exception:
+                pass
+    if not found:
+        # 3. 按名称模糊匹配系统字体
         for cand in _FONT_CANDIDATES:
             if not Path(cand).is_file():
                 continue
@@ -56,7 +69,7 @@ def _resolve_font(family: str | None) -> str | None:
                     or "notosanscjk" in stem or "pingfang" in stem:
                 found = cand
                 break
-        # 3. 兜底：第一个存在的候选
+        # 4. 兜底：第一个存在的候选
         if not found:
             for cand in _FONT_CANDIDATES:
                 if Path(cand).is_file():

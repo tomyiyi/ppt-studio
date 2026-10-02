@@ -38,7 +38,6 @@ from scripts.svg_to_pptx import (
     build_pptx,
     verify_pptx,
     _atomic_save,
-    PX_TO_PT,
     _materialize_images,
 )
 
@@ -112,8 +111,15 @@ class TestParse(unittest.TestCase):
         self.assertEqual(parse_color("#fff"), (255, 255, 255))
         self.assertEqual(parse_color("#8C2F1B"), (140, 47, 27))
 
-    def test_px_to_pt_constant(self):
-        self.assertAlmostEqual(PX_TO_PT, 0.75)
+    def test_px_to_pt_scale_matches_layout(self):
+        # 字号换算必须与版式同比例：px_to_pt = 72 * sx，
+        # 其中 sx = slide_w_in / vb_w。固定 0.75（96dpi 假设）曾导致
+        # 1920px→13.333in 版式下字号大 1.5 倍、文本框装不下（2026-10-02）。
+        from scripts.svg_to_pptx import FORMATS
+        slide_w_in, _ = FORMATS["ppt169"]
+        for vb_w in (1920.0, 1280.0):
+            sx = slide_w_in / vb_w
+            self.assertAlmostEqual(72.0 * sx, 72.0 * slide_w_in / vb_w)
 
 
 class TestExtract(unittest.TestCase):

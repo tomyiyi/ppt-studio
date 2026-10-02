@@ -78,7 +78,10 @@ FORMATS = {
     "ppt169": (13.333333, 7.5),   # 16:9
     "ppt43": (10.0, 7.5),         # 4:3
 }
-PX_TO_PT = 0.75          # SVG px（96dpi）→ pt
+# 字号换算不再用固定 96dpi：必须与版式共用同一 px→英寸比例，
+# 否则字号与文本框宽/定位脱节（2026-10-02 根因：1920px→13.333in 是 144dpi，
+# 固定 0.75 让字号大了 1.5 倍，文本框装不下→换行→重叠）。
+# 正确值由 build_pptx 按 sx=slide_w_in/vb_w 计算：px_to_pt = 72 * sx。
 ASCENT_RATIO = 0.88      # 文本框 top ≈ 基线 y - size * 0.88
 
 if _PPTX_OK:
@@ -265,8 +268,18 @@ def parse_color(fill: str) -> tuple[int, int, int]:
     return 0, 0, 0
 
 
+def _char_width_em(ch: str) -> float:
+    """单字符 em 宽度启发式：CJK/全角≈1.0，拉丁/数字≈0.55。"""
+    o = ord(ch)
+    if (0x4E00 <= o <= 0x9FFF or 0x3400 <= o <= 0x4DBF
+            or 0x3040 <= o <= 0x30FF or 0xAC00 <= o <= 0xD7AF
+            or 0xFF00 <= o <= 0xFFEF or 0x20000 <= o <= 0x2FFFF):
+        return 1.0
+    return 0.55
+
+
 def estimate_width_px(item: TextItem) -> float:
-    """文本像素宽度：优先 PIL 实测，失败回退启发式；含字距补偿。"""
+    """文本像素宽度：优先 PIL 实测，失败回退 CJK 感知启发式；含字距补偿。"""
     w = None
     if _measure_text is not None:
         try:
@@ -274,13 +287,16 @@ def estimate_width_px(item: TextItem) -> float:
         except Exception:
             w = None
     if w is None:
-        w = len(item.text) * item.size_px * 0.62
+        w = sum(_char_width_em(c) for c in item.text) * item.size_px
     w += item.letter_spacing_px * max(len(item.text) - 1, 0)
-    return max(w + 8.0, item.size_px * 0.5)  # 8px 内边距余量
+    # 15% 安全余量：PIL 实测基于本机字体，目标渲染器（PowerPoint/WPS/LibreOffice）
+    # 的字体度量略有差异；余量只加宽文本框（锚点+段落对齐保证位置精确），无副作用。
+    # （2026-10-02：无余量时 "FW2026 时尚趋势" 等边缘文本在 LibreOffice 下被换行）
+    return max(w * 1.15 + 8.0, item.size_px * 0.5)
 
 
-def _set_run_style(run, item: TextItem) -> None:
-    run.font.size = Pt(item.size_px * PX_TO_PT)
+def _set_run_style(run, item: TextItem, px_to_pt: float) -> None:
+    run.font.size = Pt(item.size_px * px_to_pt)
     run.font.bold = item.bold
     run.font.italic = item.italic
     try:
@@ -298,7 +314,7 @@ def _set_run_style(run, item: TextItem) -> None:
         ea.set("typeface", item.family)
         if item.letter_spacing_px:
             # spc 单位：1/100 pt
-            rPr.set("spc", str(int(round(item.letter_spacing_px * PX_TO_PT * 100))))
+            rPr.set("spc", str(int(round(item.letter_spacing_px * px_to_pt * 100))))
     except Exception:
         pass
 
@@ -396,6 +412,8 @@ def build_pptx(
 
             sx = slide_w_in / vb_w   # px → 英寸
             sy = slide_h_in / vb_h
+            # 字号 pt 必须与版式同比例：1px = sx 英寸 = sx*72 pt
+            px_to_pt = 72.0 * sx
             for item in texts:
                 w_px = estimate_width_px(item)
                 h_px = item.size_px * 1.35
@@ -411,7 +429,10 @@ def build_pptx(
                     Inches(left_px * sx), Inches(top_px * sy),
                     Inches(w_px * sx), Inches(h_px * sy))
                 tf = txBox.text_frame
-                tf.word_wrap = True
+                # SVG 文本按单行设计：禁止换行。换行+固定单行高度会导致
+                # 溢出行与其它文本框重叠（2026-10-02 pptx 排版错乱根因）。
+                # 宽度略有偏差时宁可向右溢出，也不断行。
+                tf.word_wrap = False
                 for m in ("margin_left", "margin_right", "margin_top", "margin_bottom"):
                     setattr(tf, m, Inches(0))
                 p = tf.paragraphs[0]
@@ -422,7 +443,7 @@ def build_pptx(
                     run.font.name = item.family
                 except Exception:
                     pass
-                _set_run_style(run, item)
+                _set_run_style(run, item, px_to_pt)
                 total_texts += 1
 
         out_path = Path(out_path)
