@@ -267,7 +267,8 @@ def generate(prompt: str, ratio: str = "16:9", model: str | None = None,
              retries: int = 2, timeout: int = 180) -> dict:
     """调 New API /v1/images/generations，返回 {ok, bytes, via, cost_s, error}。"""
     base, key = load_gateway()
-    payload_base = {"prompt": prompt, "n": 1, "size": SIZE_TIER}
+    payload_base = {"prompt": prompt, "n": 1, "size": SIZE_TIER,
+                    "response_format": "b64_json"}
 
     last_err = None
     for m in candidate_models(ratio, model):
