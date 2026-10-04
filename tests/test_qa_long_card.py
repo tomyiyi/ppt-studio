@@ -80,6 +80,24 @@ class TestResolveProjectDir(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 resolve_project_dir(str(non_exist))
 
+    def test_explicit_subfolder_resolves_to_parent(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "deck"
+            create_minimal_card_project(proj)
+            sub = proj / "render_cards"
+            sub.mkdir()
+            resolved = resolve_project_dir(str(sub))
+            self.assertEqual(resolved, proj.resolve())
+
+    def test_base_subfolder_resolves_to_parent(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "deck"
+            create_minimal_card_project(proj)
+            sub = proj / "output"
+            sub.mkdir()
+            resolved = resolve_project_dir(None, base_dir=sub)
+            self.assertEqual(resolved, proj.resolve())
+
     def test_auto_discovery_from_target_file_in_output(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             base = Path(tmp_dir)
@@ -265,6 +283,16 @@ accent #6E7BFF
             acc, bg = load_spec_colors(spec_file)
             self.assertEqual(acc, hex_to_rgb("#AABBCC"))
             self.assertEqual(bg, hex_to_rgb("#223344"))
+
+    def test_load_spec_colors_from_versioned_spec_lock(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "proj"
+            proj.mkdir()
+            (proj / "spec_lock.md").write_text("## colors\n- accent: #111111\n- bg: #222222\n", encoding="utf-8")
+            (proj / "spec_lock_v3.md").write_text("## colors\n- accent: #AABBCC\n- bg: #334455\n", encoding="utf-8")
+            acc, bg = load_spec_colors(proj)
+            self.assertEqual(acc, hex_to_rgb("#AABBCC"))
+            self.assertEqual(bg, hex_to_rgb("#334455"))
 
     def test_load_spec_colors_nonexistent_returns_defaults(self):
         acc, bg = load_spec_colors(Path("/non_existent_project_12345"))

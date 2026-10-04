@@ -25,6 +25,15 @@ import re
 import sys
 from pathlib import Path
 
+try:
+    from scripts.spec_resolve import resolve_spec, find_spec
+except ImportError:
+    try:
+        from spec_resolve import resolve_spec, find_spec
+    except ImportError:
+        resolve_spec = None
+        find_spec = None
+
 # 确保在未显式激活 .venv 时也能从项目内 .venv 加载依赖
 try:
     from PIL import Image
@@ -102,22 +111,34 @@ def load_spec_colors(project_dir: Path | str | None) -> tuple[tuple[int, int, in
     if project_dir:
         p = Path(project_dir).resolve()
         if p.is_file():
-            if p.name in ("card_spec.md", "spec_lock.md"):
+            if p.name in ("card_spec.md", "spec_lock.md") or p.name.startswith("spec_lock"):
                 candidate_files.append(p)
             candidate_files.append(p.parent / "card_spec.md")
+            if resolve_spec is not None:
+                cand = resolve_spec(p.parent)
+                if cand and cand.is_file():
+                    candidate_files.append(cand)
             candidate_files.append(p.parent / "spec_lock.md")
         elif p.is_dir():
             candidate_files.append(p / "card_spec.md")
+            if resolve_spec is not None:
+                cand = resolve_spec(p)
+                if cand and cand.is_file():
+                    candidate_files.append(cand)
             candidate_files.append(p / "spec_lock.md")
 
     repo_root = Path(__file__).resolve().parent.parent
     for base in [Path.cwd(), repo_root]:
         candidate_files.append(base / "card_spec.md")
+        if resolve_spec is not None:
+            cand = resolve_spec(base)
+            if cand and cand.is_file():
+                candidate_files.append(cand)
         candidate_files.append(base / "spec_lock.md")
 
     for base in [Path.cwd(), repo_root]:
         candidate_files.extend(sorted((base / "projects").glob("*/card_spec.md")))
-        candidate_files.extend(sorted((base / "projects").glob("*/spec_lock.md")))
+        candidate_files.extend(sorted((base / "projects").glob("*/spec_lock*.md")))
 
     found_accent: str | None = None
     found_bg: str | None = None
@@ -410,6 +431,18 @@ def resolve_project_dir(
             p = p.resolve()
         if not p.exists():
             raise FileNotFoundError(f"指定的项目目录不存在: {project_arg}")
+        if (
+            p.is_dir()
+            and (
+                p.name in ("images", "svg_output", "render_cards", "render", "notes", "output")
+                or p.name.startswith("svg_output")
+            )
+            and (p.parent / "cards").is_dir()
+            and list((p.parent / "cards").glob("*.svg"))
+        ):
+            return p.parent.resolve()
+        if p.is_dir() and p.name == "cards" and list(p.glob("*.svg")):
+            return p.parent.resolve()
         return p
 
     # 2.a 从 target_path 自底向上探测
@@ -428,6 +461,16 @@ def resolve_project_dir(
     base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     if (base / "cards").is_dir():
         return base
+    if (
+        base.is_dir()
+        and (
+            base.name in ("images", "svg_output", "render_cards", "render", "notes", "output")
+            or base.name.startswith("svg_output")
+        )
+        and (base.parent / "cards").is_dir()
+        and list((base.parent / "cards").glob("*.svg"))
+    ):
+        return base.parent.resolve()
 
     # 2.c 从 projects/ 目录下安全发现
     candidate_projects_dirs: list[Path] = []
