@@ -22,6 +22,7 @@ if str(REPO_ROOT) not in sys.path:
 from scripts.build_preview import (
     build_preview,
     resolve_src_dir,
+    resolve_project_dir,
     resolve_project_meta,
     inline_images,
     extract_aspect,
@@ -536,6 +537,93 @@ class TestCLIAdvancedFlags(unittest.TestCase):
             self.assertEqual(res.returncode, 0, msg=f"CLI failed: {res.stderr}")
             html = out_file.read_text(encoding="utf-8")
             self.assertIn("<title>覆盖标题</title>", html)
+
+
+class TestBuildPreviewSubdirAndSpecResolution(unittest.TestCase):
+    """测试 build_preview 对子目录、规范文件、单文件自适应解析。"""
+
+    def setUp(self):
+        self.td = tempfile.TemporaryDirectory()
+        self.proj = Path(self.td.name) / "test_proj"
+        self.svg_dir = self.proj / "svg_output"
+        self.render_dir = self.proj / "render"
+        self.images_dir = self.proj / "images"
+        self.notes_dir = self.proj / "notes"
+        self.svg_dir.mkdir(parents=True)
+        self.render_dir.mkdir(parents=True)
+        self.images_dir.mkdir(parents=True)
+        self.notes_dir.mkdir(parents=True)
+
+        self.spec_file = self.proj / "spec_lock.md"
+        self.spec_file.write_text(
+            "## communication\n- objective: 发布测试产品\n\n## colors\n- accent: #6E7BFF\n",
+            encoding="utf-8",
+        )
+        self.svg_file = self.svg_dir / "01_cover.svg"
+        create_minimal_svg(self.svg_file, "测试首页")
+
+    def tearDown(self):
+        self.td.cleanup()
+
+    def test_resolve_project_dir_subfolders_and_file(self):
+        self.assertEqual(resolve_project_dir(self.svg_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.render_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.images_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.spec_file), self.proj.resolve())
+
+    def test_resolve_src_dir_from_subfolder(self):
+        self.assertEqual(resolve_src_dir(str(self.render_dir), base_dir=Path(self.td.name)), self.svg_dir.resolve())
+        self.assertEqual(resolve_src_dir(str(self.images_dir), base_dir=Path(self.td.name)), self.svg_dir.resolve())
+        self.assertEqual(resolve_src_dir(str(self.notes_dir), base_dir=Path(self.td.name)), self.svg_dir.resolve())
+
+    def test_resolve_src_dir_from_spec_file(self):
+        self.assertEqual(resolve_src_dir(str(self.spec_file), base_dir=Path(self.td.name)), self.svg_dir.resolve())
+
+    def test_resolve_src_dir_from_single_svg_file(self):
+        self.assertEqual(resolve_src_dir(str(self.svg_file), base_dir=Path(self.td.name)), self.svg_dir.resolve())
+
+    def test_resolve_src_dir_cards_from_subfolder_and_spec_file(self):
+        proj_cards = Path(self.td.name) / "card_proj"
+        cards_dir = proj_cards / "cards"
+        render_cards_dir = proj_cards / "render_cards"
+        cards_dir.mkdir(parents=True)
+        render_cards_dir.mkdir(parents=True)
+        card_file = cards_dir / "01_card.svg"
+        create_minimal_svg(card_file, "卡片一")
+        card_spec = proj_cards / "card_spec.md"
+        card_spec.write_text("# 卡片规范\n", encoding="utf-8")
+
+        self.assertEqual(resolve_src_dir(str(render_cards_dir), cards=True, base_dir=Path(self.td.name)), cards_dir.resolve())
+        self.assertEqual(resolve_src_dir(str(card_spec), cards=True, base_dir=Path(self.td.name)), cards_dir.resolve())
+        self.assertEqual(resolve_src_dir(str(card_file), cards=True, base_dir=Path(self.td.name)), cards_dir.resolve())
+
+    def test_build_preview_from_subfolder_and_spec_file(self):
+        out_from_render = self.proj / "preview_render.html"
+        out_from_spec = self.proj / "preview_spec.html"
+        build_preview(src=self.render_dir, out=out_from_render)
+        self.assertTrue(out_from_render.exists())
+        build_preview(src=self.spec_file, out=out_from_spec)
+        self.assertTrue(out_from_spec.exists())
+
+    def test_cli_from_subfolder_and_spec_file(self):
+        script = REPO_ROOT / "scripts" / "build_preview.py"
+        out_cli1 = self.proj / "out_cli1.html"
+        res1 = subprocess.run(
+            [sys.executable, str(script), str(self.render_dir), str(out_cli1)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(res1.returncode, 0, msg=f"CLI failed: {res1.stderr}")
+        self.assertTrue(out_cli1.exists())
+
+        out_cli2 = self.proj / "out_cli2.html"
+        res2 = subprocess.run(
+            [sys.executable, str(script), str(self.spec_file), str(out_cli2)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(res2.returncode, 0, msg=f"CLI failed: {res2.stderr}")
+        self.assertTrue(out_cli2.exists())
 
 
 if __name__ == "__main__":

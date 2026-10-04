@@ -33,12 +33,41 @@ except ImportError:
         qa_preview = None
 
 try:
-    from scripts.check_page_map import find_svg_dir
+    from scripts.check_page_map import find_svg_dir, resolve_project_dir as _cpm_resolve_project_dir
 except ImportError:
     try:
-        from check_page_map import find_svg_dir
+        from check_page_map import find_svg_dir, resolve_project_dir as _cpm_resolve_project_dir
     except ImportError:
         find_svg_dir = None
+        _cpm_resolve_project_dir = None
+
+
+def resolve_project_dir(project_arg: str | Path | None = None) -> Path:
+    """自适应解析项目根目录（支持从子目录 images、svg_output*、cards 等或文件回退）。"""
+    if project_arg is not None:
+        p = Path(project_arg).resolve()
+        if _cpm_resolve_project_dir is not None:
+            cand = _cpm_resolve_project_dir(p)
+            if cand != p:
+                return cand
+        if p.is_file():
+            p = p.parent
+        if (
+            p.name in ("images", "svg_output", "cards", "notes", "output", "render", "render_cards")
+            or p.name.startswith("svg_output")
+            or p.name.startswith("render")
+        ):
+            if (
+                any(p.parent.glob("spec_lock*.md"))
+                or any(p.parent.glob("card_spec*.md"))
+                or any(p.parent.glob("svg_output*"))
+                or (p.parent / "cards").is_dir()
+            ):
+                return p.parent
+        return p
+    if _cpm_resolve_project_dir is not None:
+        return _cpm_resolve_project_dir(None)
+    return Path.cwd().resolve()
 
 try:
     from scripts.spec_resolve import resolve_spec
@@ -109,15 +138,11 @@ def resolve_project_meta(src_dir: Path) -> dict:
         "primary_text": "#F7F7F9",
         "tertiary_text": "#7F8090",
     }
-    proj_dir = (
-        src_dir.parent
-        if (
-            src_dir.name == "svg_output"
-            or src_dir.name.startswith("svg_output")
-            or src_dir.name == "cards"
-        )
-        else src_dir
-    )
+    proj_dir = resolve_project_dir(src_dir)
+    if proj_dir == src_dir and (
+        src_dir.name in ("svg_output", "cards") or src_dir.name.startswith("svg_output")
+    ):
+        proj_dir = src_dir.parent
 
     found_spec_title = False
     found_colors: set[str] = set()
@@ -269,6 +294,28 @@ def resolve_src_dir(
         if not p.exists():
             raise FileNotFoundError(f"指定的源目录不存在: {src_arg}")
 
+        if p.is_file():
+            if p.suffix.lower() == ".svg":
+                return p.parent.resolve()
+            proj = resolve_project_dir(p)
+            if cards:
+                if has_cards(proj):
+                    return (proj / "cards").resolve()
+                if has_svg_files(proj):
+                    return proj.resolve()
+                cand_svg = _find_svg_dir(proj)
+                if cand_svg and cand_svg != proj and has_svg_files(cand_svg):
+                    return cand_svg.resolve()
+            else:
+                cand_svg = _find_svg_dir(proj)
+                if cand_svg and cand_svg != proj and has_svg_files(cand_svg):
+                    return cand_svg.resolve()
+                if has_svg_files(proj):
+                    return proj.resolve()
+                if has_cards(proj):
+                    return (proj / "cards").resolve()
+            raise FileNotFoundError(f"在文件关联项目 {proj} 下未找到任何 SVG 文件")
+
         if cards:
             if has_cards(p):
                 return (p / "cards").resolve()
@@ -277,6 +324,15 @@ def resolve_src_dir(
             cand_svg = _find_svg_dir(p)
             if cand_svg and cand_svg != p and has_svg_files(cand_svg):
                 return cand_svg.resolve()
+            proj = resolve_project_dir(p)
+            if proj != p:
+                if has_cards(proj):
+                    return (proj / "cards").resolve()
+                cand_svg = _find_svg_dir(proj)
+                if cand_svg and cand_svg != proj and has_svg_files(cand_svg):
+                    return cand_svg.resolve()
+                if has_svg_files(proj):
+                    return proj.resolve()
             return p
 
         # cards == False
@@ -289,9 +345,33 @@ def resolve_src_dir(
             return p
         if has_cards(p):
             return (p / "cards").resolve()
+        proj = resolve_project_dir(p)
+        if proj != p:
+            cand_svg = _find_svg_dir(proj)
+            if cand_svg and cand_svg != proj and has_svg_files(cand_svg):
+                return cand_svg.resolve()
+            if has_svg_files(proj):
+                return proj.resolve()
+            if has_cards(proj):
+                return (proj / "cards").resolve()
         return p
 
     # 未指定 src_arg 时自动发现
+    cand_proj = resolve_project_dir(base)
+    if cand_proj != base:
+        if cards:
+            if has_cards(cand_proj):
+                return (cand_proj / "cards").resolve()
+            if has_svg_files(cand_proj):
+                return cand_proj.resolve()
+        else:
+            cand_svg = _find_svg_dir(cand_proj)
+            if cand_svg and has_svg_files(cand_svg):
+                return cand_svg.resolve()
+            if has_svg_files(cand_proj):
+                return cand_proj.resolve()
+            if has_cards(cand_proj):
+                return (cand_proj / "cards").resolve()
     if cards:
         if base.name == "cards" and has_svg_files(base):
             return base
