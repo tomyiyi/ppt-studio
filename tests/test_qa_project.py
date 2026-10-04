@@ -292,6 +292,36 @@ class TestResolveProjectDir(unittest.TestCase):
                 resolve_project_dir(".", base_dir=root)
             self.assertIn("发现多个项目", str(ctx.exception))
 
+    def test_explicit_spec_file_falls_back_to_parent(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "spec_proj"
+            proj.mkdir(parents=True)
+            spec_file = proj / "spec_lock.md"
+            spec_file.write_text("# spec\n", encoding="utf-8")
+            self.assertEqual(resolve_project_dir(spec_file), proj.resolve())
+
+    def test_explicit_card_spec_file_falls_back_to_parent(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "card_proj"
+            proj.mkdir(parents=True)
+            card_spec = proj / "card_spec.md"
+            card_spec.write_text("# card spec\n", encoding="utf-8")
+            self.assertEqual(resolve_project_dir(card_spec), proj.resolve())
+
+    def test_explicit_render_and_output_subfolders_fall_back_to_parent(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "my_project"
+            for sub_name in ("render", "render_cards", "output"):
+                sub = proj / sub_name
+                sub.mkdir(parents=True, exist_ok=True)
+                self.assertEqual(resolve_project_dir(sub), proj.resolve())
+
+    def test_current_dir_with_card_spec_is_project(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td)
+            (proj / "card_spec.md").touch()
+            self.assertEqual(resolve_project_dir(".", base_dir=proj), proj.resolve())
+
 
 if __name__ == "__main__":
     unittest.main()

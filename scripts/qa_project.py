@@ -65,12 +65,13 @@ def resolve_project_dir(
 
     1. 若显式指定非 '.' 的 project_arg：
        - 转换为绝对路径（若为相对路径则基于 base_dir 或当前工作目录解析）；
-       - 若存在且为子目录（如 images、svg_output、cards、notes），自动回退到其父目录；
+       - 若传入 spec 文件或关联文件，自适应回退到其所属项目目录；
+       - 若存在且为子目录（如 images、svg_output、cards、notes、render、render_cards、output 等），自动回退到其父目录；
        - 返回绝对路径。
     2. 若未显式指定 project_arg 或为 '.'：
        - 探测 base_dir（默认当前工作目录）：
-         * 若当前目录直接包含有效项目特征（images/、svg_output/、cards/ 或 spec_lock.md），返回该目录；
-         * 若当前位于子目录（如 images/、svg_output/、cards/），返回其父目录；
+         * 若当前目录直接包含有效项目特征（images/、svg_output/、cards/、render_cards/ 或 spec_lock.md、card_spec.md），返回该目录；
+         * 若当前位于子目录（如 images/、svg_output/、cards/、render/ 等），返回其父目录；
        - 从 base/projects 或仓库根目录 projects/ 探测：
          * 收集所有包含有效项目特征的子项目；
          * 若唯一匹配，返回该项目；
@@ -86,9 +87,22 @@ def resolve_project_dir(
             p = (base / p).resolve()
         else:
             p = p.resolve()
+        if p.is_file():
+            if (
+                (p.parent / "images").is_dir()
+                or (p.parent / "cards").is_dir()
+                or (p.parent / "svg_output").is_dir()
+                or (p.parent / "render_cards").is_dir()
+                or (p.parent / "render").is_dir()
+                or any(p.parent.glob("card_spec*.md"))
+                or any(p.parent.glob("spec_lock*.md"))
+            ):
+                return p.parent.resolve()
+            p = p.parent
         if p.is_dir() and (
-            p.name in ("images", "svg_output", "cards", "notes")
+            p.name in ("images", "svg_output", "render_cards", "render", "notes", "output", "cards")
             or p.name.startswith("svg_output")
+            or p.name.startswith("render")
         ):
             return p.parent.resolve()
         return p
@@ -103,17 +117,26 @@ def resolve_project_dir(
             or (cand_svg is not None and cand_svg.is_dir() and any(cand_svg.glob("*.svg")))
             or (p / "svg_output").is_dir()
             or (p / "cards").is_dir()
+            or (p / "render_cards").is_dir()
             or (p / "spec_lock.md").is_file()
             or (cand_spec is not None and cand_spec.is_file())
             or any(p.glob("spec_lock*.md"))
+            or any(p.glob("card_spec*.md"))
         )
 
     if is_valid_project(base):
         return base
 
     if (
-        base.name in ("images", "svg_output", "cards", "notes")
-        or base.name.startswith("svg_output")
+        (
+            base.is_dir()
+            and (
+                base.name in ("images", "svg_output", "render_cards", "render", "notes", "output", "cards")
+                or base.name.startswith("svg_output")
+                or base.name.startswith("render")
+            )
+        )
+        or base.is_file()
     ) and is_valid_project(base.parent):
         return base.parent.resolve()
 
