@@ -206,6 +206,28 @@ class TestDriftReportSubdirAndVersionResolution(DriftReportTestBase):
             self.assertEqual(resolve_project_dir(spec), proj.resolve())
             self.assertEqual(resolve_project_dir(str(sub)), proj.resolve())
 
+    def test_resolve_project_dir_render_cards_and_output(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = self.make_project(td)
+            render_cards = proj / "render_cards"
+            render_cards.mkdir(parents=True, exist_ok=True)
+            output_dir = proj / "output"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            self.assertEqual(resolve_project_dir(render_cards), proj.resolve())
+            self.assertEqual(resolve_project_dir(output_dir), proj.resolve())
+
+    def test_resolve_project_dir_fallback_without_cpm(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            proj = self.make_project(td)
+            sub = proj / "svg_output"
+            spec = proj / "spec_lock.md"
+            with patch("scripts.drift_report._cpm_resolve_project_dir", None):
+                self.assertEqual(resolve_project_dir(sub), proj.resolve())
+                self.assertEqual(resolve_project_dir(spec), proj.resolve())
+                self.assertEqual(resolve_project_dir(""), Path.cwd().resolve())
+                self.assertEqual(resolve_project_dir("."), Path.cwd().resolve())
+
     def test_build_report_from_subfolder(self):
         with tempfile.TemporaryDirectory() as td:
             proj = self.make_project(td)
