@@ -27,6 +27,7 @@ from scripts.qa_cards import (
     load_spec_colors,
     check_card_statement_consistency,
     resolve_card_dirs,
+    resolve_project_dir,
     qa_single_cards,
     run_qa_single_cards,
     run_qa_cards,
@@ -561,6 +562,60 @@ class TestQaCardsProgrammaticAPI(unittest.TestCase):
             )
             self.assertTrue(qa_single_cards(cards_dir, verbose=False))
             self.assertTrue(run_qa_cards(proj_dir, verbose=False))
+
+
+class TestQaCardsSubdirAndSpecResolution(unittest.TestCase):
+    """测试 qa_cards 对子目录、规范文件及多版本 spec 的自适应探查。"""
+
+    def setUp(self):
+        self.td = tempfile.TemporaryDirectory()
+        self.proj = Path(self.td.name) / "test_proj"
+        self.cards_dir = self.proj / "cards"
+        self.render_cards_dir = self.proj / "render_cards"
+        self.images_dir = self.proj / "images"
+        self.cards_dir.mkdir(parents=True)
+        self.render_cards_dir.mkdir(parents=True)
+        self.images_dir.mkdir(parents=True)
+
+        self.spec_file = self.proj / "card_spec.md"
+        self.spec_file.write_text(
+            "# spec\n## typography\n- sizes: [28, 36, 44, 56, 72, 96, 132]\n- statement: 72\n## colors\n- accent: #6E7BFF\n",
+            encoding="utf-8",
+        )
+        self.card_file = self.cards_dir / "01_cover.svg"
+        create_minimal_card_svg(self.card_file, font_size=72, accent_color="#6E7BFF")
+
+    def tearDown(self):
+        self.td.cleanup()
+
+    def test_resolve_project_dir_subfolders_and_file(self):
+        self.assertEqual(resolve_project_dir(self.cards_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.render_cards_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.images_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.spec_file), self.proj.resolve())
+
+    def test_resolve_card_dirs_from_subfolder(self):
+        resolved_render = resolve_card_dirs(str(self.render_cards_dir), base_dir=Path(self.td.name))
+        self.assertEqual(resolved_render, [self.cards_dir.resolve()])
+
+        resolved_images = resolve_card_dirs(str(self.images_dir), base_dir=Path(self.td.name))
+        self.assertEqual(resolved_images, [self.cards_dir.resolve()])
+
+    def test_resolve_card_dirs_from_spec_file(self):
+        resolved_spec = resolve_card_dirs(str(self.spec_file), base_dir=Path(self.td.name))
+        self.assertEqual(resolved_spec, [self.cards_dir.resolve()])
+
+    def test_run_qa_cards_from_subfolder_and_spec_file(self):
+        self.assertTrue(run_qa_cards(self.render_cards_dir, verbose=False))
+        self.assertTrue(run_qa_cards(self.spec_file, verbose=False))
+
+    def test_qa_single_cards_with_dir_spec_path(self):
+        self.assertTrue(qa_single_cards(self.cards_dir, spec_path=self.proj, verbose=False))
+
+    def test_cli_from_subfolder_and_spec_file(self):
+        with patch("sys.stdout", new_callable=io.StringIO):
+            self.assertEqual(main([str(self.render_cards_dir)]), 0)
+            self.assertEqual(main([str(self.spec_file)]), 0)
 
 
 if __name__ == "__main__":

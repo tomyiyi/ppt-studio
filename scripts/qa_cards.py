@@ -47,6 +47,43 @@ except ImportError:
         resolve_spec = None
         find_spec = None
 
+try:
+    from scripts.check_page_map import find_svg_dir, resolve_project_dir as _cpm_resolve_project_dir
+except ImportError:
+    try:
+        from check_page_map import find_svg_dir, resolve_project_dir as _cpm_resolve_project_dir
+    except ImportError:
+        find_svg_dir = None
+        _cpm_resolve_project_dir = None
+
+
+def resolve_project_dir(project_arg: str | Path | None = None) -> Path:
+    """自适应解析项目根目录（支持从子目录 images、svg_output*、cards 等或文件回退）。"""
+    if project_arg is not None:
+        p = Path(project_arg).resolve()
+        if _cpm_resolve_project_dir is not None:
+            cand = _cpm_resolve_project_dir(p)
+            if cand != p:
+                return cand
+        if p.is_file():
+            p = p.parent
+        if (
+            p.name in ("images", "svg_output", "cards", "notes", "output", "render", "render_cards")
+            or p.name.startswith("svg_output")
+            or p.name.startswith("render")
+        ):
+            if (
+                any(p.parent.glob("spec_lock*.md"))
+                or any(p.parent.glob("card_spec*.md"))
+                or any(p.parent.glob("svg_output*"))
+                or (p.parent / "cards").is_dir()
+            ):
+                return p.parent
+        return p
+    if _cpm_resolve_project_dir is not None:
+        return _cpm_resolve_project_dir(None)
+    return Path.cwd().resolve()
+
 # 确保在未显式激活 .venv 时也能从项目内 .venv 加载依赖
 try:
     import numpy as np
@@ -366,6 +403,11 @@ def qa_single_cards(
     # 自动探测 card_spec.md
     if spec_path:
         spec_file = Path(spec_path).resolve()
+        if spec_file.is_dir():
+            for c in [spec_file / "card_spec.md", spec_file / "spec_lock.md"]:
+                if c.is_file():
+                    spec_file = c
+                    break
         if not spec_file.exists():
             _log(f"[warn] 找不到指定的 card_spec.md ({spec_file})，用默认阶梯", file=sys.stderr)
             spec_file = None
@@ -642,7 +684,7 @@ def run_qa_cards(
     """
     if target is not None:
         t_path = Path(target)
-        if t_path.is_file():
+        if t_path.is_file() and t_path.suffix.lower() == ".svg":
             return qa_single_cards(t_path, render_dir=render_dir, spec_path=spec_path, verbose=verbose)
 
     # 如果显式传入两个目录 (target, render_dir) 且 target 存在
@@ -722,7 +764,12 @@ def resolve_card_dirs(
         if p.is_file():
             if p.suffix.lower() == ".svg":
                 return [p.parent.resolve()]
-            raise ValueError(f"指定的 target 文件不是 SVG 文件: {target_arg}")
+            proj = resolve_project_dir(p)
+            if (proj / "cards").is_dir() and list((proj / "cards").glob("*.svg")):
+                return [(proj / "cards").resolve()]
+            elif list(proj.glob("*.svg")):
+                return [proj.resolve()]
+            raise ValueError(f"指定的 target 文件不是 SVG 文件且关联项目 {proj} 下无卡片: {target_arg}")
 
         cards_sub = p / "cards"
         if cards_sub.is_dir() and list(cards_sub.glob("*.svg")):
@@ -741,6 +788,13 @@ def resolve_card_dirs(
 
         if list(p.glob("*.svg")):
             return [p.resolve()]
+
+        proj = resolve_project_dir(p)
+        if proj != p:
+            if (proj / "cards").is_dir() and list((proj / "cards").glob("*.svg")):
+                return [(proj / "cards").resolve()]
+            elif list(proj.glob("*.svg")):
+                return [proj.resolve()]
 
         candidate_projects_dirs: list[Path] = []
         if (p / "projects").is_dir():
