@@ -32,6 +32,40 @@ except ImportError:
         run_qa_preview = None
         qa_preview = None
 
+try:
+    from scripts.check_page_map import find_svg_dir
+except ImportError:
+    try:
+        from check_page_map import find_svg_dir
+    except ImportError:
+        find_svg_dir = None
+
+try:
+    from scripts.spec_resolve import resolve_spec
+except ImportError:
+    try:
+        from spec_resolve import resolve_spec
+    except ImportError:
+        resolve_spec = None
+
+
+def _find_svg_dir(p: Path) -> Path | None:
+    if find_svg_dir is not None:
+        return find_svg_dir(p)
+    # fallback: 优先按数字版本最高 (svg_output_v4 > svg_output_v3 > svg_output)
+    cands = sorted(
+        [d for d in p.glob("svg_output*") if d.is_dir() and any(d.glob("*.svg"))],
+        key=lambda d: (
+            int(m.group(1)) if (m := re.match(r"^svg_output_v(\d+)$", d.name, re.I)) else (0 if d.name == "svg_output" else -1)
+        ),
+        reverse=True,
+    )
+    if cands:
+        return cands[0]
+    if any(p.glob("*.svg")):
+        return p
+    return None
+
 # 支持标准 href 与 xlink:href，支持双引号与单引号，支持属性前后空格与大小写
 IMAGE_RE = re.compile(
     r'(<image\b[^>]*?\b(?:href|xlink:href)\s*=\s*["\'])([^"\']+)(["\'])',
@@ -75,29 +109,58 @@ def resolve_project_meta(src_dir: Path) -> dict:
         "primary_text": "#F7F7F9",
         "tertiary_text": "#7F8090",
     }
-    proj_dir = src_dir.parent if src_dir.name in ("svg_output", "cards") else src_dir
+    proj_dir = (
+        src_dir.parent
+        if (
+            src_dir.name == "svg_output"
+            or src_dir.name.startswith("svg_output")
+            or src_dir.name == "cards"
+        )
+        else src_dir
+    )
 
     found_spec_title = False
-    for spec_name in ("spec_lock.md", "card_spec.md"):
-        spec_path = proj_dir / spec_name
+    found_colors: set[str] = set()
+    cand_specs: list[Path] = []
+    if resolve_spec is not None:
+        try:
+            s = resolve_spec(proj_dir)
+            if s and s.is_file():
+                cand_specs.append(s)
+        except Exception:
+            pass
+    for spec_name in ("card_spec.md", "spec_lock.md"):
+        p = proj_dir / spec_name
+        if p.is_file() and p not in cand_specs:
+            cand_specs.append(p)
+
+    for spec_path in cand_specs:
         if spec_path.is_file():
             try:
                 content = spec_path.read_text(encoding="utf-8")
                 # 提取色彩配置
-                m_acc = re.search(r"[-*]?\s*accent\s*[:=\s]\s*(#[0-9a-fA-F]{3,8})", content)
-                if m_acc:
-                    meta["accent"] = m_acc.group(1).upper()
-                m_bg = re.search(r"[-*]?\s*background\s*[:=\s]\s*(#[0-9a-fA-F]{3,8})", content)
-                if not m_bg:
-                    m_bg = re.search(r"[-*]?\s*bg\s*[:=\s]\s*(#[0-9a-fA-F]{3,8})", content)
-                if m_bg:
-                    meta["background"] = m_bg.group(1).upper()
-                m_surf = re.search(r"[-*]?\s*surface\s*[:=\s]\s*(#[0-9a-fA-F]{3,8})", content)
-                if m_surf:
-                    meta["surface"] = m_surf.group(1).upper()
-                m_div = re.search(r"[-*]?\s*(?:divider|rule)\s*[:=\s]\s*(#[0-9a-fA-F]{3,8})", content)
-                if m_div:
-                    meta["divider"] = m_div.group(1).upper()
+                if "accent" not in found_colors:
+                    m_acc = re.search(r"[-*]?\s*accent\s*[:=\s]\s*(#[0-9a-fA-F]{3,8})", content)
+                    if m_acc:
+                        meta["accent"] = m_acc.group(1).upper()
+                        found_colors.add("accent")
+                if "background" not in found_colors:
+                    m_bg = re.search(r"[-*]?\s*background\s*[:=\s]\s*(#[0-9a-fA-F]{3,8})", content)
+                    if not m_bg:
+                        m_bg = re.search(r"[-*]?\s*bg\s*[:=\s]\s*(#[0-9a-fA-F]{3,8})", content)
+                    if m_bg:
+                        meta["background"] = m_bg.group(1).upper()
+                        found_colors.add("background")
+                if "surface" not in found_colors:
+                    m_surf = re.search(r"[-*]?\s*surface\s*[:=\s]\s*(#[0-9a-fA-F]{3,8})", content)
+                    if m_surf:
+                        meta["surface"] = m_surf.group(1).upper()
+                        found_colors.add("surface")
+                if "divider" not in found_colors:
+                    m_div = re.search(r"[-*]?\s*(?:divider|rule)\s*[:=\s]\s*(#[0-9a-fA-F]{3,8})", content)
+                    if m_div:
+                        meta["divider"] = m_div.group(1).upper()
+                        found_colors.add("divider")
 
                 # 提取标题
                 if not found_spec_title:
@@ -140,7 +203,11 @@ def resolve_project_meta(src_dir: Path) -> dict:
             except Exception:
                 pass
 
-    if not found_spec_title and proj_dir.name not in ("", ".", "ppt-studio", "svg_output", "cards"):
+    if (
+        not found_spec_title
+        and proj_dir.name not in ("", ".", "ppt-studio", "cards")
+        and not proj_dir.name.startswith("svg_output")
+    ):
         meta["title"] = proj_dir.name.replace("-", " ").title()
 
     return meta
@@ -180,8 +247,8 @@ def resolve_src_dir(
     1. 保留显式 src 参数行为：
        - 若是目录且直接包含 *.svg，直接返回（若指定 cards 且 cards/ 存在则优先 cards/）；
        - 若是项目目录：
-         - cards=True 时优先查找 cards/*.svg，次选 svg_output/*.svg；
-         - cards=False 时优先查找 svg_output/*.svg，次选 cards/*.svg；
+         - cards=True 时优先查找 cards/*.svg，次选 svg_output*/*.svg（按版本优先级）；
+         - cards=False 时优先查找 svg_output*/*.svg（按版本优先级），次选 cards/*.svg；
        - 路径不存在则抛出 FileNotFoundError。
     2. 未传时从当前目录或 projects/ 下安全自动发现唯一有效项目。
     """
@@ -189,9 +256,6 @@ def resolve_src_dir(
 
     def has_svg_files(p: Path) -> bool:
         return p.is_dir() and any(p.glob("*.svg"))
-
-    def has_svg_output(p: Path) -> bool:
-        return has_svg_files(p / "svg_output")
 
     def has_cards(p: Path) -> bool:
         return has_svg_files(p / "cards")
@@ -210,16 +274,21 @@ def resolve_src_dir(
                 return (p / "cards").resolve()
             if has_svg_files(p):
                 return p
-            if has_svg_output(p):
-                return (p / "svg_output").resolve()
+            cand_svg = _find_svg_dir(p)
+            if cand_svg and cand_svg != p and has_svg_files(cand_svg):
+                return cand_svg.resolve()
             return p
 
         # cards == False
-        if not any(p.glob("*.svg")):
-            if has_svg_output(p):
-                return (p / "svg_output").resolve()
-            if has_cards(p):
-                return (p / "cards").resolve()
+        if (p.name == "svg_output" or p.name.startswith("svg_output") or p.name == "cards") and has_svg_files(p):
+            return p
+        cand_svg = _find_svg_dir(p)
+        if cand_svg and cand_svg != p and has_svg_files(cand_svg):
+            return cand_svg.resolve()
+        if has_svg_files(p):
+            return p
+        if has_cards(p):
+            return (p / "cards").resolve()
         return p
 
     # 未指定 src_arg 时自动发现
@@ -229,14 +298,14 @@ def resolve_src_dir(
         if not (base / "projects").is_dir() and has_cards(base):
             return (base / "cards").resolve()
     else:
-        if base.name == "svg_output" and has_svg_files(base):
+        if (base.name == "svg_output" or base.name.startswith("svg_output") or base.name == "cards") and has_svg_files(base):
             return base
-        if base.name == "cards" and has_svg_files(base):
-            return base
-        if not (base / "projects").is_dir() and has_svg_output(base):
-            return (base / "svg_output").resolve()
-        if not (base / "projects").is_dir() and has_cards(base):
-            return (base / "cards").resolve()
+        if not (base / "projects").is_dir():
+            cand_base = _find_svg_dir(base)
+            if cand_base and has_svg_files(cand_base) and (base.name != "ppt-studio" or cand_base != base):
+                return cand_base.resolve()
+            if has_cards(base):
+                return (base / "cards").resolve()
 
     candidate_projects_dirs: list[Path] = []
     if base.is_dir() and base.name == "projects":
@@ -267,7 +336,13 @@ def resolve_src_dir(
                         seen.add(r_sub)
                         found.append(r_sub)
             else:
-                if has_svg_output(sub):
+                sub_svg = _find_svg_dir(sub)
+                if sub_svg and has_svg_files(sub_svg) and sub_svg != sub:
+                    r_sub = sub_svg.resolve()
+                    if r_sub not in seen:
+                        seen.add(r_sub)
+                        found.append(r_sub)
+                elif (sub / "svg_output").is_dir() and has_svg_files(sub / "svg_output"):
                     r_sub = (sub / "svg_output").resolve()
                     if r_sub not in seen:
                         seen.add(r_sub)
@@ -284,8 +359,9 @@ def resolve_src_dir(
         if cards and has_cards(base):
             return (base / "cards").resolve()
         elif not cards:
-            if has_svg_output(base):
-                return (base / "svg_output").resolve()
+            cand_base = _find_svg_dir(base)
+            if cand_base and has_svg_files(cand_base) and (base.name != "ppt-studio" or cand_base != base):
+                return cand_base.resolve()
             elif has_cards(base):
                 return (base / "cards").resolve()
 
@@ -297,7 +373,10 @@ def resolve_src_dir(
             f"未在当前目录或 projects/ 下发现包含 {target_name} 的有效项目，请显式指定 src 参数"
         )
     else:
-        names = ", ".join(p.parent.name for p in found)
+        names = ", ".join(
+            p.parent.name if (p.name.startswith("svg_output") or p.name == "cards") else p.name
+            for p in found
+        )
         target_name = "cards" if cards else "svg_output"
         raise ValueError(
             f"发现多个包含 {target_name} 的有效项目 ({names})，无法安全确定，请显式指定 src 参数"

@@ -63,6 +63,15 @@ class TestResolveSrcDir(unittest.TestCase):
             resolved = resolve_src_dir(str(proj))
             self.assertEqual(resolved, (proj / "svg_output").resolve())
 
+    def test_explicit_project_dir_resolves_to_highest_version_svg_output(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "versioned_proj"
+            create_minimal_svg(proj / "svg_output" / "01.svg")
+            create_minimal_svg(proj / "svg_output_v2" / "01.svg")
+            create_minimal_svg(proj / "svg_output_v4" / "01.svg")
+            resolved = resolve_src_dir(str(proj))
+            self.assertEqual(resolved, (proj / "svg_output_v4").resolve())
+
     def test_explicit_nonexistent_dir_raises(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             non_exist = Path(tmp_dir) / "does_not_exist"
@@ -98,6 +107,15 @@ class TestResolveSrcDir(unittest.TestCase):
             create_minimal_svg(proj / "svg_output" / "01.svg")
             resolved = resolve_src_dir(None, base_dir=base)
             self.assertEqual(resolved, (proj / "svg_output").resolve())
+
+    def test_auto_discovery_resolves_to_highest_version_svg_output(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir) / "projects"
+            proj = base / "beta"
+            create_minimal_svg(proj / "svg_output" / "01.svg")
+            create_minimal_svg(proj / "svg_output_v3" / "01.svg")
+            resolved = resolve_src_dir(None, base_dir=base)
+            self.assertEqual(resolved, (proj / "svg_output_v3").resolve())
 
     def test_auto_discovery_none_found_raises(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -346,6 +364,27 @@ class TestResolveProjectMeta(unittest.TestCase):
             self.assertEqual(meta["accent"], "#10B981")
             self.assertEqual(meta["background"], "#0A0A0E")
             self.assertEqual(meta["surface"], "#16171E")
+
+    def test_meta_prioritizes_versioned_spec_lock(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "agent_proj"
+            svg_dir = proj / "svg_output_v4"
+            svg_dir.mkdir(parents=True)
+            spec_base = proj / "spec_lock.md"
+            spec_base.write_text(
+                "## communication\n- objective: 旧版目标\n\n## colors\n- accent: #111111\n",
+                encoding="utf-8",
+            )
+            spec_v4 = proj / "spec_lock_v4.md"
+            spec_v4.write_text(
+                "## communication\n- objective: 发布智流 v4\n\n## colors\n- accent: #22C55E\n",
+                encoding="utf-8",
+            )
+            create_minimal_svg(svg_dir / "01_cover.svg")
+
+            meta = resolve_project_meta(svg_dir)
+            self.assertEqual(meta["title"], "智流 v4")
+            self.assertEqual(meta["accent"], "#22C55E")
 
     def test_meta_from_card_spec(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
