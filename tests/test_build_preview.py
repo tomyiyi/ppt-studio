@@ -571,6 +571,24 @@ class TestBuildPreviewSubdirAndSpecResolution(unittest.TestCase):
         self.assertEqual(resolve_project_dir(self.images_dir), self.proj.resolve())
         self.assertEqual(resolve_project_dir(self.spec_file), self.proj.resolve())
 
+    def test_resolve_project_dir_render_cards_and_output(self):
+        render_cards = self.proj / "render_cards"
+        render_cards.mkdir(parents=True, exist_ok=True)
+        output_dir = self.proj / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        self.assertEqual(resolve_project_dir(render_cards), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(output_dir), self.proj.resolve())
+
+    def test_resolve_project_dir_fallback_without_cpm(self):
+        from unittest.mock import patch
+        with patch("scripts.build_preview._cpm_resolve_project_dir", None):
+            self.assertEqual(resolve_project_dir(self.svg_dir), self.proj.resolve())
+            self.assertEqual(resolve_project_dir(self.render_dir), self.proj.resolve())
+            self.assertEqual(resolve_project_dir(self.images_dir), self.proj.resolve())
+            self.assertEqual(resolve_project_dir(self.spec_file), self.proj.resolve())
+            self.assertEqual(resolve_project_dir(""), Path.cwd().resolve())
+            self.assertEqual(resolve_project_dir("."), Path.cwd().resolve())
+
     def test_resolve_src_dir_from_subfolder(self):
         self.assertEqual(resolve_src_dir(str(self.render_dir), base_dir=Path(self.td.name)), self.svg_dir.resolve())
         self.assertEqual(resolve_src_dir(str(self.images_dir), base_dir=Path(self.td.name)), self.svg_dir.resolve())
