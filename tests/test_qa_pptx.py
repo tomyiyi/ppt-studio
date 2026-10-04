@@ -34,6 +34,7 @@ from scripts.qa_pptx import (
     check_relationships,
     find_spec_lock,
     find_pptx_files,
+    resolve_project_dir,
     qa_single_pptx,
     run_qa_single_pptx,
     run_qa_pptx,
@@ -713,6 +714,77 @@ class CheckRoleConsistencyTest(unittest.TestCase):
         m = _smap([("slide1", 84, "a"), ("slide2", 84, "b")])
         ok, _ = check_role_consistency(m, 84)
         self.assertTrue(ok)
+
+
+class TestQAPptxSubdirAndSpecResolution(unittest.TestCase):
+    """测试 qa_pptx 对子目录、规范文件及单文件自适应项目解析。"""
+
+    def setUp(self):
+        self.td = tempfile.TemporaryDirectory()
+        self.proj = Path(self.td.name) / "test_proj"
+        self.svg_dir = self.proj / "svg_output"
+        self.render_dir = self.proj / "render"
+        self.images_dir = self.proj / "images"
+        self.notes_dir = self.proj / "notes"
+        self.output_dir = self.proj / "output"
+        self.svg_dir.mkdir(parents=True)
+        self.render_dir.mkdir(parents=True)
+        self.images_dir.mkdir(parents=True)
+        self.notes_dir.mkdir(parents=True)
+        self.output_dir.mkdir(parents=True)
+
+        self.spec_file = self.proj / "spec_lock.md"
+        self.spec_file.write_text("# spec\n", encoding="utf-8")
+
+        self.pptx_file = self.output_dir / "deck.pptx"
+        create_mock_pptx(self.pptx_file)
+
+    def tearDown(self):
+        self.td.cleanup()
+
+    def test_resolve_project_dir_subfolders_and_file(self):
+        self.assertEqual(resolve_project_dir(self.svg_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.render_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.images_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.notes_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.spec_file), self.proj.resolve())
+
+    def test_find_pptx_files_from_subfolder(self):
+        found_render = find_pptx_files(self.render_dir)
+        self.assertEqual(found_render, [self.pptx_file.resolve()])
+
+        found_images = find_pptx_files(self.images_dir)
+        self.assertEqual(found_images, [self.pptx_file.resolve()])
+
+        found_notes = find_pptx_files(self.notes_dir)
+        self.assertEqual(found_notes, [self.pptx_file.resolve()])
+
+    def test_find_pptx_files_from_spec_file(self):
+        found_spec = find_pptx_files(self.spec_file)
+        self.assertEqual(found_spec, [self.pptx_file.resolve()])
+
+    def test_find_pptx_files_from_spec_file_empty_proj(self):
+        empty_proj = Path(self.td.name) / "empty_proj"
+        empty_proj.mkdir(parents=True)
+        empty_spec = empty_proj / "spec_lock.md"
+        empty_spec.write_text("# spec\n", encoding="utf-8")
+        with self.assertRaises(ValueError):
+            find_pptx_files(empty_spec)
+
+    @patch("scripts.qa_pptx.qa_single_pptx", return_value=True)
+    def test_run_qa_pptx_from_subfolder_and_spec_file(self, mock_single):
+        self.assertTrue(run_qa_pptx(self.render_dir, verbose=False))
+        self.assertTrue(run_qa_pptx(self.spec_file, verbose=False))
+        self.assertEqual(mock_single.call_count, 2)
+
+    @patch("scripts.qa_pptx.qa_single_pptx", return_value=True)
+    def test_cli_from_subfolder_and_spec_file(self, mock_single):
+        with patch("sys.stdout", new_callable=io.StringIO):
+            code1 = main([str(self.render_dir)])
+            self.assertEqual(code1, 0)
+            code2 = main([str(self.spec_file)])
+            self.assertEqual(code2, 0)
+        self.assertEqual(mock_single.call_count, 2)
 
 
 if __name__ == "__main__":

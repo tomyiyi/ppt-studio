@@ -33,6 +33,43 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+try:
+    from scripts.check_page_map import find_svg_dir, resolve_project_dir as _cpm_resolve_project_dir
+except ImportError:
+    try:
+        from check_page_map import find_svg_dir, resolve_project_dir as _cpm_resolve_project_dir
+    except ImportError:
+        find_svg_dir = None
+        _cpm_resolve_project_dir = None
+
+
+def resolve_project_dir(project_arg: str | Path | None = None) -> Path:
+    """自适应解析项目根目录（支持从子目录 images、svg_output*、cards 等或文件回退）。"""
+    if project_arg is not None:
+        p = Path(project_arg).resolve()
+        if _cpm_resolve_project_dir is not None:
+            cand = _cpm_resolve_project_dir(p)
+            if cand != p:
+                return cand
+        if p.is_file():
+            p = p.parent
+        if (
+            p.name in ("images", "svg_output", "cards", "notes", "output", "render", "render_cards")
+            or p.name.startswith("svg_output")
+            or p.name.startswith("render")
+        ):
+            if (
+                any(p.parent.glob("spec_lock*.md"))
+                or any(p.parent.glob("card_spec*.md"))
+                or any(p.parent.glob("svg_output*"))
+                or (p.parent / "cards").is_dir()
+            ):
+                return p.parent
+        return p
+    if _cpm_resolve_project_dir is not None:
+        return _cpm_resolve_project_dir(None)
+    return Path.cwd().resolve()
+
 # 确保在未显式激活 .venv 时也能从项目内 .venv 加载依赖
 try:
     from PIL import Image
@@ -483,17 +520,39 @@ def run_qa_pptx(
     spec_p = Path(spec_path).resolve() if spec_path else find_spec_lock(target_path)
 
     if target_path.is_file():
-        if target_path.suffix.lower() != ".pptx":
+        if target_path.suffix.lower() == ".pptx":
+            return qa_single_pptx(
+                target_path,
+                spec_path=spec_p,
+                expected_slides=expected_slides,
+                expected_media=expected_media,
+                verbose=verbose,
+            )
+        try:
+            pptx_files = find_pptx_files(target_path)
+        except (FileNotFoundError, ValueError) as err:
+            if verbose:
+                print(f"  [✗] {err}")
+            return False
+        if not pptx_files:
             if verbose:
                 print(f"  [✗] 目标文件非有效 PPTX 格式: {target_path}")
             return False
-        return qa_single_pptx(
-            target_path,
-            spec_path=spec_p,
-            expected_slides=expected_slides,
-            expected_media=expected_media,
-            verbose=verbose,
-        )
+        all_ok = True
+        for i, p in enumerate(pptx_files):
+            p_spec = spec_p or find_spec_lock(p)
+            ok = qa_single_pptx(
+                p,
+                spec_path=p_spec,
+                expected_slides=expected_slides,
+                expected_media=expected_media,
+                verbose=verbose,
+            )
+            if not ok:
+                all_ok = False
+            if verbose and i < len(pptx_files) - 1:
+                print()
+        return all_ok
 
     if target_path.is_dir():
         try:
@@ -558,6 +617,21 @@ def find_pptx_files(target: Path | str | None = None, base_dir: Path | None = No
     if target_path.is_file():
         if target_path.suffix.lower() == ".pptx":
             return [target_path]
+        # 自适应从关联项目解析 PPTX 文件（如传入 spec_lock.md 等）
+        proj = resolve_project_dir(target_path)
+        cand_files: list[Path] = []
+        if (proj / "output").is_dir():
+            cand_files.extend(sorted((proj / "output").glob("*.pptx")))
+        cand_files.extend(sorted(proj.glob("*.pptx")))
+        if cand_files:
+            seen: set[Path] = set()
+            deduped: list[Path] = []
+            for f in cand_files:
+                rf = f.resolve()
+                if rf not in seen and ".venv" not in str(rf) and "site-packages" not in str(rf):
+                    seen.add(rf)
+                    deduped.append(rf)
+            return deduped
         raise ValueError(f"目标文件不是 PPTX 文件: {target_path}")
 
     found: list[Path] = []
@@ -566,7 +640,15 @@ def find_pptx_files(target: Path | str | None = None, base_dir: Path | None = No
     # 2. 目标目录中的 output/ 子目录
     if (target_path / "output").is_dir():
         found.extend(sorted((target_path / "output").glob("*.pptx")))
-    # 3. 目标目录中的 projects/*/output/ 子目录
+
+    # 3. 关联项目解析（如 target_path 为子目录 images、render、svg_output、cards 等）
+    proj = resolve_project_dir(target_path)
+    if proj != target_path:
+        if (proj / "output").is_dir():
+            found.extend(sorted((proj / "output").glob("*.pptx")))
+        found.extend(sorted(proj.glob("*.pptx")))
+
+    # 4. 目标目录中的 projects/*/output/ 子目录
     candidate_p_dirs: list[Path] = []
     if (target_path / "projects").is_dir():
         candidate_p_dirs.append(target_path / "projects")
@@ -580,7 +662,7 @@ def find_pptx_files(target: Path | str | None = None, base_dir: Path | None = No
             if p.is_dir() and (p / "output").is_dir():
                 found.extend(sorted((p / "output").glob("*.pptx")))
 
-    # 4. 向上查找 output 目录（如从子目录调用）
+    # 5. 向上查找 output 目录（如从子目录调用）
     if not found and (target_path.parent / "output").is_dir():
         found.extend(sorted((target_path.parent / "output").glob("*.pptx")))
     if not found and (target_path.parent.parent / "output").is_dir():
