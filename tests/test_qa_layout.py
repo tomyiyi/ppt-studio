@@ -51,6 +51,7 @@ from scripts.qa_layout import (
     run_qa_single_layout,
     run_qa_layout,
     qa_layout,
+    resolve_project_dir,
     main,
 )
 
@@ -746,3 +747,69 @@ class TestRoleDiscipline(unittest.TestCase):
 
     def test_max_cards_constant(self):
         self.assertEqual(BREATHING_MAX_CARDS, 2)
+
+
+class TestQaLayoutSubdirAndSpecResolution(unittest.TestCase):
+    """测试 qa_layout 对子目录、规范文件及多版本 spec 的自适应探查。"""
+
+    def setUp(self):
+        self.td = tempfile.TemporaryDirectory()
+        self.proj = Path(self.td.name) / "test_proj"
+        self.svg_dir = self.proj / "svg_output"
+        self.render_dir = self.proj / "render"
+        self.images_dir = self.proj / "images"
+        self.svg_dir.mkdir(parents=True)
+        self.render_dir.mkdir(parents=True)
+        self.images_dir.mkdir(parents=True)
+
+        self.spec_file = self.proj / "spec_lock.md"
+        self.spec_file.write_text(
+            "# spec\n## canvas\n- viewBox: 0 0 1280 720\n- margin: 60px\n## typography\n- sizes: [16, 24, 32, 56]\n- statement: 56\n",
+            encoding="utf-8",
+        )
+        svg_content = (
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">'
+            '<rect width="1280" height="720" fill="#000"/>'
+            '<text x="60" y="100" font-size="56" fill="#fff">主标题测试</text>'
+            "</svg>"
+        )
+        (self.svg_dir / "01_cover.svg").write_text(svg_content, encoding="utf-8")
+
+    def tearDown(self):
+        self.td.cleanup()
+
+    def test_resolve_project_dir_subfolders_and_file(self):
+        self.assertEqual(resolve_project_dir(self.svg_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.render_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.images_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.spec_file), self.proj.resolve())
+
+    def test_resolve_layout_dirs_from_subfolder_and_spec_file(self):
+        # 传入子目录 render 或 images
+        res_render = resolve_layout_dirs(self.render_dir)
+        self.assertEqual(res_render, [self.svg_dir.resolve()])
+        res_images = resolve_layout_dirs(self.images_dir)
+        self.assertEqual(res_images, [self.svg_dir.resolve()])
+
+        # 传入 spec_lock.md 文件
+        res_spec = resolve_layout_dirs(self.spec_file)
+        self.assertEqual(res_spec, [self.svg_dir.resolve()])
+
+    def test_qa_single_layout_from_subfolder_and_file(self):
+        # 从子目录运行 qa_single_layout
+        ok = qa_single_layout(self.render_dir, verbose=False)
+        self.assertTrue(ok)
+
+        # 从 spec 文件运行 qa_single_layout
+        ok_spec = qa_single_layout(self.spec_file, verbose=False)
+        self.assertTrue(ok_spec)
+
+    def test_qa_single_layout_with_dir_spec_path(self):
+        # 将 spec_path 指向项目根目录，应自适应解析为 spec_lock.md
+        ok = qa_single_layout(self.svg_dir, spec_path=self.proj, verbose=False)
+        self.assertTrue(ok)
+
+    def test_cli_from_subfolder_and_spec_file(self):
+        self.assertEqual(main([str(self.render_dir)]), 0)
+        self.assertEqual(main([str(self.spec_file)]), 0)
+

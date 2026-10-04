@@ -32,7 +32,38 @@ if str(REPO_ROOT) not in sys.path:
 from collections import Counter
 import xml.etree.ElementTree as ET
 
-from scripts.check_page_map import find_svg_dir
+from scripts.check_page_map import find_svg_dir, resolve_project_dir as _cpm_resolve_project_dir
+
+try:
+    from scripts.spec_resolve import find_spec, resolve_spec
+except ImportError:
+    try:
+        from spec_resolve import find_spec, resolve_spec
+    except ImportError:
+        find_spec = None
+        resolve_spec = None
+
+
+def resolve_project_dir(project_arg: str | Path | None = None) -> Path:
+    """自适应解析项目根目录（支持从子目录 images、svg_output*、cards 等或文件回退）。"""
+    if _cpm_resolve_project_dir is not None:
+        return _cpm_resolve_project_dir(project_arg)
+    if project_arg is not None:
+        p = Path(project_arg).resolve()
+        if p.is_file():
+            p = p.parent
+        if (
+            p.name in ("images", "svg_output", "cards", "notes", "output", "render")
+            or p.name.startswith("svg_output")
+        ):
+            if (
+                any(p.parent.glob("spec_lock*.md"))
+                or any(p.parent.glob("svg_output*"))
+                or (p.parent / "cards").is_dir()
+            ):
+                return p.parent
+        return p
+    return Path.cwd().resolve()
 
 # 确保在未显式激活 .venv 时也能从项目内 .venv 加载依赖
 try:
@@ -554,16 +585,34 @@ def qa_single_layout(
         return False
 
     if target.is_file():
-        if target.suffix.lower() != ".svg":
-            _log(f"[!] 指定文件不是 SVG 文件: {target}", file=sys.stderr)
-            return False
-        svg_files = [target]
-        svg_dir = target.parent
+        if target.suffix.lower() == ".svg":
+            svg_files = [target]
+            svg_dir = target.parent
+        else:
+            proj = resolve_project_dir(target)
+            found_dir = find_svg_dir(proj) if find_svg_dir is not None else None
+            if found_dir:
+                svg_dir = found_dir.resolve()
+                svg_files = sorted(svg_dir.glob("*.svg"))
+            else:
+                _log(f"[!] 指定文件不是 SVG 文件: {target}", file=sys.stderr)
+                return False
     else:
         # 如果 target 为项目目录且当前目录无 svg，按版本优先级切入 svg_output*
-        found_dir = find_svg_dir(target)
-        if not list(target.glob("*.svg")) and found_dir and found_dir != target:
-            svg_dir = found_dir.resolve()
+        found_dir = find_svg_dir(target) if find_svg_dir is not None else None
+        if not list(target.glob("*.svg")):
+            if found_dir and found_dir != target:
+                svg_dir = found_dir.resolve()
+            else:
+                proj = resolve_project_dir(target)
+                if proj != target:
+                    found_dir2 = find_svg_dir(proj) if find_svg_dir is not None else None
+                    if found_dir2:
+                        svg_dir = found_dir2.resolve()
+                    else:
+                        svg_dir = target
+                else:
+                    svg_dir = target
         else:
             svg_dir = target
         svg_files = sorted(svg_dir.glob("*.svg"))
@@ -584,13 +633,13 @@ def qa_single_layout(
     # 查找 spec（版本感知：同目录 spec_lock_vN.md 优先于 spec_lock.md，见 spec_resolve）
     if spec_path:
         spec = Path(spec_path).resolve()
-        if not spec.exists():
+        if spec.is_dir():
+            spec = (resolve_spec(spec) if resolve_spec is not None else None) or (find_spec(spec) if find_spec is not None else None)
+        if spec and not spec.exists():
             _log(f"[warn] 找不到指定的 spec_lock.md ({spec})，用默认阶梯", file=sys.stderr)
             spec = None
     else:
-        from scripts.spec_resolve import find_spec
-
-        spec = find_spec(svg_dir)
+        spec = find_spec(svg_dir) if find_spec is not None else None
         if spec:
             _log(f"[i] 采用 spec: {spec}", file=sys.stderr)
 
@@ -850,9 +899,17 @@ def resolve_layout_dirs(
         if p.is_file():
             if p.suffix.lower() == ".svg":
                 return [p]
+            proj = resolve_project_dir(p)
+            found = find_svg_dir(proj) if find_svg_dir is not None else None
+            if found:
+                return [found.resolve()]
             raise ValueError(f"指定的 target 文件不是 SVG 文件: {target_arg}")
 
-        found = find_svg_dir(p)
+        found = find_svg_dir(p) if find_svg_dir is not None else None
+        if not found:
+            proj = resolve_project_dir(p)
+            if proj != p and find_svg_dir is not None:
+                found = find_svg_dir(proj)
         if found:
             return [found.resolve()]
 
