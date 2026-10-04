@@ -431,14 +431,26 @@ def resolve_project_dir(
             p = p.resolve()
         if not p.exists():
             raise FileNotFoundError(f"指定的项目目录不存在: {project_arg}")
+        if p.is_file():
+            if (
+                (p.parent / "cards").is_dir()
+                or any(p.parent.glob("card_spec*.md"))
+                or any(p.parent.glob("spec_lock*.md"))
+            ):
+                return p.parent.resolve()
+            p = p.parent
         if (
             p.is_dir()
             and (
-                p.name in ("images", "svg_output", "render_cards", "render", "notes", "output")
+                p.name in ("images", "svg_output", "render_cards", "render", "notes", "output", "cards")
                 or p.name.startswith("svg_output")
+                or p.name.startswith("render")
             )
-            and (p.parent / "cards").is_dir()
-            and list((p.parent / "cards").glob("*.svg"))
+            and (
+                (p.parent / "cards").is_dir()
+                or any(p.parent.glob("card_spec*.md"))
+                or any(p.parent.glob("spec_lock*.md"))
+            )
         ):
             return p.parent.resolve()
         if p.is_dir() and p.name == "cards" and list(p.glob("*.svg")):
@@ -532,6 +544,25 @@ def find_long_cards(
     if not target_path.is_dir():
         if target_path.suffix.lower() == ".png":
             return [target_path]
+        # 自适应从关联项目解析长图文件（如传入 card_spec.md / spec_lock.md 等）
+        cand_proj = target_path.parent
+        cand_files: list[Path] = []
+        if (cand_proj / "output").is_dir():
+            for pattern in ["*长图*.png", "*long_card*.png"]:
+                cand_files.extend(sorted((cand_proj / "output").glob(pattern)))
+            if not cand_files:
+                cand_files.extend([f for f in sorted((cand_proj / "output").glob("*.png")) if "卡片" not in f.name and "render" not in f.name])
+        for pattern in ["*长图*.png", "*long_card*.png"]:
+            cand_files.extend(sorted(cand_proj.glob(pattern)))
+        if cand_files:
+            seen_f: set[Path] = set()
+            deduped_f: list[Path] = []
+            for f in cand_files:
+                rf = f.resolve()
+                if rf not in seen_f:
+                    seen_f.add(rf)
+                    deduped_f.append(rf)
+            return deduped_f
         raise ValueError(f"目标文件不是 PNG 图片: {target_path}")
 
     found: list[Path] = []
@@ -544,6 +575,22 @@ def find_long_cards(
             found.extend(sorted((target_path / "output").glob(pattern)))
         if not found:
             found = [f for f in sorted((target_path / "output").glob("*.png")) if "卡片" not in f.name and "render" not in f.name]
+
+    # 关联项目解析（如 target_path 为子目录 images、render_cards、svg_output、cards 等）
+    if not found and (
+        target_path.name in ("images", "svg_output", "render_cards", "render", "notes", "output", "cards")
+        or target_path.name.startswith("svg_output")
+        or target_path.name.startswith("render")
+    ):
+        cand_proj = target_path.parent
+        if (cand_proj / "output").is_dir():
+            for pattern in ["*长图*.png", "*long_card*.png"]:
+                found.extend(sorted((cand_proj / "output").glob(pattern)))
+            if not found:
+                found.extend([f for f in sorted((cand_proj / "output").glob("*.png")) if "卡片" not in f.name and "render" not in f.name])
+        for pattern in ["*长图*.png", "*long_card*.png"]:
+            found.extend(sorted(cand_proj.glob(pattern)))
+
     if not found:
         candidate_p_dirs = []
         if (target_path / "projects").is_dir():
@@ -682,27 +729,45 @@ def run_qa_long_card(
     else:
         target_p = base
 
-    # 若是普通文件，直接单文件质检
-    if target_p.is_file():
-        return run_qa_single_long_card(
-            target_path=target_p,
-            project_dir=project_dir,
-            require_header=require_header,
-            require_footer=require_footer,
-            verbose=verbose,
-        )
-
-    # 目录或自动发现模式
-    try:
-        files_to_check = find_long_cards(target_p)
-    except (FileNotFoundError, ValueError) as err:
+    if not target_p.exists():
         if verbose:
-            print(f"[!] {err}", file=sys.stderr)
+            print(f"[!] 目标路径不存在: {target_p}", file=sys.stderr)
         return False
 
-    if not files_to_check:
-        if verbose:
-            print(f"[!] 在目录 {target_p} 或 output/、projects/*/output/ 下未发现长图 PNG 文件", file=sys.stderr)
+    # 若是普通文件，直接单文件质检（PNG）或自适应解析关联长图（如 spec 文件）
+    if target_p.is_file():
+        if target_p.suffix.lower() == ".png":
+            return run_qa_single_long_card(
+                target_path=target_p,
+                project_dir=project_dir,
+                require_header=require_header,
+                require_footer=require_footer,
+                verbose=verbose,
+            )
+        try:
+            files_to_check = find_long_cards(target_p)
+        except (FileNotFoundError, ValueError) as err:
+            if verbose:
+                print(f"[!] {err}", file=sys.stderr)
+            return False
+        if not files_to_check:
+            if verbose:
+                print(f"[!] 目标文件不是 PNG 图片: {target_p}", file=sys.stderr)
+            return False
+    elif target_p.is_dir():
+        # 目录或自动发现模式
+        try:
+            files_to_check = find_long_cards(target_p)
+        except (FileNotFoundError, ValueError) as err:
+            if verbose:
+                print(f"[!] {err}", file=sys.stderr)
+            return False
+
+        if not files_to_check:
+            if verbose:
+                print(f"[!] 在目录 {target_p} 或 output/、projects/*/output/ 下未发现长图 PNG 文件", file=sys.stderr)
+            return False
+    else:
         return False
 
     explicit_project = resolve_project_dir(project_dir) if project_dir else None

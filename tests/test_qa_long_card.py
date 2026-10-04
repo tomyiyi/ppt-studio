@@ -557,5 +557,76 @@ class TestProgrammaticAPI(unittest.TestCase):
             self.assertFalse(res)
 
 
+class TestQALongCardSubdirAndSpecResolution(unittest.TestCase):
+    """测试 qa_long_card 对子目录、规范文件及单文件自适应项目解析。"""
+
+    def setUp(self):
+        self.td = tempfile.TemporaryDirectory()
+        self.proj = Path(self.td.name) / "test_proj"
+        self.cards_dir = self.proj / "cards"
+        self.render_cards_dir = self.proj / "render_cards"
+        self.images_dir = self.proj / "images"
+        self.notes_dir = self.proj / "notes"
+        self.output_dir = self.proj / "output"
+        self.cards_dir.mkdir(parents=True)
+        self.render_cards_dir.mkdir(parents=True)
+        self.images_dir.mkdir(parents=True)
+        self.notes_dir.mkdir(parents=True)
+        self.output_dir.mkdir(parents=True)
+
+        self.spec_file = self.proj / "card_spec.md"
+        self.spec_file.write_text("# spec\n", encoding="utf-8")
+
+        self.long_card_file = self.output_dir / "test_长图.png"
+        self.long_card_file.touch()
+
+    def tearDown(self):
+        self.td.cleanup()
+
+    def test_resolve_project_dir_subfolders_and_file(self):
+        self.assertEqual(resolve_project_dir(self.cards_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.render_cards_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.images_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.notes_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.spec_file), self.proj.resolve())
+
+    def test_find_long_cards_from_subfolder(self):
+        found_render = find_long_cards(self.render_cards_dir)
+        self.assertEqual(found_render, [self.long_card_file.resolve()])
+
+        found_images = find_long_cards(self.images_dir)
+        self.assertEqual(found_images, [self.long_card_file.resolve()])
+
+        found_notes = find_long_cards(self.notes_dir)
+        self.assertEqual(found_notes, [self.long_card_file.resolve()])
+
+    def test_find_long_cards_from_spec_file(self):
+        found_spec = find_long_cards(self.spec_file)
+        self.assertEqual(found_spec, [self.long_card_file.resolve()])
+
+    def test_find_long_cards_from_spec_file_empty_proj(self):
+        empty_proj = Path(self.td.name) / "empty_proj"
+        empty_proj.mkdir(parents=True)
+        empty_spec = empty_proj / "card_spec.md"
+        empty_spec.write_text("# spec\n", encoding="utf-8")
+        with self.assertRaises(ValueError):
+            find_long_cards(empty_spec)
+
+    @patch("scripts.qa_long_card.run_qa_single_long_card", return_value=True)
+    def test_run_qa_long_card_from_subfolder_and_spec_file(self, mock_single):
+        self.assertTrue(run_qa_long_card(self.render_cards_dir, verbose=False))
+        self.assertTrue(run_qa_long_card(self.spec_file, verbose=False))
+        self.assertEqual(mock_single.call_count, 2)
+
+    @patch("scripts.qa_long_card.run_qa_single_long_card", return_value=True)
+    def test_cli_from_subfolder_and_spec_file(self, mock_single):
+        with patch("sys.stdout", new_callable=io.StringIO):
+            code1 = main([str(self.render_cards_dir)])
+            self.assertEqual(code1, 0)
+            code2 = main([str(self.spec_file)])
+            self.assertEqual(code2, 0)
+        self.assertEqual(mock_single.call_count, 2)
+
+
 if __name__ == "__main__":
     unittest.main()
