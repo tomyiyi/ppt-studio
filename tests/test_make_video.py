@@ -86,6 +86,17 @@ class TestResolveProjectDir(unittest.TestCase):
             resolved = resolve_project_dir(str(sub))
             self.assertEqual(resolved, proj.resolve())
 
+    def test_explicit_file_and_other_subfolders_normalization(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "custom_proj"
+            create_valid_project(proj)
+            for sub_name in ("render", "render_cards", "images", "output"):
+                sub = proj / sub_name
+                sub.mkdir(parents=True, exist_ok=True)
+                self.assertEqual(resolve_project_dir(str(sub)), proj.resolve())
+            vo_file = proj / "voiceover.json"
+            self.assertEqual(resolve_project_dir(str(vo_file)), proj.resolve())
+
     def test_explicit_nonexistent_project_raises(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             non_exist = Path(tmp_dir) / "does_not_exist"
@@ -107,6 +118,17 @@ class TestResolveProjectDir(unittest.TestCase):
             sub.mkdir(parents=True, exist_ok=True)
             resolved = resolve_project_dir(None, base_dir=sub)
             self.assertEqual(resolved, base.resolve())
+
+    def test_auto_discovery_from_file_and_other_subfolders(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir)
+            create_valid_project(base)
+            for sub_name in ("render", "render_cards", "images", "output"):
+                sub = base / sub_name
+                sub.mkdir(parents=True, exist_ok=True)
+                self.assertEqual(resolve_project_dir(None, base_dir=sub), base.resolve())
+            vo_file = base / "voiceover.json"
+            self.assertEqual(resolve_project_dir(None, base_dir=vo_file), base.resolve())
 
     def test_auto_discovery_from_projects_dir(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

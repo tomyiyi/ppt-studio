@@ -149,9 +149,12 @@ def resolve_project_dir(
             proj = proj.resolve()
         if not proj.exists():
             raise FileNotFoundError(f"指定的项目目录不存在: {project_arg}")
+        if proj.is_file():
+            proj = proj.parent
         if (
-            proj.name in ("svg_output", "cards", "notes")
+            proj.name in ("images", "svg_output", "render_cards", "render", "notes", "output", "cards")
             or proj.name.startswith("svg_output")
+            or proj.name.startswith("render")
         ) and proj.is_dir():
             proj = proj.parent
         return proj
@@ -175,10 +178,14 @@ def resolve_project_dir(
     if is_valid_project(base):
         return base
 
-    # 若当前位于子目录 (如 svg_output/、svg_output_v*/、cards/、notes/)
+    # 若传入或当前位于文件或子目录 (如 svg_output/、render/、render_cards/、images/、notes/、output/)
+    if base.is_file() and is_valid_project(base.parent):
+        return base.parent
+
     if (
-        base.name in ("svg_output", "cards", "notes")
+        base.name in ("images", "svg_output", "render_cards", "render", "notes", "output", "cards")
         or base.name.startswith("svg_output")
+        or base.name.startswith("render")
     ) and is_valid_project(base.parent):
         return base.parent
 
