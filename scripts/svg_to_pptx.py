@@ -41,7 +41,42 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.check_page_map import find_svg_dir  # 版本优先级：svg_output_v4 > svg_output
+try:
+    from scripts.check_page_map import find_svg_dir, resolve_project_dir as _cpm_resolve_project_dir
+except ImportError:
+    try:
+        from check_page_map import find_svg_dir, resolve_project_dir as _cpm_resolve_project_dir
+    except ImportError:
+        find_svg_dir = None
+        _cpm_resolve_project_dir = None
+
+
+def resolve_project_dir(project_arg: str | Path | None = None) -> Path:
+    """自适应解析项目根目录（支持从子目录 images、svg_output*、cards 等或文件回退）。"""
+    if project_arg is not None:
+        p = Path(project_arg).resolve()
+        if _cpm_resolve_project_dir is not None:
+            cand = _cpm_resolve_project_dir(p)
+            if cand != p:
+                return cand
+        if p.is_file():
+            p = p.parent
+        if (
+            p.name in ("images", "svg_output", "cards", "notes", "output", "render", "render_cards")
+            or p.name.startswith("svg_output")
+            or p.name.startswith("render")
+        ):
+            if (
+                any(p.parent.glob("spec_lock*.md"))
+                or any(p.parent.glob("card_spec*.md"))
+                or any(p.parent.glob("svg_output*"))
+                or (p.parent / "cards").is_dir()
+            ):
+                return p.parent
+        return p
+    if _cpm_resolve_project_dir is not None:
+        return _cpm_resolve_project_dir(None)
+    return Path.cwd().resolve()
 
 try:
     from pptx import Presentation
@@ -470,20 +505,44 @@ def resolve_svg_dir(src: str | Path | None) -> tuple[Path, Path]:
         p = Path(src).resolve()
         if not p.exists():
             raise FileNotFoundError(f"指定的源不存在: {src}")
+        if p.is_file():
+            if p.suffix.lower() == ".svg":
+                proj_dir = resolve_project_dir(p.parent)
+                return p.parent, proj_dir
+            proj = resolve_project_dir(p)
+            cand_svg = find_svg_dir(proj) if find_svg_dir else None
+            if cand_svg and any(cand_svg.glob("*.svg")):
+                return cand_svg, proj
+            if any(proj.glob("*.svg")):
+                return proj, proj.parent
+            raise FileNotFoundError(f"在文件关联项目 {proj} 下找不到 SVG 目录（svg_output*）")
         if p.is_dir() and any(p.glob("*.svg")):
-            return p, p.parent
-        proj = find_svg_dir(p)
-        if proj is None:
-            raise FileNotFoundError(f"在 {p} 下找不到 SVG 目录（svg_output*）")
-        return proj, p
+            proj_dir = resolve_project_dir(p)
+            return p, proj_dir
+        cand_svg = find_svg_dir(p) if find_svg_dir else None
+        if cand_svg is not None and any(cand_svg.glob("*.svg")):
+            return cand_svg, p
+        proj = resolve_project_dir(p)
+        if proj != p:
+            cand_svg = find_svg_dir(proj) if find_svg_dir else None
+            if cand_svg is not None and any(cand_svg.glob("*.svg")):
+                return cand_svg, proj
+            if any(proj.glob("*.svg")):
+                return proj, proj.parent
+        raise FileNotFoundError(f"在 {p} 下找不到 SVG 目录（svg_output*）")
     # 自动发现：当前目录或 projects/ 下唯一项目（多项目 fail-closed）
     cwd = Path.cwd().resolve()
+    cand_proj = resolve_project_dir(cwd)
+    if cand_proj != cwd:
+        cand_svg = find_svg_dir(cand_proj) if find_svg_dir else None
+        if cand_svg is not None and any(cand_svg.glob("*.svg")):
+            return cand_svg, cand_proj
     cands: list[Path] = []
     for base in (cwd, cwd / "projects", REPO_ROOT, REPO_ROOT / "projects"):
         if not base.is_dir():
             continue
         for d in base.iterdir():
-            if d.is_dir() and find_svg_dir(d) is not None:
+            if d.is_dir() and find_svg_dir and find_svg_dir(d) is not None:
                 cands.append(d)
     uniq = sorted(set(cands))
     if len(uniq) == 1:

@@ -32,6 +32,7 @@ from scripts.svg_to_pptx import (
     parse_color,
     parse_viewbox,
     render_background,
+    resolve_project_dir,
     resolve_svg_dir,
     rsvg_available,
     strip_body_texts,
@@ -209,6 +210,41 @@ class TestResolve(unittest.TestCase):
     def test_missing_raises(self):
         with self.assertRaises(FileNotFoundError):
             resolve_svg_dir("/tmp/definitely-not-here-xyz")
+
+    def test_resolve_from_subfolder_and_spec_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "test_proj"
+            svg_dir = proj / "svg_output"
+            render_dir = proj / "render"
+            images_dir = proj / "images"
+            svg_dir.mkdir(parents=True)
+            render_dir.mkdir(parents=True)
+            images_dir.mkdir(parents=True)
+            spec_file = proj / "spec_lock.md"
+            spec_file.write_text("# spec\n", encoding="utf-8")
+            _write_fixture(svg_dir)
+
+            self.assertEqual(resolve_project_dir(svg_dir), proj.resolve())
+            self.assertEqual(resolve_project_dir(render_dir), proj.resolve())
+            self.assertEqual(resolve_project_dir(images_dir), proj.resolve())
+            self.assertEqual(resolve_project_dir(spec_file), proj.resolve())
+
+            resolved_render_svg, resolved_render_proj = resolve_svg_dir(render_dir)
+            self.assertEqual(resolved_render_svg, svg_dir.resolve())
+            self.assertEqual(resolved_render_proj, proj.resolve())
+
+            resolved_images_svg, resolved_images_proj = resolve_svg_dir(images_dir)
+            self.assertEqual(resolved_images_svg, svg_dir.resolve())
+            self.assertEqual(resolved_images_proj, proj.resolve())
+
+            resolved_spec_svg, resolved_spec_proj = resolve_svg_dir(spec_file)
+            self.assertEqual(resolved_spec_svg, svg_dir.resolve())
+            self.assertEqual(resolved_spec_proj, proj.resolve())
+
+            first_svg = svg_dir / "01_page1.svg"
+            resolved_single_svg, resolved_single_proj = resolve_svg_dir(first_svg)
+            self.assertEqual(resolved_single_svg, svg_dir.resolve())
+            self.assertEqual(resolved_single_proj, proj.resolve())
 
 
 class TestCheck(unittest.TestCase):
