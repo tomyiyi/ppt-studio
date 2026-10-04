@@ -681,6 +681,25 @@ class TestQAPreviewSubdirAndSpecResolution(unittest.TestCase):
         self.assertEqual(resolve_project_dir(self.notes_dir), self.proj.resolve())
         self.assertEqual(resolve_project_dir(self.spec_file), self.proj.resolve())
 
+    def test_resolve_project_dir_render_cards_and_output(self):
+        render_cards = self.proj / "render_cards"
+        render_cards.mkdir(parents=True, exist_ok=True)
+        output_dir = self.proj / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        self.assertEqual(resolve_project_dir(render_cards), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(output_dir), self.proj.resolve())
+
+    def test_resolve_project_dir_fallback_without_cpm(self):
+        from unittest.mock import patch
+        with patch("scripts.qa_preview._cpm_resolve_project_dir", None):
+            self.assertEqual(resolve_project_dir(self.svg_dir), self.proj.resolve())
+            self.assertEqual(resolve_project_dir(self.render_dir), self.proj.resolve())
+            self.assertEqual(resolve_project_dir(self.images_dir), self.proj.resolve())
+            self.assertEqual(resolve_project_dir(self.notes_dir), self.proj.resolve())
+            self.assertEqual(resolve_project_dir(self.spec_file), self.proj.resolve())
+            self.assertEqual(resolve_project_dir(""), Path.cwd().resolve())
+            self.assertEqual(resolve_project_dir("."), Path.cwd().resolve())
+
     def test_find_preview_files_from_subfolder(self):
         found_render = find_preview_files(self.render_dir)
         self.assertEqual(found_render, [self.preview_html.resolve()])
