@@ -32,6 +32,7 @@ from scripts.qa_video import (
     probe_streams,
     qa_single_video,
     qa_video,
+    resolve_project_dir,
     run_qa_video,
     run_qa_single_video,
     run_qa_subtitles,
@@ -651,6 +652,76 @@ class TestQAVideoProgrammaticAPI(unittest.TestCase):
 
     def test_run_qa_subtitles_missing(self):
         self.assertFalse(run_qa_subtitles("/non_existent_subtitles_file.srt", verbose=False))
+
+
+class TestQAVideoSubdirAndSpecResolution(unittest.TestCase):
+    """测试 qa_video 对子目录、规范文件及单文件自适应项目解析。"""
+
+    def setUp(self):
+        self.td = tempfile.TemporaryDirectory()
+        self.proj = Path(self.td.name) / "test_proj"
+        self.svg_dir = self.proj / "svg_output"
+        self.render_dir = self.proj / "render"
+        self.images_dir = self.proj / "images"
+        self.notes_dir = self.proj / "notes"
+        self.output_dir = self.proj / "output"
+        self.svg_dir.mkdir(parents=True)
+        self.render_dir.mkdir(parents=True)
+        self.images_dir.mkdir(parents=True)
+        self.notes_dir.mkdir(parents=True)
+        self.output_dir.mkdir(parents=True)
+
+        self.spec_file = self.proj / "spec_lock.md"
+        self.spec_file.write_text("# spec\n", encoding="utf-8")
+
+        self.video_file = self.output_dir / "presentation.mp4"
+        self.video_file.touch()
+
+    def tearDown(self):
+        self.td.cleanup()
+
+    def test_resolve_project_dir_subfolders_and_file(self):
+        self.assertEqual(resolve_project_dir(self.svg_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.render_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.images_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.notes_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.spec_file), self.proj.resolve())
+
+    def test_find_videos_from_subfolder(self):
+        found_render = find_videos(self.render_dir)
+        self.assertEqual(found_render, [self.video_file.resolve()])
+
+        found_images = find_videos(self.images_dir)
+        self.assertEqual(found_images, [self.video_file.resolve()])
+
+        found_notes = find_videos(self.notes_dir)
+        self.assertEqual(found_notes, [self.video_file.resolve()])
+
+    def test_find_videos_from_spec_file(self):
+        found_spec = find_videos(self.spec_file)
+        self.assertEqual(found_spec, [self.video_file.resolve()])
+
+    def test_find_videos_from_spec_file_empty_proj(self):
+        empty_proj = Path(self.td.name) / "empty_proj"
+        empty_proj.mkdir(parents=True)
+        empty_spec = empty_proj / "spec_lock.md"
+        empty_spec.write_text("# spec\n", encoding="utf-8")
+        self.assertEqual(find_videos(empty_spec), [])
+
+    @patch("scripts.qa_video.qa_single_video", return_value=True)
+    def test_qa_video_from_subfolder_and_spec_file(self, mock_single):
+        self.assertTrue(qa_video(self.render_dir, verbose=False))
+        self.assertTrue(qa_video(self.spec_file, verbose=False))
+        self.assertEqual(mock_single.call_count, 2)
+
+    @patch("scripts.qa_video.qa_single_video", return_value=True)
+    def test_cli_from_subfolder_and_spec_file(self, mock_single):
+        with patch("sys.stdout", new_callable=io.StringIO):
+            code1 = main([str(self.render_dir)])
+            self.assertEqual(code1, 0)
+            code2 = main([str(self.spec_file)])
+            self.assertEqual(code2, 0)
+        self.assertEqual(mock_single.call_count, 2)
 
 
 if __name__ == "__main__":

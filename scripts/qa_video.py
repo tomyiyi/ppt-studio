@@ -27,6 +27,47 @@ import subprocess
 import sys
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+try:
+    from scripts.check_page_map import find_svg_dir, resolve_project_dir as _cpm_resolve_project_dir
+except ImportError:
+    try:
+        from check_page_map import find_svg_dir, resolve_project_dir as _cpm_resolve_project_dir
+    except ImportError:
+        find_svg_dir = None
+        _cpm_resolve_project_dir = None
+
+
+def resolve_project_dir(project_arg: str | Path | None = None) -> Path:
+    """自适应解析项目根目录（支持从子目录 images、svg_output*、cards 等或文件回退）。"""
+    if project_arg is not None:
+        p = Path(project_arg).resolve()
+        if _cpm_resolve_project_dir is not None:
+            cand = _cpm_resolve_project_dir(p)
+            if cand != p:
+                return cand
+        if p.is_file():
+            p = p.parent
+        if (
+            p.name in ("images", "svg_output", "cards", "notes", "output", "render", "render_cards")
+            or p.name.startswith("svg_output")
+            or p.name.startswith("render")
+        ):
+            if (
+                any(p.parent.glob("spec_lock*.md"))
+                or any(p.parent.glob("card_spec*.md"))
+                or any(p.parent.glob("svg_output*"))
+                or (p.parent / "cards").is_dir()
+            ):
+                return p.parent
+        return p
+    if _cpm_resolve_project_dir is not None:
+        return _cpm_resolve_project_dir(None)
+    return Path.cwd().resolve()
+
 
 def run_probe(cmd: list[str]) -> str:
     res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -296,7 +337,24 @@ def find_videos(target: Path | str | None = None) -> list[Path]:
     else:
         target_path = Path(target).resolve()
     if target_path.is_file():
-        return [target_path] if target_path.suffix.lower() == ".mp4" else []
+        if target_path.suffix.lower() == ".mp4":
+            return [target_path]
+        # 自适应从关联项目解析 MP4 视频
+        proj = resolve_project_dir(target_path)
+        cand_files: list[Path] = []
+        if (proj / "output").is_dir():
+            cand_files.extend(sorted((proj / "output").glob("*.mp4")))
+        cand_files.extend(sorted(proj.glob("*.mp4")))
+        if cand_files:
+            seen: set[Path] = set()
+            deduped: list[Path] = []
+            for f in cand_files:
+                rf = f.resolve()
+                if rf not in seen:
+                    seen.add(rf)
+                    deduped.append(rf)
+            return deduped
+        return []
 
     if not target_path.is_dir():
         return []
@@ -312,7 +370,14 @@ def find_videos(target: Path | str | None = None) -> list[Path]:
         if found:
             return found
 
-    # 3. 目标目录下的 projects/*/output/ 或目标本身为 projects 时的子项目
+    # 3. 关联项目解析（如 target_path 为子目录 images、render、svg_output、cards 等）
+    proj = resolve_project_dir(target_path)
+    if proj != target_path:
+        if (proj / "output").is_dir():
+            found.extend(sorted((proj / "output").glob("*.mp4")))
+        found.extend(sorted(proj.glob("*.mp4")))
+
+    # 4. 目标目录下的 projects/*/output/ 或目标本身为 projects 时的子项目
     candidate_p_dirs: list[Path] = []
     if (target_path / "projects").is_dir():
         candidate_p_dirs.append(target_path / "projects")
@@ -326,7 +391,7 @@ def find_videos(target: Path | str | None = None) -> list[Path]:
             if p.is_dir() and (p / "output").is_dir():
                 found.extend(sorted((p / "output").glob("*.mp4")))
 
-    # 4. 向上查找 output 目录（如从项目根目录或子目录调用）
+    # 5. 向上查找 output 目录（如从项目根目录或子目录调用）
     if not found and (target_path.parent / "output").is_dir():
         found = sorted((target_path.parent / "output").glob("*.mp4"))
 
@@ -427,11 +492,21 @@ def qa_video(
     if target.is_file():
         if target.suffix.lower() == ".srt":
             return run_qa_subtitles(target, verbose=verbose)
-        if target.suffix.lower() != ".mp4":
+        if target.suffix.lower() == ".mp4":
+            return qa_single_video(target, srt_p, verbose=verbose)
+        mp4s = find_videos(target)
+        if not mp4s:
             if verbose:
                 print(f"[ERROR] 目标文件非有效 MP4 格式: {target}")
             return False
-        return qa_single_video(target, srt_p, verbose=verbose)
+        all_passed = True
+        for i, p in enumerate(mp4s):
+            ok = qa_single_video(p, srt_p, verbose=verbose)
+            if not ok:
+                all_passed = False
+            if verbose and i < len(mp4s) - 1:
+                print()
+        return all_passed
 
     if target.is_dir():
         mp4s = find_videos(target)
