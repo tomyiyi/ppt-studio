@@ -813,3 +813,17 @@ class TestQaLayoutSubdirAndSpecResolution(unittest.TestCase):
         self.assertEqual(main([str(self.render_dir)]), 0)
         self.assertEqual(main([str(self.spec_file)]), 0)
 
+    def test_resolve_project_dir_render_cards_and_output(self):
+        render_cards = self.proj / "render_cards"
+        render_cards.mkdir(parents=True, exist_ok=True)
+        output_dir = self.proj / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        self.assertEqual(resolve_project_dir(render_cards), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(output_dir), self.proj.resolve())
+
+    def test_resolve_project_dir_fallback_without_cpm(self):
+        from unittest.mock import patch
+        with patch("scripts.qa_layout._cpm_resolve_project_dir", None):
+            self.assertEqual(resolve_project_dir(self.svg_dir), self.proj.resolve())
+            self.assertEqual(resolve_project_dir(self.spec_file), self.proj.resolve())
+
