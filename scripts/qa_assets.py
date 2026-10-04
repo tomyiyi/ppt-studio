@@ -41,22 +41,26 @@ def resolve_project_dir(project_arg: str | Path | None = None) -> Path:
     """自适应解析项目根目录（支持从子目录 images、svg_output*、cards 等或文件回退）。"""
     if _cpm_resolve_project_dir is not None:
         return _cpm_resolve_project_dir(project_arg)
-    if project_arg is not None:
+    if project_arg is not None and str(project_arg).strip() not in ("", "."):
         p = Path(project_arg).resolve()
-        if p.is_file():
-            p = p.parent
+    else:
+        p = Path.cwd().resolve()
+    if p.is_file():
+        p = p.parent
+    if (
+        p.name in ("images", "svg_output", "render_cards", "render", "notes", "output", "cards")
+        or p.name.startswith("svg_output")
+        or p.name.startswith("render")
+    ):
         if (
-            p.name in ("images", "svg_output", "cards", "notes", "output", "render")
-            or p.name.startswith("svg_output")
+            any(p.parent.glob("spec_lock*.md"))
+            or any(p.parent.glob("card_spec*.md"))
+            or any(p.parent.glob("svg_output*"))
+            or (p.parent / "cards").is_dir()
+            or (p.parent / "images").is_dir()
         ):
-            if (
-                any(p.parent.glob("spec_lock*.md"))
-                or any(p.parent.glob("svg_output*"))
-                or (p.parent / "cards").is_dir()
-            ):
-                return p.parent
-        return p
-    return Path.cwd().resolve()
+            return p.parent
+    return p
 
 XLINK = "{http://www.w3.org/1999/xlink}"
 

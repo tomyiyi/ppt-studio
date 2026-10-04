@@ -141,6 +141,31 @@ class TestSubdirAndVersionResolution(unittest.TestCase):
             self.assertTrue(ok)
             self.assertEqual(issues, [])
 
+    def test_resolve_project_dir_render_cards_and_card_spec(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "card_proj"
+            cards_sub = proj / "render_cards"
+            cards_sub.mkdir(parents=True)
+            (proj / "card_spec.md").write_text("# card spec\n", encoding="utf-8")
+            self.assertEqual(resolve_project_dir(cards_sub), proj.resolve())
+
+    def test_resolve_project_dir_from_cwd(self):
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "my_proj"
+            sub = proj / "svg_output"
+            sub.mkdir(parents=True)
+            (proj / "spec_lock.md").write_text("## page_map\n- P01: role=Cover\n", encoding="utf-8")
+            orig_cwd = os.getcwd()
+            try:
+                os.chdir(sub)
+                self.assertEqual(resolve_project_dir(None), proj.resolve())
+                self.assertEqual(resolve_project_dir("."), proj.resolve())
+            finally:
+                os.chdir(orig_cwd)
+
 
 """第 25 轮测试 A：check_page_map.main() 打印采用的 spec。"""
 
