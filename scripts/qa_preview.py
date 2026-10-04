@@ -39,6 +39,47 @@ import re
 import sys
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+try:
+    from scripts.check_page_map import find_svg_dir, resolve_project_dir as _cpm_resolve_project_dir
+except ImportError:
+    try:
+        from check_page_map import find_svg_dir, resolve_project_dir as _cpm_resolve_project_dir
+    except ImportError:
+        find_svg_dir = None
+        _cpm_resolve_project_dir = None
+
+
+def resolve_project_dir(project_arg: str | Path | None = None) -> Path:
+    """自适应解析项目根目录（支持从子目录 images、svg_output*、cards 等或文件回退）。"""
+    if project_arg is not None:
+        p = Path(project_arg).resolve()
+        if _cpm_resolve_project_dir is not None:
+            cand = _cpm_resolve_project_dir(p)
+            if cand != p:
+                return cand
+        if p.is_file():
+            p = p.parent
+        if (
+            p.name in ("images", "svg_output", "cards", "notes", "output", "render", "render_cards")
+            or p.name.startswith("svg_output")
+            or p.name.startswith("render")
+        ):
+            if (
+                any(p.parent.glob("spec_lock*.md"))
+                or any(p.parent.glob("card_spec*.md"))
+                or any(p.parent.glob("svg_output*"))
+                or (p.parent / "cards").is_dir()
+            ):
+                return p.parent
+        return p
+    if _cpm_resolve_project_dir is not None:
+        return _cpm_resolve_project_dir(None)
+    return Path.cwd().resolve()
+
 
 def check_html_standards(content: str) -> tuple[bool, str]:
     """检查 HTML5 基础规范骨架。"""
@@ -413,7 +454,24 @@ def find_preview_files(target: Path | str | None = None, base_dir: Path | None =
     if target_path.is_file():
         if target_path.suffix.lower() in [".html", ".htm"]:
             return [target_path]
-        raise ValueError(f"目标文件不是 HTML 文件: {target_path}")
+        # 自适应从关联项目解析 HTML 预览
+        proj = resolve_project_dir(target_path)
+        cand_files: list[Path] = []
+        if (proj / "output").is_dir():
+            cand_files.extend(sorted((proj / "output").glob("*.html")))
+            cand_files.extend(sorted((proj / "output").glob("*.htm")))
+        cand_files.extend(sorted(proj.glob("*.html")))
+        cand_files.extend(sorted(proj.glob("*.htm")))
+        if cand_files:
+            seen = set()
+            deduped = []
+            for f in cand_files:
+                rf = f.resolve()
+                if rf not in seen and ".venv" not in str(rf) and "site-packages" not in str(rf):
+                    seen.add(rf)
+                    deduped.append(rf)
+            return deduped
+        raise ValueError(f"目标文件不是 HTML 文件且关联项目 {proj} 下未发现 HTML 文件: {target_path}")
 
     files_to_check: list[Path] = []
     # 1. 检查当前目录
@@ -423,7 +481,15 @@ def find_preview_files(target: Path | str | None = None, base_dir: Path | None =
     if (target_path / "output").is_dir():
         files_to_check.extend(sorted((target_path / "output").glob("*.html")))
         files_to_check.extend(sorted((target_path / "output").glob("*.htm")))
-    # 3. 检查 projects/*/output/ 子目录
+    # 3. 关联项目解析（如 target_path 为子目录 images、render、svg_output、cards 等）
+    proj = resolve_project_dir(target_path)
+    if proj != target_path:
+        if (proj / "output").is_dir():
+            files_to_check.extend(sorted((proj / "output").glob("*.html")))
+            files_to_check.extend(sorted((proj / "output").glob("*.htm")))
+        files_to_check.extend(sorted(proj.glob("*.html")))
+        files_to_check.extend(sorted(proj.glob("*.htm")))
+    # 4. 检查 projects/*/output/ 子目录
     candidate_p_dirs: list[Path] = []
     if (target_path / "projects").is_dir():
         candidate_p_dirs.append(target_path / "projects")
@@ -438,7 +504,7 @@ def find_preview_files(target: Path | str | None = None, base_dir: Path | None =
                 files_to_check.extend(sorted((p / "output").glob("*.html")))
                 files_to_check.extend(sorted((p / "output").glob("*.htm")))
 
-    # 4. 向上查找 output 目录（如从子目录或 projects/xxx 调用）
+    # 5. 向上查找 output 目录（如从子目录或 projects/xxx 调用）
     if not files_to_check and (target_path.parent / "output").is_dir():
         files_to_check.extend(sorted((target_path.parent / "output").glob("*.html")))
         files_to_check.extend(sorted((target_path.parent / "output").glob("*.htm")))

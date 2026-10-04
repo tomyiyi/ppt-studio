@@ -23,6 +23,7 @@ if str(REPO_ROOT) not in sys.path:
 from scripts.qa_preview import (
     check_html_standards,
     find_preview_files,
+    resolve_project_dir,
     run_qa_slide_preview,
     run_qa_showroom_portal,
     run_qa_html_file,
@@ -642,6 +643,75 @@ class TestMainCli(unittest.TestCase):
             with patch("sys.stdout", new_callable=io.StringIO):
                 code = main([td])
             self.assertEqual(code, 1)
+
+
+class TestQAPreviewSubdirAndSpecResolution(unittest.TestCase):
+    """测试 qa_preview 对子目录、规范文件及单文件自适应项目解析。"""
+
+    def setUp(self):
+        self.td = tempfile.TemporaryDirectory()
+        self.proj = Path(self.td.name) / "test_proj"
+        self.svg_dir = self.proj / "svg_output"
+        self.render_dir = self.proj / "render"
+        self.images_dir = self.proj / "images"
+        self.notes_dir = self.proj / "notes"
+        self.output_dir = self.proj / "output"
+        self.svg_dir.mkdir(parents=True)
+        self.render_dir.mkdir(parents=True)
+        self.images_dir.mkdir(parents=True)
+        self.notes_dir.mkdir(parents=True)
+        self.output_dir.mkdir(parents=True)
+
+        self.spec_file = self.proj / "spec_lock.md"
+        self.spec_file.write_text("# spec\n", encoding="utf-8")
+
+        self.preview_html = self.output_dir / "preview.html"
+        self.preview_html.write_text(
+            make_valid_slide_preview_html(slides_count=2),
+            encoding="utf-8",
+        )
+
+    def tearDown(self):
+        self.td.cleanup()
+
+    def test_resolve_project_dir_subfolders_and_file(self):
+        self.assertEqual(resolve_project_dir(self.svg_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.render_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.images_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.notes_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.spec_file), self.proj.resolve())
+
+    def test_find_preview_files_from_subfolder(self):
+        found_render = find_preview_files(self.render_dir)
+        self.assertEqual(found_render, [self.preview_html.resolve()])
+
+        found_images = find_preview_files(self.images_dir)
+        self.assertEqual(found_images, [self.preview_html.resolve()])
+
+    def test_find_preview_files_from_spec_file(self):
+        found_spec = find_preview_files(self.spec_file)
+        self.assertEqual(found_spec, [self.preview_html.resolve()])
+
+    def test_find_preview_files_from_spec_file_without_html_raises(self):
+        empty_proj = Path(self.td.name) / "empty_proj"
+        empty_proj.mkdir(parents=True)
+        empty_spec = empty_proj / "spec_lock.md"
+        empty_spec.write_text("# spec\n", encoding="utf-8")
+        with self.assertRaises(ValueError) as ctx:
+            find_preview_files(empty_spec)
+        self.assertIn("未发现 HTML 文件", str(ctx.exception))
+
+    def test_run_qa_preview_from_subfolder_and_spec_file(self):
+        with patch("sys.stdout", new_callable=io.StringIO):
+            self.assertTrue(run_qa_preview(self.render_dir))
+            self.assertTrue(run_qa_preview(self.spec_file))
+
+    def test_cli_from_subfolder_and_spec_file(self):
+        with patch("sys.stdout", new_callable=io.StringIO):
+            code1 = main([str(self.render_dir)])
+            self.assertEqual(code1, 0)
+            code2 = main([str(self.spec_file)])
+            self.assertEqual(code2, 0)
 
 
 if __name__ == "__main__":
