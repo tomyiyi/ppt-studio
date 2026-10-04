@@ -38,6 +38,15 @@ from collections import Counter
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+try:
+    from scripts.spec_resolve import resolve_spec, find_spec
+except ImportError:
+    try:
+        from spec_resolve import resolve_spec, find_spec
+    except ImportError:
+        resolve_spec = None
+        find_spec = None
+
 # 确保在未显式激活 .venv 时也能从项目内 .venv 加载依赖
 try:
     import numpy as np
@@ -64,8 +73,8 @@ def load_ramp(spec_path, verbose: bool = True):
         if verbose:
             print(f"[warn] 找不到 {spec_path}，用默认阶梯")
         return set(DEFAULT_RAMP)
-    if p.name == "spec_lock.md":
-        # spec_lock.md 专属于 PPT 16:9 画布阶梯，卡片默认继承卡片规范阶梯
+    if p.name == "spec_lock.md" or p.name.startswith("spec_lock"):
+        # spec_lock*.md 专属于 PPT 16:9 画布阶梯，卡片默认继承卡片规范阶梯
         return set(DEFAULT_RAMP)
     txt = p.read_text(encoding="utf-8")
 
@@ -103,7 +112,7 @@ def load_spec_roles(spec_path):
     if not spec_path:
         return {}
     p = Path(spec_path)
-    if not p.exists() or p.name == "spec_lock.md":
+    if not p.exists() or p.name == "spec_lock.md" or p.name.startswith("spec_lock"):
         return {}
     txt = p.read_text(encoding="utf-8")
     m = re.search(r"^##\s+typography\s*$(.*?)(?=^##\s|\Z)", txt, re.S | re.M)
@@ -152,9 +161,13 @@ def load_spec_colors(spec_path):
     txt = p.read_text(encoding="utf-8")
     colors = parse_colors_from_text(txt)
 
-    # 若未找到 accent，尝试从同级 spec_lock.md 补充
-    if "accent" not in colors and p.name != "spec_lock.md":
-        lock_p = p.parent / "spec_lock.md"
+    # 若未找到 accent，尝试从同级 spec_lock 补充（支持多版本治理）
+    if "accent" not in colors and not p.name.startswith("spec_lock"):
+        lock_p = None
+        if resolve_spec is not None:
+            lock_p = resolve_spec(p.parent)
+        if lock_p is None or not lock_p.is_file():
+            lock_p = p.parent / "spec_lock.md"
         if lock_p.is_file():
             try:
                 lock_colors = parse_colors_from_text(lock_p.read_text(encoding="utf-8"))
@@ -369,15 +382,27 @@ def qa_single_cards(
                 break
 
         if not spec_file:
-            for candidate in [
-                card_path / "spec_lock.md",
-                card_path.parent / "spec_lock.md",
-                card_path.parent.parent / "spec_lock.md",
-                Path.cwd() / "spec_lock.md",
-            ]:
-                if candidate and candidate.is_file():
-                    spec_file = candidate.resolve()
-                    break
+            cand_spec = None
+            if resolve_spec is not None:
+                for base_dir in [card_path, card_path.parent, card_path.parent.parent, Path.cwd()]:
+                    cand_spec = resolve_spec(base_dir)
+                    if cand_spec and cand_spec.is_file():
+                        break
+            if not cand_spec and find_spec is not None:
+                cand_spec = find_spec(card_path)
+
+            if cand_spec and cand_spec.is_file():
+                spec_file = cand_spec.resolve()
+            else:
+                for candidate in [
+                    card_path / "spec_lock.md",
+                    card_path.parent / "spec_lock.md",
+                    card_path.parent.parent / "spec_lock.md",
+                    Path.cwd() / "spec_lock.md",
+                ]:
+                    if candidate and candidate.is_file():
+                        spec_file = candidate.resolve()
+                        break
 
     # 自动探测 render_cards 目录
     render_path = Path(render_dir).resolve() if render_dir else None
@@ -703,6 +728,17 @@ def resolve_card_dirs(
         if cards_sub.is_dir() and list(cards_sub.glob("*.svg")):
             return [cards_sub.resolve()]
 
+        if (
+            p.is_dir()
+            and (
+                p.name in ("images", "svg_output", "render_cards", "render", "notes")
+                or p.name.startswith("svg_output")
+            )
+            and (p.parent / "cards").is_dir()
+            and list((p.parent / "cards").glob("*.svg"))
+        ):
+            return [(p.parent / "cards").resolve()]
+
         if list(p.glob("*.svg")):
             return [p.resolve()]
 
@@ -733,6 +769,16 @@ def resolve_card_dirs(
     # 默认/自适应探测
     if (base / "cards").is_dir() and list((base / "cards").glob("*.svg")):
         return [(base / "cards").resolve()]
+    if (
+        base.is_dir()
+        and (
+            base.name in ("images", "svg_output", "render_cards", "render", "notes")
+            or base.name.startswith("svg_output")
+        )
+        and (base.parent / "cards").is_dir()
+        and list((base.parent / "cards").glob("*.svg"))
+    ):
+        return [(base.parent / "cards").resolve()]
     if list(base.glob("*.svg")):
         return [base.resolve()]
 

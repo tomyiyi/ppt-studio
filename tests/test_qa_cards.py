@@ -103,6 +103,26 @@ class TestResolveCardDirs(unittest.TestCase):
             with self.assertRaises(ValueError):
                 resolve_card_dirs(str(txt_file))
 
+    def test_explicit_subfolder_resolves_to_parent_cards(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "my_project"
+            cards_dir = proj / "cards"
+            sub_dir = proj / "render_cards"
+            sub_dir.mkdir(parents=True)
+            create_minimal_card_svg(cards_dir / "01_cover.svg")
+            resolved = resolve_card_dirs(str(sub_dir))
+            self.assertEqual(resolved, [cards_dir.resolve()])
+
+    def test_base_subfolder_resolves_to_parent_cards(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "my_project"
+            cards_dir = proj / "cards"
+            sub_dir = proj / "svg_output_v4"
+            sub_dir.mkdir(parents=True)
+            create_minimal_card_svg(cards_dir / "01_cover.svg")
+            resolved = resolve_card_dirs(".", base_dir=sub_dir)
+            self.assertEqual(resolved, [cards_dir.resolve()])
+
     def test_auto_discovery_from_base_dir_with_cards(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             base = Path(tmp_dir)
@@ -257,6 +277,29 @@ text_primary #F0F3FF
             self.assertEqual(ramp, DEFAULT_RAMP)
             roles = load_spec_roles(spec_lock)
             self.assertEqual(roles, {})
+
+    def test_versioned_spec_lock_fallback_uses_default_card_ramp(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            spec_lock = Path(tmp_dir) / "spec_lock_v4.md"
+            spec_lock.write_text(
+                "## typography\n- sizes: [11, 13, 16, 20, 24, 32, 44, 56, 96]\n- statement: 56\n",
+                encoding="utf-8",
+            )
+            ramp = load_ramp(spec_lock)
+            self.assertEqual(ramp, DEFAULT_RAMP)
+            roles = load_spec_roles(spec_lock)
+            self.assertEqual(roles, {})
+
+    def test_load_spec_colors_fallback_to_versioned_spec_lock(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "proj"
+            proj.mkdir()
+            (proj / "card_spec.md").write_text("## colors\nbg #000000\n", encoding="utf-8")
+            (proj / "spec_lock.md").write_text("## colors\n- accent: #111111\n", encoding="utf-8")
+            (proj / "spec_lock_v3.md").write_text("## colors\n- accent: #6E7BFF\n", encoding="utf-8")
+            colors = load_spec_colors(proj / "card_spec.md")
+            self.assertEqual(colors.get("bg"), "#000000")
+            self.assertEqual(colors.get("accent"), "#6E7BFF")
 
     def test_fallback_ramp_on_missing_spec(self):
         ramp = load_ramp(Path("/non_existent_dir_spec/card_spec.md"))
@@ -499,6 +542,25 @@ class TestQaCardsProgrammaticAPI(unittest.TestCase):
             create_minimal_card_svg(cards_dir / "01_cover.svg", font_size=72)
             render_dir.mkdir()
             self.assertTrue(run_qa_cards(cards_dir, render_dir=render_dir, verbose=False))
+
+    def test_qa_cards_with_versioned_spec_lock(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj_dir = Path(tmp_dir) / "my_project"
+            cards_dir = proj_dir / "cards"
+            cards_dir.mkdir(parents=True)
+            # 只有 spec_lock_v2.md，没有 card_spec.md
+            (proj_dir / "spec_lock_v2.md").write_text(
+                "## typography\n- sizes: [28, 36, 44, 56, 72, 96, 132]\n- statement: 72\n\n## colors\n- accent: #6E7BFF\n",
+                encoding="utf-8",
+            )
+            create_minimal_card_svg(
+                cards_dir / "01_cover.svg",
+                font_size=72,
+                accent_color="#6E7BFF",
+                statement_text="核心发布",
+            )
+            self.assertTrue(qa_single_cards(cards_dir, verbose=False))
+            self.assertTrue(run_qa_cards(proj_dir, verbose=False))
 
 
 if __name__ == "__main__":
