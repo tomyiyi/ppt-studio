@@ -13,6 +13,7 @@ sync_spec.py -- SVG → spec_lock.md 反向同步（防漂移）
 用法：
     python3 scripts/sync_spec.py projects/fw2026-trends         # 只报告
     python3 scripts/sync_spec.py projects/fw2026-trends --fix   # 写回 spec
+    python3 scripts/sync_spec.py projects/fw2026-trends --spec path/to/spec_lock.md
 
 退出码：0=无漂移，1=有漂移（--fix 后重新检查）。
 """
@@ -26,6 +27,23 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+try:
+    from scripts.check_page_map import find_svg_dir as _check_page_map_find_svg_dir
+except ImportError:
+    try:
+        from check_page_map import find_svg_dir as _check_page_map_find_svg_dir
+    except ImportError:
+        _check_page_map_find_svg_dir = None
+
+try:
+    from scripts.spec_resolve import resolve_spec, find_spec
+except ImportError:
+    try:
+        from spec_resolve import resolve_spec, find_spec
+    except ImportError:
+        resolve_spec = None
+        find_spec = None
 
 
 def svg_viewboxes(svg_dir: Path) -> dict[str, str]:
@@ -42,8 +60,12 @@ def svg_viewboxes(svg_dir: Path) -> dict[str, str]:
     return out
 
 
-def spec_viewbox(spec_path: Path) -> str | None:
-    txt = spec_path.read_text(encoding="utf-8")
+def spec_viewbox(spec_path: Path | str) -> str | None:
+    p = Path(spec_path)
+    try:
+        txt = p.read_text(encoding="utf-8")
+    except OSError:
+        return None
     m = re.search(r"^##\s+canvas\s*$(.*?)(?=^##\s|\Z)", txt, re.S | re.M)
     if not m:
         return None
@@ -51,29 +73,84 @@ def spec_viewbox(spec_path: Path) -> str | None:
     return " ".join(mm.group(1).split()) if mm else None
 
 
-def find_svg_dir(project_dir: Path) -> Path | None:
-    # 优先最高版本（v4 > v3 > v2 > 无后缀），避免旧目录掩盖当前版本
+def _svg_dir_version_key(d: Path) -> tuple[int, str]:
+    m = re.match(r"^svg_output_v(\d+)$", d.name, re.IGNORECASE)
+    if m:
+        return (int(m.group(1)), d.name)
+    if d.name == "svg_output":
+        return (0, d.name)
+    return (-1, d.name)
+
+
+def find_svg_dir(project_dir: Path | str) -> Path | None:
+    p = Path(project_dir)
+    if _check_page_map_find_svg_dir is not None:
+        found = _check_page_map_find_svg_dir(p)
+        if found:
+            return found
+    # 优先最高数字版本（v10 > v4 > v3 > v2 > 无后缀），避免旧目录掩盖当前版本
     cands = sorted(
-        [d for d in project_dir.glob("svg_output*") if d.is_dir() and list(d.glob("*.svg"))],
-        key=lambda d: d.name, reverse=True)
+        [d for d in p.glob("svg_output*") if d.is_dir() and list(d.glob("*.svg"))],
+        key=_svg_dir_version_key,
+        reverse=True,
+    )
     if cands:
         return cands[0]
-    if list(project_dir.glob("*.svg")):
-        return project_dir
+    if list(p.glob("*.svg")):
+        return p
     return None
 
 
-def check(project_dir: Path) -> tuple[bool, list[str], dict]:
-    """返回 (无漂移, 问题列表, 上下文{spec_vb, svg_vb, svg_dir})。"""
+def resolve_project_dir(project_arg: str | Path | None = None) -> Path:
+    if project_arg is not None:
+        p = Path(project_arg).resolve()
+        if p.is_file():
+            p = p.parent
+        if (
+            p.name in ("images", "svg_output", "cards", "notes", "output", "render")
+            or p.name.startswith("svg_output")
+        ):
+            if (
+                any(p.parent.glob("spec_lock*.md"))
+                or any(p.parent.glob("svg_output*"))
+                or (p.parent / "cards").is_dir()
+            ):
+                return p.parent
+        return p
+    return Path.cwd().resolve()
+
+
+def check(
+    project_dir: Path | str,
+    spec_path: Path | str | None = None,
+) -> tuple[bool, list[str], dict]:
+    """返回 (无漂移, 问题列表, 上下文{spec_vb, svg_vb, svg_dir, spec})。"""
     issues: list[str] = []
     ctx: dict = {}
-    from scripts.spec_resolve import resolve_spec
+    proj = resolve_project_dir(project_dir)
 
-    spec = resolve_spec(project_dir)
+    spec: Path | None = None
+    if spec_path:
+        spec = Path(spec_path).resolve()
+    else:
+        if resolve_spec is not None:
+            spec = resolve_spec(proj)
+        if (spec is None or not spec.is_file()) and find_spec is not None:
+            spec = find_spec(proj)
+        if (
+            (spec is None or not spec.is_file())
+            and find_spec is not None
+            and str(proj) != str(Path(project_dir).resolve())
+        ):
+            spec = find_spec(Path(project_dir).resolve())
+
     ctx["spec"] = str(spec) if spec else ""
-    if spec is None:
+    if spec is None or not spec.is_file():
         return False, ["找不到 spec_lock（已按 版本>基线 规则查找）"], ctx
-    svg_dir = find_svg_dir(project_dir)
+
+    svg_dir = find_svg_dir(proj)
+    if not svg_dir and str(proj) != str(Path(project_dir).resolve()):
+        svg_dir = find_svg_dir(Path(project_dir).resolve())
     if not svg_dir:
         return False, ["找不到 SVG 目录"], ctx
     ctx["svg_dir"] = str(svg_dir)
@@ -93,26 +170,32 @@ def check(project_dir: Path) -> tuple[bool, list[str], dict]:
     return (len(issues) == 0), issues, ctx
 
 
-def fix_canvas(spec_path: Path, new_vb: str) -> bool:
+def fix_canvas(spec_path: Path | str, new_vb: str) -> bool:
     """把 spec 的 ## canvas 节 viewBox 更新为 new_vb。返回是否改动。"""
-    txt = spec_path.read_text(encoding="utf-8")
+    p = Path(spec_path)
+    try:
+        txt = p.read_text(encoding="utf-8")
+    except OSError:
+        return False
     new_txt, n = re.subn(
         r"(^##\s+canvas\s*$\n(?:.*\n)*?- viewBox:\s*)[0-9.]+(?: [0-9.]+)*",
         lambda m: m.group(1) + new_vb,
         txt, count=1, flags=re.M)
     if n and new_txt != txt:
-        spec_path.write_text(new_txt, encoding="utf-8")
+        p.write_text(new_txt, encoding="utf-8")
         return True
     return False
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="SVG → spec 反向同步检查")
-    ap.add_argument("project_dir")
+    ap.add_argument("project_dir", help="项目目录或子目录")
+    ap.add_argument("--spec", help="可选指定 spec_lock.md 路径")
     ap.add_argument("--fix", action="store_true", help="把 SVG 的 viewBox 写回 spec")
     a = ap.parse_args()
     proj = Path(a.project_dir)
-    ok, issues, ctx = check(proj)
+    spec_arg = Path(a.spec).resolve() if a.spec else None
+    ok, issues, ctx = check(proj, spec_path=spec_arg)
     print("[i] 采用 spec: %s" % (ctx.get("spec") or "未找到"))
     if ok:
         print("[ok] spec 与 SVG 无漂移（viewBox=%s）" % ctx.get("svg_vb"))
@@ -121,11 +204,15 @@ def main() -> None:
     for i in issues:
         print("  -", i)
     if a.fix and ctx.get("svg_vb") and ctx.get("spec_vb"):
-        spec = resolve_spec(proj)
-        if spec and fix_canvas(spec, ctx["svg_vb"]):
+        target_spec = (
+            Path(ctx["spec"])
+            if ctx.get("spec")
+            else (spec_arg or (resolve_spec(proj) if resolve_spec else None))
+        )
+        if target_spec and fix_canvas(target_spec, ctx["svg_vb"]):
             print("[fix] spec viewBox 已更新为 %s" % ctx["svg_vb"])
         # 重新检查
-        ok2, _, _ = check(proj)
+        ok2, _, _ = check(proj, spec_path=spec_arg)
         sys.exit(0 if ok2 else 1)
     sys.exit(1)
 

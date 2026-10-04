@@ -4,13 +4,14 @@
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.sync_spec import (
-    svg_viewboxes, spec_viewbox, find_svg_dir, check, fix_canvas,
+    svg_viewboxes, spec_viewbox, find_svg_dir, check, fix_canvas, resolve_project_dir, main,
 )
 
 
@@ -69,6 +70,15 @@ class TestSyncSpec(unittest.TestCase):
             ok, _, _ = check(proj)
             self.assertTrue(ok)
 
+    def test_fix_canvas_with_str_path(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            proj = _make_proj(d, {"01_a.svg": "0 0 1920 1080"}, "0 0 1280 720")
+            spec_str = str(proj / "spec_lock.md")
+            self.assertTrue(fix_canvas(spec_str, "0 0 1920 1080"))
+            txt = Path(spec_str).read_text(encoding="utf-8")
+            self.assertIn("- viewBox: 0 0 1920 1080\n", txt)
+
     def test_find_svg_dir_prefers_latest(self):
         import tempfile
         with tempfile.TemporaryDirectory() as d:
@@ -80,12 +90,80 @@ class TestSyncSpec(unittest.TestCase):
                     '<svg xmlns="http://www.w3.org/2000/svg"/>', encoding="utf-8")
             self.assertEqual(find_svg_dir(proj).name, "svg_output_v4")
 
+    def test_find_svg_dir_numeric_version_priority(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            proj = Path(d) / "proj"
+            for v in ["svg_output", "svg_output_v2", "svg_output_v10"]:
+                dd = proj / v
+                dd.mkdir(parents=True)
+                (dd / "01_a.svg").write_text(
+                    '<svg xmlns="http://www.w3.org/2000/svg"/>', encoding="utf-8")
+            self.assertEqual(find_svg_dir(proj).name, "svg_output_v10")
+
     def test_spec_viewbox(self):
         import tempfile
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "spec.md"
             p.write_text("## canvas\n- viewBox: 0 0 1920 1080\n", encoding="utf-8")
             self.assertEqual(spec_viewbox(p), "0 0 1920 1080")
+
+
+class TestMultiVersionAndSubdir(unittest.TestCase):
+    def test_check_with_explicit_spec(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            proj = _make_proj(d, {"01_a.svg": "0 0 1920 1080"}, "0 0 1280 720")
+            alt_spec = proj / "spec_custom.md"
+            alt_spec.write_text("## canvas\n- viewBox: 0 0 1920 1080\n", encoding="utf-8")
+            ok, issues, ctx = check(proj, spec_path=alt_spec)
+            self.assertTrue(ok)
+            self.assertEqual(ctx["spec"], str(alt_spec.resolve()))
+            self.assertEqual(ctx["spec_vb"], "0 0 1920 1080")
+
+    def test_check_from_subfolder(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            proj = _make_proj(d, {"01_a.svg": "0 0 1920 1080"}, "0 0 1920 1080")
+            sub = proj / "svg_output_v4"
+            ok, issues, ctx = check(sub)
+            self.assertTrue(ok)
+            self.assertEqual(ctx["svg_vb"], "0 0 1920 1080")
+
+    def test_check_versioned_spec_lock_priority(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            proj = _make_proj(d, {"01_a.svg": "0 0 1920 1080"}, "0 0 1280 720")
+            # 增加 spec_lock_v5.md，与 svg 一致
+            v5_spec = proj / "spec_lock_v5.md"
+            v5_spec.write_text("## canvas\n- viewBox: 0 0 1920 1080\n", encoding="utf-8")
+            ok, issues, ctx = check(proj)
+            self.assertTrue(ok)
+            self.assertEqual(ctx["spec"], str(v5_spec.resolve()))
+            self.assertEqual(ctx["spec_vb"], "0 0 1920 1080")
+
+    def test_resolve_project_dir_normalization(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            proj = _make_proj(d, {"01_a.svg": "0 0 1920 1080"}, "0 0 1920 1080")
+            sub = proj / "svg_output_v4"
+            self.assertEqual(resolve_project_dir(sub), proj.resolve())
+            spec_file = proj / "spec_lock.md"
+            self.assertEqual(resolve_project_dir(spec_file), proj.resolve())
+
+    def test_main_cli_spec_and_fix(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            proj = _make_proj(d, {"01_a.svg": "0 0 1920 1080"}, "0 0 1280 720")
+            alt_spec = proj / "spec_alt.md"
+            alt_spec.write_text("## canvas\n- viewBox: 0 0 1280 720\n", encoding="utf-8")
+            # 运行 main 并带 --spec 和 --fix
+            with patch("sys.argv", ["sync_spec.py", str(proj), "--spec", str(alt_spec), "--fix"]):
+                with self.assertRaises(SystemExit) as cm:
+                    main()
+                self.assertEqual(cm.exception.code, 0)
+            txt = alt_spec.read_text(encoding="utf-8")
+            self.assertIn("- viewBox: 0 0 1920 1080\n", txt)
 
 
 """第 25 轮测试 B：sync_spec.check() 的 ctx 携带所用 spec 路径。"""
