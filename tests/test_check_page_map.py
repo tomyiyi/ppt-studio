@@ -9,7 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.check_page_map import parse_page_map, check
+from scripts.check_page_map import parse_page_map, check, resolve_project_dir, find_svg_dir
 
 
 class TestParsePageMap(unittest.TestCase):
@@ -89,6 +89,57 @@ class TestCheck(unittest.TestCase):
                               ["01_cover.svg"])
             ok, _ = check(proj)
             self.assertTrue(ok)
+
+
+class TestSubdirAndVersionResolution(unittest.TestCase):
+    def test_resolve_project_dir_subfolder_and_file(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "my_proj"
+            sub = proj / "svg_output_v4"
+            sub.mkdir(parents=True)
+            spec = proj / "spec_lock.md"
+            spec.write_text("## page_map\n- P01: role=Cover\n", encoding="utf-8")
+            self.assertEqual(resolve_project_dir(sub), proj.resolve())
+            self.assertEqual(resolve_project_dir(spec), proj.resolve())
+
+    def test_check_from_subfolder(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "my_proj"
+            sub = proj / "svg_output_v4"
+            sub.mkdir(parents=True)
+            (proj / "spec_lock.md").write_text("## page_map\n- P01: role=Cover\n", encoding="utf-8")
+            (sub / "P01_cover.svg").touch()
+            ok, issues = check(sub)
+            self.assertTrue(ok)
+            self.assertEqual(issues, [])
+
+    def test_check_with_versioned_spec_lock(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "my_proj"
+            (proj / "svg_output").mkdir(parents=True)
+            # 基线 spec 缺 P02，但 v3 spec 包含 P01 和 P02
+            (proj / "spec_lock.md").write_text("## page_map\n- P01: role=Cover\n", encoding="utf-8")
+            (proj / "spec_lock_v3.md").write_text("## page_map\n- P01: role=Cover\n- P02: role=Grid\n", encoding="utf-8")
+            (proj / "svg_output" / "P01.svg").touch()
+            (proj / "svg_output" / "P02.svg").touch()
+            ok, issues = check(proj)
+            self.assertTrue(ok)
+            self.assertEqual(issues, [])
+
+    def test_check_with_explicit_spec_path_str(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "my_proj"
+            (proj / "svg_output").mkdir(parents=True)
+            custom_spec = proj / "custom_spec.md"
+            custom_spec.write_text("## page_map\n- P01: role=Cover\n", encoding="utf-8")
+            (proj / "svg_output" / "P01.svg").touch()
+            ok, issues = check(str(proj), spec_path=str(custom_spec))
+            self.assertTrue(ok)
+            self.assertEqual(issues, [])
 
 
 """第 25 轮测试 A：check_page_map.main() 打印采用的 spec。"""

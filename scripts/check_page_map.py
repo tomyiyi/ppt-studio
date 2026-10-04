@@ -24,10 +24,10 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
-def parse_page_map(spec_path: Path) -> dict:
+def parse_page_map(spec_path: Path | str) -> dict:
     """解析 ## page_map 节，返回 {页码: {role, rhythm}}。页码如 P01。"""
     try:
-        txt = spec_path.read_text(encoding="utf-8")
+        txt = Path(spec_path).read_text(encoding="utf-8")
     except OSError:
         return {}
     m = re.search(r"^##\s+page_map\s*$(.*?)(?=^##\s|\Z)", txt, re.S | re.M)
@@ -57,33 +57,78 @@ def _svg_dir_version_key(d: Path) -> tuple[int, str]:
     return (-1, d.name)
 
 
-def find_svg_dir(project_dir: Path) -> Path | None:
+def find_svg_dir(project_dir: Path | str) -> Path | None:
+    p = Path(project_dir)
     # 优先最高版本（v4 > v3 > v2 > 无后缀），避免旧目录掩盖当前版本；按数字版本降序排序
     cands = sorted(
-        [d for d in project_dir.glob("svg_output*") if d.is_dir() and list(d.glob("*.svg"))],
+        [d for d in p.glob("svg_output*") if d.is_dir() and list(d.glob("*.svg"))],
         key=_svg_dir_version_key, reverse=True)
     if cands:
         return cands[0]
-    if list(project_dir.glob("*.svg")):
-        return project_dir
+    if list(p.glob("*.svg")):
+        return p
     return None
 
 
-def check(project_dir: Path, spec_path: Path | None = None) -> tuple[bool, list[str]]:
+def resolve_project_dir(project_arg: str | Path | None = None) -> Path:
+    if project_arg is not None:
+        p = Path(project_arg).resolve()
+        if p.is_file():
+            p = p.parent
+        if (
+            p.name in ("images", "svg_output", "cards", "notes", "output", "render")
+            or p.name.startswith("svg_output")
+        ):
+            if (
+                any(p.parent.glob("spec_lock*.md"))
+                or any(p.parent.glob("svg_output*"))
+                or (p.parent / "cards").is_dir()
+            ):
+                return p.parent
+        return p
+    return Path.cwd().resolve()
+
+
+def check(
+    project_dir: str | Path,
+    spec_path: str | Path | None = None,
+) -> tuple[bool, list[str]]:
     """返回 (是否通过, 问题列表)。"""
     issues = []
-    if spec_path:
-        spec = spec_path
-    else:
-        from scripts.spec_resolve import resolve_spec
+    proj = resolve_project_dir(project_dir)
 
-        spec = resolve_spec(project_dir)
+    spec: Path | None = None
+    if spec_path:
+        spec = Path(spec_path).resolve()
+    else:
+        try:
+            from scripts.spec_resolve import resolve_spec, find_spec
+        except ImportError:
+            try:
+                from spec_resolve import resolve_spec, find_spec
+            except ImportError:
+                resolve_spec = None
+                find_spec = None
+
+        if resolve_spec is not None:
+            spec = resolve_spec(proj)
+        if (spec is None or not spec.is_file()) and find_spec is not None:
+            spec = find_spec(proj)
+        if (
+            (spec is None or not spec.is_file())
+            and find_spec is not None
+            and str(proj) != str(Path(project_dir).resolve())
+        ):
+            spec = find_spec(Path(project_dir).resolve())
+
     if spec is None or not spec.is_file():
         return False, ["找不到 spec_lock（已按 版本>基线 规则查找）: %s" % project_dir]
     page_map = parse_page_map(spec)
     if not page_map:
         return False, ["spec_lock.md 缺少 ## page_map 节（每页一行：- P01: role=Cover, rhythm=anchor）"]
-    svg_dir = find_svg_dir(project_dir)
+    svg_dir = find_svg_dir(proj)
+    if not svg_dir and str(proj) != str(Path(project_dir).resolve()):
+        svg_dir = find_svg_dir(Path(project_dir).resolve())
     if not svg_dir:
         return False, ["找不到 SVG 目录（svg_output* 或项目根）"]
     svg_pages = set()
@@ -109,11 +154,21 @@ def main() -> None:
     ap.add_argument("project_dir", help="项目目录")
     ap.add_argument("--spec", help="显式指定 spec_lock.md")
     a = ap.parse_args()
-    proj = Path(a.project_dir)
-    spec = Path(a.spec) if a.spec else None
+    proj = resolve_project_dir(a.project_dir)
+    spec = Path(a.spec).resolve() if a.spec else None
     if spec is None:
-        from scripts.spec_resolve import resolve_spec
-        spec = resolve_spec(proj)
+        try:
+            from scripts.spec_resolve import resolve_spec, find_spec
+        except ImportError:
+            try:
+                from spec_resolve import resolve_spec, find_spec
+            except ImportError:
+                resolve_spec = None
+                find_spec = None
+        if resolve_spec is not None:
+            spec = resolve_spec(proj)
+        if (spec is None or not spec.is_file()) and find_spec is not None:
+            spec = find_spec(proj)
     print("[i] 采用 spec: %s" % (spec if spec else "未找到"))
     ok, issues = check(proj, spec)
     if ok:
