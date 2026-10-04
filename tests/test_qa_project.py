@@ -225,10 +225,25 @@ class TestResolveProjectDir(unittest.TestCase):
             sub.mkdir(parents=True)
             self.assertEqual(resolve_project_dir(sub), proj.resolve())
 
+    def test_explicit_versioned_svg_subfolder_falls_back_to_parent(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "my_project"
+            sub = proj / "svg_output_v4"
+            sub.mkdir(parents=True)
+            self.assertEqual(resolve_project_dir(sub), proj.resolve())
+
     def test_current_dir_when_already_project(self):
         with tempfile.TemporaryDirectory() as td:
             proj = Path(td)
             (proj / "spec_lock.md").touch()
+            self.assertEqual(resolve_project_dir(".", base_dir=proj), proj.resolve())
+
+    def test_current_dir_with_versioned_svg_output_is_project(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td)
+            sub = proj / "svg_output_v3"
+            sub.mkdir(parents=True)
+            (sub / "01.svg").touch()
             self.assertEqual(resolve_project_dir(".", base_dir=proj), proj.resolve())
 
     def test_subfolder_in_current_dir_falls_back_to_parent(self):
@@ -239,12 +254,30 @@ class TestResolveProjectDir(unittest.TestCase):
             (proj / "spec_lock.md").touch()
             self.assertEqual(resolve_project_dir(None, base_dir=sub), proj.resolve())
 
+    def test_versioned_svg_subfolder_in_current_dir_falls_back_to_parent(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td)
+            sub = proj / "svg_output_v2"
+            sub.mkdir(parents=True)
+            (proj / "spec_lock.md").touch()
+            self.assertEqual(resolve_project_dir(None, base_dir=sub), proj.resolve())
+
     def test_discovers_unique_project_under_projects_folder(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             projects_dir = root / "projects"
             p1 = projects_dir / "alpha"
             (p1 / "images").mkdir(parents=True)
+            self.assertEqual(resolve_project_dir(".", base_dir=root), p1.resolve())
+
+    def test_discovers_unique_versioned_project_under_projects_folder(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            projects_dir = root / "projects"
+            p1 = projects_dir / "gamma"
+            sub = p1 / "svg_output_v4"
+            sub.mkdir(parents=True)
+            (sub / "01.svg").touch()
             self.assertEqual(resolve_project_dir(".", base_dir=root), p1.resolve())
 
     def test_multiple_projects_raises_value_error(self):

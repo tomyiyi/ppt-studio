@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -20,6 +21,40 @@ from scripts.qa_assets import run_qa_assets
 from scripts.qa_layout import run_qa_layout
 from scripts.qa_cards import run_qa_cards
 from scripts.qa_long_card import run_qa_long_card
+
+try:
+    from scripts.check_page_map import find_svg_dir
+except ImportError:
+    try:
+        from check_page_map import find_svg_dir
+    except ImportError:
+        find_svg_dir = None
+
+try:
+    from scripts.spec_resolve import resolve_spec
+except ImportError:
+    try:
+        from spec_resolve import resolve_spec
+    except ImportError:
+        resolve_spec = None
+
+
+def _find_svg_dir(p: Path) -> Path | None:
+    if find_svg_dir is not None:
+        return find_svg_dir(p)
+    # fallback: 优先按数字版本最高 (svg_output_v4 > svg_output_v3 > svg_output)
+    cands = sorted(
+        [d for d in p.glob("svg_output*") if d.is_dir() and any(d.glob("*.svg"))],
+        key=lambda d: (
+            int(m.group(1)) if (m := re.match(r"^svg_output_v(\d+)$", d.name, re.I)) else (0 if d.name == "svg_output" else -1)
+        ),
+        reverse=True,
+    )
+    if cands:
+        return cands[0]
+    if any(p.glob("*.svg")):
+        return p
+    return None
 
 
 def resolve_project_dir(
@@ -51,24 +86,35 @@ def resolve_project_dir(
             p = (base / p).resolve()
         else:
             p = p.resolve()
-        if p.is_dir() and p.name in ("images", "svg_output", "cards", "notes"):
+        if p.is_dir() and (
+            p.name in ("images", "svg_output", "cards", "notes")
+            or p.name.startswith("svg_output")
+        ):
             return p.parent.resolve()
         return p
 
     def is_valid_project(p: Path) -> bool:
         if not p.is_dir():
             return False
+        cand_svg = _find_svg_dir(p)
+        cand_spec = resolve_spec(p) if resolve_spec is not None else None
         return (
             (p / "images").is_dir()
+            or (cand_svg is not None and cand_svg.is_dir() and any(cand_svg.glob("*.svg")))
             or (p / "svg_output").is_dir()
             or (p / "cards").is_dir()
             or (p / "spec_lock.md").is_file()
+            or (cand_spec is not None and cand_spec.is_file())
+            or any(p.glob("spec_lock*.md"))
         )
 
     if is_valid_project(base):
         return base
 
-    if base.name in ("images", "svg_output", "cards", "notes") and is_valid_project(base.parent):
+    if (
+        base.name in ("images", "svg_output", "cards", "notes")
+        or base.name.startswith("svg_output")
+    ) and is_valid_project(base.parent):
         return base.parent.resolve()
 
     candidate_projects_dirs: list[Path] = []
