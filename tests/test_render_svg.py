@@ -28,6 +28,7 @@ from scripts.render_svg import (
     render_one_cli,
     _render_page,
     _build_html,
+    resolve_project_dir,
     render_svg,
     main,
 )
@@ -701,3 +702,67 @@ class TestRenderPageEngine(unittest.TestCase):
                 rc = main([str(td), "--engine", "cli"])
             self.assertEqual(rc, 0)
             self.assertEqual(m_render.call_args.kwargs.get("engine"), "cli")
+
+
+class TestRenderSvgSubdirAndSpecResolution(unittest.TestCase):
+    """测试 render_svg 对子目录、规范文件及多版本 spec 的自适应探查。"""
+
+    def setUp(self):
+        self.td = tempfile.TemporaryDirectory()
+        self.proj = Path(self.td.name) / "test_proj"
+        self.svg_dir = self.proj / "svg_output"
+        self.render_dir = self.proj / "render"
+        self.images_dir = self.proj / "images"
+        self.svg_dir.mkdir(parents=True)
+        self.render_dir.mkdir(parents=True)
+        self.images_dir.mkdir(parents=True)
+
+        self.spec_file = self.proj / "spec_lock.md"
+        self.spec_file.write_text("# spec\n", encoding="utf-8")
+        self.svg_file = self.svg_dir / "01_cover.svg"
+        create_minimal_svg(self.svg_file)
+
+    def tearDown(self):
+        self.td.cleanup()
+
+    def test_resolve_project_dir_subfolders_and_file(self):
+        self.assertEqual(resolve_project_dir(self.svg_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.render_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.images_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(self.spec_file), self.proj.resolve())
+
+    def test_resolve_targets_from_subfolder(self):
+        files, out = resolve_targets(str(self.render_dir), base_dir=Path(self.td.name))
+        self.assertEqual(files, [self.svg_file.resolve()])
+        self.assertEqual(out, self.render_dir.resolve())
+
+        files_img, out_img = resolve_targets(str(self.images_dir), base_dir=Path(self.td.name))
+        self.assertEqual(files_img, [self.svg_file.resolve()])
+        self.assertEqual(out_img, self.render_dir.resolve())
+
+    def test_resolve_targets_from_spec_file(self):
+        files, out = resolve_targets(str(self.spec_file), base_dir=Path(self.td.name))
+        self.assertEqual(files, [self.svg_file.resolve()])
+        self.assertEqual(out, self.render_dir.resolve())
+
+    def test_resolve_targets_cards_from_subfolder(self):
+        proj_cards = Path(self.td.name) / "cards_proj"
+        cards_dir = proj_cards / "cards"
+        render_cards_dir = proj_cards / "render_cards"
+        cards_dir.mkdir(parents=True)
+        render_cards_dir.mkdir(parents=True)
+        card_file = cards_dir / "01_card.svg"
+        create_minimal_svg(card_file)
+
+        files, out = resolve_targets(str(render_cards_dir), base_dir=Path(self.td.name))
+        self.assertEqual(files, [card_file.resolve()])
+        self.assertEqual(out, render_cards_dir.resolve())
+
+    @patch("scripts.render_svg.render_svg")
+    def test_main_cli_from_spec_file_and_subfolder(self, mock_render_svg):
+        mock_render_svg.return_value = []
+        rc1 = main([str(self.spec_file), "--engine", "cli"])
+        self.assertEqual(rc1, 0)
+        rc2 = main([str(self.render_dir), "--engine", "cli"])
+        self.assertEqual(rc2, 0)
+
