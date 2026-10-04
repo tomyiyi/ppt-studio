@@ -229,6 +229,21 @@ class TestResolve(unittest.TestCase):
             self.assertEqual(resolve_project_dir(images_dir), proj.resolve())
             self.assertEqual(resolve_project_dir(spec_file), proj.resolve())
 
+            render_cards = proj / "render_cards"
+            render_cards.mkdir(parents=True, exist_ok=True)
+            output_dir = proj / "output"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            self.assertEqual(resolve_project_dir(render_cards), proj.resolve())
+            self.assertEqual(resolve_project_dir(output_dir), proj.resolve())
+
+            with patch("scripts.svg_to_pptx._cpm_resolve_project_dir", None):
+                self.assertEqual(resolve_project_dir(svg_dir), proj.resolve())
+                self.assertEqual(resolve_project_dir(render_dir), proj.resolve())
+                self.assertEqual(resolve_project_dir(images_dir), proj.resolve())
+                self.assertEqual(resolve_project_dir(spec_file), proj.resolve())
+                self.assertEqual(resolve_project_dir(""), Path.cwd().resolve())
+                self.assertEqual(resolve_project_dir("."), Path.cwd().resolve())
+
             resolved_render_svg, resolved_render_proj = resolve_svg_dir(render_dir)
             self.assertEqual(resolved_render_svg, svg_dir.resolve())
             self.assertEqual(resolved_render_proj, proj.resolve())
