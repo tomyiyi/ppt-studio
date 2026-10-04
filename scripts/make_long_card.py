@@ -48,6 +48,15 @@ except ImportError:
     except ImportError:
         run_qa_long_card = None
 
+try:
+    from scripts.spec_resolve import resolve_spec, find_spec
+except ImportError:
+    try:
+        from spec_resolve import resolve_spec, find_spec
+    except ImportError:
+        resolve_spec = None
+        find_spec = None
+
 BG_COLOR = (11, 12, 18)        # #0B0C12
 SURFACE_COLOR = (18, 19, 27)   # #12131B
 RULE_COLOR = (35, 36, 46)      # #23242E
@@ -117,14 +126,23 @@ def read_project_meta(project_dir: Path) -> dict[str, any]:
         "text_dim": TEXT_DIM,
     }
 
-    # 规范文件候选集
+    # 规范文件候选集（优先级：card_spec.md -> 版本最高 spec_lock_vN.md -> spec_lock.md）
     candidate_specs: list[Path] = [
         project_dir / "card_spec.md",
-        project_dir / "spec_lock.md",
     ]
+    if resolve_spec is not None:
+        cand = resolve_spec(project_dir)
+        if cand and cand.is_file():
+            candidate_specs.append(cand)
+    candidate_specs.append(project_dir / "spec_lock.md")
+
     repo_root = Path(__file__).resolve().parent.parent
     for base in [Path.cwd(), repo_root]:
         candidate_specs.append(base / "card_spec.md")
+        if resolve_spec is not None:
+            cand = resolve_spec(base)
+            if cand and cand.is_file():
+                candidate_specs.append(cand)
         candidate_specs.append(base / "spec_lock.md")
 
     seen_specs = set()
@@ -397,6 +415,17 @@ def resolve_project_dir(
         if p.is_dir() and p.name == "cards" and list(p.glob("*.svg")):
             return p.parent.resolve()
 
+        if (
+            p.is_dir()
+            and (
+                p.name in ("images", "svg_output", "render_cards", "render", "notes")
+                or p.name.startswith("svg_output")
+            )
+            and (p.parent / "cards").is_dir()
+            and list((p.parent / "cards").glob("*.svg"))
+        ):
+            return p.parent.resolve()
+
         candidate_projects_dirs: list[Path] = []
         if (p / "projects").is_dir():
             candidate_projects_dirs.append(p / "projects")
@@ -424,6 +453,16 @@ def resolve_project_dir(
     if (base / "cards").is_dir() and list((base / "cards").glob("*.svg")):
         return base.resolve()
     if base.is_dir() and base.name == "cards" and list(base.glob("*.svg")):
+        return base.parent.resolve()
+    if (
+        base.is_dir()
+        and (
+            base.name in ("images", "svg_output", "render_cards", "render", "notes")
+            or base.name.startswith("svg_output")
+        )
+        and (base.parent / "cards").is_dir()
+        and list((base.parent / "cards").glob("*.svg"))
+    ):
         return base.parent.resolve()
 
     candidate_projects_dirs = []

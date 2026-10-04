@@ -193,6 +193,20 @@ class TestReadProjectMeta(unittest.TestCase):
             meta = read_project_meta(proj)
             self.assertEqual(meta["title"], "封面 Markdown 标题")
 
+    def test_meta_with_versioned_spec_lock(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "versioned-proj"
+            proj.mkdir()
+            (proj / "spec_lock.md").write_text("accent_color: #111111\n", encoding="utf-8")
+            (proj / "spec_lock_v2.md").write_text(
+                "- objective: 进阶版本目标\n"
+                "accent_color: #6E7BFF\n",
+                encoding="utf-8",
+            )
+            meta = read_project_meta(proj)
+            self.assertEqual(meta["objective"], "进阶版本目标")
+            self.assertEqual(meta["accent_color"], (110, 123, 255))
+
 
 class TestBuildHeaderFooter(unittest.TestCase):
     def test_build_header_image(self):
@@ -261,6 +275,23 @@ class TestResolveProjectDir(unittest.TestCase):
             create_minimal_card_project(proj)
             cards = proj / "cards"
             resolved = resolve_project_dir(str(cards))
+            self.assertEqual(resolved, proj.resolve())
+
+    def test_explicit_subfolder_resolves_to_parent(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "proj"
+            create_minimal_card_project(proj)
+            sub = proj / "render_cards"
+            resolved = resolve_project_dir(str(sub))
+            self.assertEqual(resolved, proj.resolve())
+
+    def test_base_subfolder_resolves_to_parent(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "proj"
+            create_minimal_card_project(proj)
+            sub = proj / "svg_output"
+            sub.mkdir(parents=True)
+            resolved = resolve_project_dir(base_dir=sub)
             self.assertEqual(resolved, proj.resolve())
 
     def test_explicit_dir_without_cards_raises(self):
