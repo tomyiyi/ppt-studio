@@ -1,12 +1,17 @@
 """tests/test_drift_report.py -- spec 漂移可视化对比报告（第 21 轮）。"""
 from __future__ import annotations
 
+import sys
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from scripts.drift_report import build_report, main, page_statement, render_html, render_markdown
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.drift_report import build_report, main, page_statement, render_html, render_markdown, resolve_project_dir
 
 SPEC = """# Execution Lock -- test
 ## canvas
@@ -189,6 +194,57 @@ class TestRenderMarkdown(DriftReportTestBase):
             body = out.read_text(encoding="utf-8")
             self.assertIn("# Spec 漂移决策简报", body)
             self.assertNotIn("<!DOCTYPE html>", body)
+
+
+class TestDriftReportSubdirAndVersionResolution(DriftReportTestBase):
+    def test_resolve_project_dir_subfolder_and_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = self.make_project(td)
+            sub = proj / "svg_output"
+            spec = proj / "spec_lock.md"
+            self.assertEqual(resolve_project_dir(sub), proj.resolve())
+            self.assertEqual(resolve_project_dir(spec), proj.resolve())
+            self.assertEqual(resolve_project_dir(str(sub)), proj.resolve())
+
+    def test_build_report_from_subfolder(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = self.make_project(td)
+            sub = proj / "svg_output"
+            rep = build_report(sub)
+            self.assertEqual(rep["project"], proj.name)
+            self.assertEqual(rep["expected_statement"], 56)
+            self.assertEqual(rep["n_drift"], 1)
+
+    def test_build_report_versioned_spec(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = self.make_project(td)
+            # v4 spec 将 statement 改为 72
+            v4_spec = SPEC.replace("statement: 56", "statement: 72")
+            (proj / "spec_lock_v4.md").write_text(v4_spec, encoding="utf-8")
+            rep = build_report(proj)
+            self.assertEqual(rep["spec_file"], "spec_lock_v4.md")
+            self.assertEqual(rep["expected_statement"], 72)
+            # 原本 72px 的 03_drift 此时对齐，而原本 56px 的 02_ok 此时漂移
+            self.assertEqual(rep["n_drift"], 2)
+            self.assertIn("02_ok", rep["drift_pages"])
+            self.assertNotIn("03_drift", rep["drift_pages"])
+
+    def test_build_report_explicit_spec_path_str(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = self.make_project(td)
+            custom_spec = Path(td) / "custom_spec.md"
+            custom_spec.write_text(SPEC.replace("statement: 56", "statement: 20"), encoding="utf-8")
+            rep = build_report(str(proj), spec_path=str(custom_spec))
+            self.assertEqual(rep["expected_statement"], 20)
+
+    def test_cli_from_subfolder_outputs_to_project_root(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = self.make_project(td)
+            sub = proj / "svg_output"
+            rc = main([str(sub)])
+            self.assertEqual(rc, 0)
+            expected_out = proj / "output" / "drift-report.html"
+            self.assertTrue(expected_out.is_file())
 
 
 if __name__ == "__main__":

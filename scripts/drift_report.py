@@ -29,9 +29,39 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.spec_resolve import find_spec, resolve_spec  # noqa: E402
-from scripts.check_page_map import find_svg_dir  # noqa: E402
+try:
+    from scripts.spec_resolve import find_spec, resolve_spec  # noqa: E402
+    from scripts.check_page_map import find_svg_dir, resolve_project_dir as _cpm_resolve_project_dir  # noqa: E402
+except ImportError:
+    from spec_resolve import find_spec, resolve_spec  # noqa: E402
+    try:
+        from check_page_map import find_svg_dir, resolve_project_dir as _cpm_resolve_project_dir  # noqa: E402
+    except ImportError:
+        find_svg_dir = None  # type: ignore
+        _cpm_resolve_project_dir = None  # type: ignore
 from scripts import qa_layout as _ql  # noqa: E402
+
+
+def resolve_project_dir(project_arg: str | Path | None = None) -> Path:
+    """自适应解析项目根目录（支持从子目录 svg_output*、cards 等或 spec 文件回退）。"""
+    if _cpm_resolve_project_dir is not None:
+        return _cpm_resolve_project_dir(project_arg)
+    if project_arg is not None:
+        p = Path(project_arg).resolve()
+        if p.is_file():
+            p = p.parent
+        if (
+            p.name in ("images", "svg_output", "cards", "notes", "output", "render")
+            or p.name.startswith("svg_output")
+        ):
+            if (
+                any(p.parent.glob("spec_lock*.md"))
+                or any(p.parent.glob("svg_output*"))
+                or (p.parent / "cards").is_dir()
+            ):
+                return p.parent
+        return p
+    return Path.cwd().resolve()
 
 NS = "{http://www.w3.org/2000/svg}"
 MIN_STATEMENT_PX = 40
@@ -84,12 +114,23 @@ def load_statement_size(spec_path: Path) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def build_report(project_dir: Path, spec_path: Path | None = None) -> dict:
+def build_report(project_dir: Path | str, spec_path: Path | str | None = None) -> dict:
     """返回报告数据结构（JSON 可序列化）。"""
-    spec = Path(spec_path).resolve() if spec_path else (
-        resolve_spec(project_dir) or find_spec(project_dir)
-    )
-    if spec is None:
+    proj = resolve_project_dir(project_dir)
+    spec: Path | None = None
+    if spec_path:
+        spec = Path(spec_path).resolve()
+    else:
+        spec = resolve_spec(proj)
+        if spec is None or not spec.is_file():
+            spec = find_spec(proj)
+        if (
+            (spec is None or not spec.is_file())
+            and str(proj) != str(Path(project_dir).resolve())
+        ):
+            spec = find_spec(Path(project_dir).resolve())
+
+    if spec is None or not spec.is_file():
         raise FileNotFoundError(f"找不到 spec_lock: {project_dir}")
     expected = load_statement_size(spec)
     if expected is None:
@@ -99,7 +140,9 @@ def build_report(project_dir: Path, spec_path: Path | None = None) -> dict:
     except Exception:
         ramp = []
 
-    svg_dir = find_svg_dir(project_dir)
+    svg_dir = find_svg_dir(proj) if find_svg_dir is not None else None
+    if svg_dir is None and str(proj) != str(Path(project_dir).resolve()) and find_svg_dir is not None:
+        svg_dir = find_svg_dir(Path(project_dir).resolve())
     if svg_dir is None:
         raise FileNotFoundError(f"找不到 SVG 目录: {project_dir}")
 
@@ -131,7 +174,7 @@ def build_report(project_dir: Path, spec_path: Path | None = None) -> dict:
     off_ramp = sorted(s for s in all_sizes if s not in ramp_set)
     drift_pages = [p for p in pages if p.get("drift")]
     return {
-        "project": project_dir.name,
+        "project": proj.name,
         "spec_file": spec.name,
         "spec_path": str(spec),
         "expected_statement": expected,
@@ -283,7 +326,7 @@ def main(argv: list[str] | None = None) -> int:
                     help="html=可视化对比报告（默认），md=决策简报 Markdown（可直接粘贴给用户做决策）")
     a = ap.parse_args(argv)
 
-    proj = Path(a.project_dir).resolve()
+    proj = resolve_project_dir(a.project_dir)
     try:
         rep = build_report(proj, Path(a.spec) if a.spec else None)
     except (FileNotFoundError, ValueError) as e:
