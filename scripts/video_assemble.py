@@ -10,9 +10,45 @@ ensure_page_images / resolve_project_dir。
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
+
+try:
+    from scripts.check_page_map import find_svg_dir
+except ImportError:
+    try:
+        from check_page_map import find_svg_dir
+    except ImportError:
+        find_svg_dir = None
+
+
+try:
+    from scripts.render_svg import render_one
+except ImportError:
+    try:
+        from render_svg import render_one
+    except ImportError:
+        render_one = None
+
+
+def _find_svg_dir(p: Path) -> Path | None:
+    if find_svg_dir is not None:
+        return find_svg_dir(p)
+    # fallback: 优先按数字版本最高 (svg_output_v4 > svg_output_v3 > svg_output)
+    cands = sorted(
+        [d for d in p.glob("svg_output*") if d.is_dir() and any(d.glob("*.svg"))],
+        key=lambda d: (
+            int(m.group(1)) if (m := re.match(r"^svg_output_v(\d+)$", d.name, re.I)) else (0 if d.name == "svg_output" else -1)
+        ),
+        reverse=True,
+    )
+    if cands:
+        return cands[0]
+    if any(p.glob("*.svg")):
+        return p
+    return None
 
 def run_cmd(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=check)
@@ -60,14 +96,18 @@ def probe_duration(media_path: Path) -> float:
 
 def ensure_page_images(project_dir: Path, pages: list[str], format_ratio: str, work_dir: Path) -> dict[str, Path]:
     """根据画面比例渲染或准备高分辨率静态底图。"""
-    script_dir = Path(__file__).resolve().parent
-    sys.path.insert(0, str(script_dir))
-    from render_svg import render_one
+    global render_one
+    if render_one is None:
+        from render_svg import render_one
 
     out_images = {}
     if format_ratio == "16:9":
-        # 横版：基于 svg_output/*.svg 渲染 1920×1080 (scale 1.5)
-        src_dir = project_dir / "svg_output"
+        # 横版：基于版本最高 svg_output*/*.svg 渲染 1920×1080 (scale 1.5)
+        cand_svg = _find_svg_dir(project_dir)
+        if cand_svg and cand_svg.is_dir() and any(cand_svg.glob("*.svg")):
+            src_dir = cand_svg
+        else:
+            src_dir = project_dir / "svg_output"
         scale = 1.5
     else:
         # 竖版：基于 cards/*.svg 渲染 1080×1350 或 1080×1920
@@ -109,7 +149,10 @@ def resolve_project_dir(
             proj = proj.resolve()
         if not proj.exists():
             raise FileNotFoundError(f"指定的项目目录不存在: {project_arg}")
-        if proj.name in ("svg_output", "cards", "notes") and proj.is_dir():
+        if (
+            proj.name in ("svg_output", "cards", "notes")
+            or proj.name.startswith("svg_output")
+        ) and proj.is_dir():
             proj = proj.parent
         return proj
 
@@ -121,8 +164,9 @@ def resolve_project_dir(
         has_vo = (p / "voiceover.json").is_file() or (
             (p / "notes").is_dir() and any((p / "notes").glob("*.md"))
         )
+        cand_svg = _find_svg_dir(p)
         has_svg = (
-            ((p / "svg_output").is_dir() and any((p / "svg_output").glob("*.svg")))
+            (cand_svg is not None and any(cand_svg.glob("*.svg")))
             or ((p / "cards").is_dir() and any((p / "cards").glob("*.svg")))
         )
         return has_vo and has_svg
@@ -131,8 +175,11 @@ def resolve_project_dir(
     if is_valid_project(base):
         return base
 
-    # 若当前位于子目录 (如 svg_output/、cards/、notes/)
-    if base.name in ("svg_output", "cards", "notes") and is_valid_project(base.parent):
+    # 若当前位于子目录 (如 svg_output/、svg_output_v*/、cards/、notes/)
+    if (
+        base.name in ("svg_output", "cards", "notes")
+        or base.name.startswith("svg_output")
+    ) and is_valid_project(base.parent):
         return base.parent
 
     # 2. 从 projects/ 目录下安全发现

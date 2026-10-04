@@ -77,6 +77,15 @@ class TestResolveProjectDir(unittest.TestCase):
             resolved = resolve_project_dir(str(sub))
             self.assertEqual(resolved, proj.resolve())
 
+    def test_explicit_versioned_subfolder_normalization(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "custom_proj"
+            proj.mkdir()
+            sub = proj / "svg_output_v4"
+            sub.mkdir()
+            resolved = resolve_project_dir(str(sub))
+            self.assertEqual(resolved, proj.resolve())
+
     def test_explicit_nonexistent_project_raises(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             non_exist = Path(tmp_dir) / "does_not_exist"
@@ -112,6 +121,14 @@ class TestResolveProjectDir(unittest.TestCase):
             base = Path(tmp_dir) / "projects"
             proj = base / "beta"
             create_valid_project(proj, svg_dir_name="cards")
+            resolved = resolve_project_dir(None, base_dir=base)
+            self.assertEqual(resolved, proj.resolve())
+
+    def test_auto_discovery_versioned_svg_output(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir) / "projects"
+            proj = base / "gamma"
+            create_valid_project(proj, svg_dir_name="svg_output_v3")
             resolved = resolve_project_dir(None, base_dir=base)
             self.assertEqual(resolved, proj.resolve())
 
@@ -361,6 +378,31 @@ class TestMakeVideoQualityGate(unittest.TestCase):
         call_args, call_kwargs = mock_qa.call_args
         self.assertTrue(call_args[0].name == self.out_video.name)
         self.assertIsNone(call_kwargs.get("srt_path"))
+
+
+class TestEnsurePageImages(unittest.TestCase):
+    """测试 ensure_page_images 的版本目录优先级选择。"""
+
+    def test_ensure_page_images_prioritizes_versioned_svg_output(self):
+        from scripts.make_video import ensure_page_images
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "proj"
+            v1 = proj / "svg_output"
+            v4 = proj / "svg_output_v4"
+            v1.mkdir(parents=True)
+            v4.mkdir(parents=True)
+            (v1 / "01.svg").write_text("<svg id='v1'/>", encoding="utf-8")
+            (v4 / "01.svg").write_text("<svg id='v4'/>", encoding="utf-8")
+
+            work_dir = Path(tmp_dir) / "work"
+            work_dir.mkdir()
+
+            with patch("scripts.video_assemble.render_one") as mock_render:
+                out = ensure_page_images(proj, ["01"], format_ratio="16:9", work_dir=work_dir)
+                self.assertIn("01", out)
+                mock_render.assert_called_once()
+                call_svg = mock_render.call_args[0][0]
+                self.assertEqual(call_svg.resolve(), (v4 / "01.svg").resolve())
 
 
 if __name__ == "__main__":
