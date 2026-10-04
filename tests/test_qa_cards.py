@@ -594,6 +594,16 @@ class TestQaCardsSubdirAndSpecResolution(unittest.TestCase):
         self.assertEqual(resolve_project_dir(self.images_dir), self.proj.resolve())
         self.assertEqual(resolve_project_dir(self.spec_file), self.proj.resolve())
 
+    def test_resolve_project_dir_fallback_without_cpm(self):
+        from unittest.mock import patch
+        with patch("scripts.qa_cards._cpm_resolve_project_dir", None):
+            self.assertEqual(resolve_project_dir(self.cards_dir), self.proj.resolve())
+            self.assertEqual(resolve_project_dir(self.render_cards_dir), self.proj.resolve())
+            self.assertEqual(resolve_project_dir(self.images_dir), self.proj.resolve())
+            self.assertEqual(resolve_project_dir(self.spec_file), self.proj.resolve())
+            self.assertEqual(resolve_project_dir(""), Path.cwd().resolve())
+            self.assertEqual(resolve_project_dir("."), Path.cwd().resolve())
+
     def test_resolve_card_dirs_from_subfolder(self):
         resolved_render = resolve_card_dirs(str(self.render_cards_dir), base_dir=Path(self.td.name))
         self.assertEqual(resolved_render, [self.cards_dir.resolve()])
