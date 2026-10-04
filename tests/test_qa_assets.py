@@ -1,13 +1,18 @@
 """tests/test_qa_assets.py -- SVG 引用图片资产门禁（第 29 轮）。"""
 from __future__ import annotations
 
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from PIL import Image
 
-from scripts.qa_assets import main, run_qa_assets
+from scripts.qa_assets import main, resolve_project_dir, run_qa_assets
 
 SVG_TMPL = """<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1920 1080">
 {images}
@@ -117,6 +122,70 @@ class TestQaAssets(QaAssetsTestBase):
                     href="../images/nope.png", w=400, h=300)),
                 encoding="utf-8")
             self.assertEqual(main([str(proj)]), 0)
+
+
+class TestQaAssetsSubdirAndSingleSvgResolution(QaAssetsTestBase):
+    def test_resolve_project_dir_subfolder_and_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = self.make_project(td, "")
+            (proj / "spec_lock.md").write_text("# Spec\n", encoding="utf-8")
+            sub_svg = proj / "svg_output"
+            sub_img = proj / "images"
+            spec_file = proj / "spec_lock.md"
+            self.assertEqual(resolve_project_dir(sub_svg), proj.resolve())
+            self.assertEqual(resolve_project_dir(sub_img), proj.resolve())
+            self.assertEqual(resolve_project_dir(spec_file), proj.resolve())
+            self.assertEqual(resolve_project_dir(str(sub_svg)), proj.resolve())
+
+    def test_run_qa_assets_from_subfolder(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = self.make_project(
+                td, IMG_TMPL.format(href="../images/good.png", w=400, h=300))
+            (proj / "spec_lock.md").write_text("# Spec\n", encoding="utf-8")
+            _make_png(proj / "images" / "good.png", 800, 600)
+            rep_from_svg = run_qa_assets(proj / "svg_output")
+            self.assertTrue(rep_from_svg["ok"])
+            self.assertEqual(rep_from_svg["n_images"], 1)
+
+            rep_from_img = run_qa_assets(proj / "images")
+            self.assertTrue(rep_from_img["ok"])
+            self.assertEqual(rep_from_img["n_images"], 1)
+
+    def test_run_qa_assets_single_svg_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = self.make_project(
+                td, IMG_TMPL.format(href="../images/good.png", w=400, h=300))
+            _make_png(proj / "images" / "good.png", 800, 600)
+            single_svg = proj / "svg_output" / "p1.svg"
+            rep = run_qa_assets(single_svg)
+            self.assertTrue(rep["ok"])
+            self.assertEqual(rep["n_images"], 1)
+
+    def test_run_qa_assets_prefers_versioned_svg_output(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = self.make_project(
+                td, IMG_TMPL.format(href="../images/old.png", w=400, h=300))
+            _make_png(proj / "images" / "old.png", 800, 600)
+            # 建立 svg_output_v4，并指向 v4 图片
+            v4_dir = proj / "svg_output_v4"
+            v4_dir.mkdir(parents=True)
+            (v4_dir / "p1.svg").write_text(
+                SVG_TMPL.format(images=IMG_TMPL.format(href="../images/v4.png", w=400, h=300)),
+                encoding="utf-8",
+            )
+            _make_png(proj / "images" / "v4.png", 800, 600)
+            rep = run_qa_assets(proj)
+            self.assertTrue(rep["ok"])
+            self.assertEqual(Path(rep["svg_dir"]).name, "svg_output_v4")
+
+    def test_cli_from_subfolder_and_single_svg(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = self.make_project(
+                td, IMG_TMPL.format(href="../images/good.png", w=400, h=300))
+            (proj / "spec_lock.md").write_text("# Spec\n", encoding="utf-8")
+            _make_png(proj / "images" / "good.png", 800, 600)
+            self.assertEqual(main([str(proj / "svg_output")]), 0)
+            self.assertEqual(main([str(proj / "svg_output" / "p1.svg")]), 0)
 
 
 if __name__ == "__main__":

@@ -27,7 +27,36 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.check_page_map import find_svg_dir  # noqa: E402
+try:
+    from scripts.check_page_map import find_svg_dir, resolve_project_dir as _cpm_resolve_project_dir  # noqa: E402
+except ImportError:
+    try:
+        from check_page_map import find_svg_dir, resolve_project_dir as _cpm_resolve_project_dir  # noqa: E402
+    except ImportError:
+        find_svg_dir = None  # type: ignore
+        _cpm_resolve_project_dir = None  # type: ignore
+
+
+def resolve_project_dir(project_arg: str | Path | None = None) -> Path:
+    """自适应解析项目根目录（支持从子目录 images、svg_output*、cards 等或文件回退）。"""
+    if _cpm_resolve_project_dir is not None:
+        return _cpm_resolve_project_dir(project_arg)
+    if project_arg is not None:
+        p = Path(project_arg).resolve()
+        if p.is_file():
+            p = p.parent
+        if (
+            p.name in ("images", "svg_output", "cards", "notes", "output", "render")
+            or p.name.startswith("svg_output")
+        ):
+            if (
+                any(p.parent.glob("spec_lock*.md"))
+                or any(p.parent.glob("svg_output*"))
+                or (p.parent / "cards").is_dir()
+            ):
+                return p.parent
+        return p
+    return Path.cwd().resolve()
 
 XLINK = "{http://www.w3.org/1999/xlink}"
 
@@ -63,17 +92,26 @@ def run_qa_assets(project_dir: str | Path, *, min_scale: float = 0.5) -> dict[st
     返回 dict(ok=无 fail 项, issues=[fail...], warnings=[warn...],
              n_images=本地引用数, n_skipped_data_uri=内嵌图数)。
     """
-    proj = Path(project_dir).resolve()
-    svg_dir = find_svg_dir(proj)
+    raw_p = Path(project_dir).resolve()
+    is_single_svg = raw_p.is_file() and raw_p.suffix.lower() == ".svg"
+
+    proj = resolve_project_dir(project_dir)
+    svg_dir = find_svg_dir(proj) if find_svg_dir is not None else None
+    if svg_dir is None and str(proj) != str(raw_p) and find_svg_dir is not None:
+        svg_dir = find_svg_dir(raw_p)
+    if svg_dir is None and is_single_svg:
+        svg_dir = raw_p.parent
+
     if svg_dir is None:
         return {"ok": False, "code": "NO_SVG_DIR",
-                "issues": [f"找不到 SVG 目录: {proj}"], "warnings": [],
+                "issues": [f"找不到 SVG 目录: {project_dir}"], "warnings": [],
                 "n_images": 0, "n_skipped_data_uri": 0}
 
     issues: list[str] = []
     warnings: list[str] = []
     n_images = n_data = 0
-    for svg in sorted(svg_dir.glob("*.svg")):
+    svg_files = [raw_p] if is_single_svg else sorted(svg_dir.glob("*.svg"))
+    for svg in svg_files:
         try:
             root = ET.parse(svg).getroot()
         except ET.ParseError as e:
