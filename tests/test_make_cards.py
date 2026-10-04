@@ -65,6 +65,47 @@ class TestMakeCardsAtomicOutput(unittest.TestCase):
         self.assertEqual([p.name for p in result], ["01_cover.svg"])
         self.assertEqual((out / "02_detail.svg").read_text(encoding="utf-8"), "old-detail")
 
+    def test_versioned_svg_output_prioritized(self):
+        v3 = self.root / "svg_output_v3"
+        v3.mkdir()
+        (v3 / "01_v3.svg").write_text("<svg/>", encoding="utf-8")
+        with ExitStack() as stack:
+            for p in self.patches():
+                stack.enter_context(p)
+            result = make_cards(self.root, check=False)
+        self.assertEqual([p.name for p in result], ["01_v3.svg"])
+
+    def test_load_spec_colors_prioritizes_versioned_spec_lock(self):
+        from scripts.make_cards import load_spec_colors
+        (self.root / "spec_lock.md").write_text("## colors\n- accent: #111111\n", encoding="utf-8")
+        (self.root / "spec_lock_v2.md").write_text("## colors\n- accent: #22C55E\n", encoding="utf-8")
+        colors = load_spec_colors(self.root)
+        self.assertEqual(colors["accent"], "#22C55E")
+
+    def test_resolve_project_dir_auto_discovery_versioned(self):
+        from scripts.make_cards import resolve_project_dir
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir)
+            proj = base / "projects" / "my_proj"
+            (proj / "svg_output_v2").mkdir(parents=True)
+            (proj / "svg_output_v2" / "01.svg").write_text("<svg/>", encoding="utf-8")
+            resolved = resolve_project_dir(base_dir=base)
+            self.assertEqual(resolved, proj.resolve())
+
+
+    def test_load_deck_title_prioritizes_versioned_spec_lock(self):
+        from scripts.make_cards import load_deck_title
+        (self.root / "spec_lock.md").write_text("# 旧项目\n\n## canvas\n", encoding="utf-8")
+        (self.root / "spec_lock_v2.md").write_text("# 新版项目\n\n## canvas\n", encoding="utf-8")
+        title = load_deck_title(self.root)
+        self.assertEqual(title, "新版项目")
+
+    def test_load_spec_roles_from_svg_child_dir(self):
+        from scripts.make_cards import load_spec_roles
+        (self.root / "card_spec.md").write_text("## typography\n- statement 80\n", encoding="utf-8")
+        roles = load_spec_roles(self.root / "svg_output")
+        self.assertEqual(roles["statement"], 80)
+
 
 if __name__ == "__main__":
     unittest.main()

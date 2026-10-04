@@ -46,6 +46,40 @@ except ImportError:
         run_qa_cards = None
         qa_cards = None
 
+try:
+    from scripts.check_page_map import find_svg_dir
+except ImportError:
+    try:
+        from check_page_map import find_svg_dir
+    except ImportError:
+        find_svg_dir = None
+
+try:
+    from scripts.spec_resolve import resolve_spec
+except ImportError:
+    try:
+        from spec_resolve import resolve_spec
+    except ImportError:
+        resolve_spec = None
+
+
+def _find_svg_dir(p: Path) -> Path | None:
+    if find_svg_dir is not None:
+        return find_svg_dir(p)
+    # fallback: 优先按数字版本最高 (svg_output_v4 > svg_output_v3 > svg_output)
+    cands = sorted(
+        [d for d in p.glob("svg_output*") if d.is_dir() and any(d.glob("*.svg"))],
+        key=lambda d: (
+            int(m.group(1)) if (m := re.match(r"^svg_output_v(\d+)$", d.name, re.I)) else (0 if d.name == "svg_output" else -1)
+        ),
+        reverse=True,
+    )
+    if cands:
+        return cands[0]
+    if any(p.glob("*.svg")):
+        return p
+    return None
+
 # ---------------------------------------------------------------- 画布常量
 MARGIN = 80
 SAFE = 64                      # 硬安全边距，质检按这条查
@@ -610,10 +644,19 @@ def load_spec_colors(project_dir: str | Path | None) -> dict[str, str]:
     if p.is_file():
         candidate_files.append(p)
         candidate_files.append(p.parent / "card_spec.md")
+        if resolve_spec is not None:
+            s = resolve_spec(p.parent)
+            if s and s.is_file() and s not in candidate_files:
+                candidate_files.append(s)
         candidate_files.append(p.parent / "spec_lock.md")
     elif p.is_dir():
-        candidate_files.append(p / "card_spec.md")
-        candidate_files.append(p / "spec_lock.md")
+        proj_root = p.parent if (p.name.startswith("svg_output") or p.name == "cards") else p
+        candidate_files.append(proj_root / "card_spec.md")
+        if resolve_spec is not None:
+            s = resolve_spec(proj_root)
+            if s and s.is_file() and s not in candidate_files:
+                candidate_files.append(s)
+        candidate_files.append(proj_root / "spec_lock.md")
 
     repo_root = Path(__file__).resolve().parent.parent
     for base in [Path.cwd(), repo_root]:
@@ -621,6 +664,7 @@ def load_spec_colors(project_dir: str | Path | None) -> dict[str, str]:
         candidate_files.append(base / "spec_lock.md")
 
     seen = set()
+    defined_keys: set[str] = set()
     for cand in candidate_files:
         if not cand.is_file():
             continue
@@ -632,43 +676,66 @@ def load_spec_colors(project_dir: str | Path | None) -> dict[str, str]:
         try:
             txt = rcand.read_text(encoding="utf-8")
             parsed = parse_colors_from_spec_text(txt)
-            if "accent" in parsed:
-                colors["accent"] = parsed["accent"]
-            elif "accent_color" in parsed:
-                colors["accent"] = parsed["accent_color"]
+            if "accent" not in defined_keys:
+                if "accent" in parsed:
+                    colors["accent"] = parsed["accent"]
+                    defined_keys.add("accent")
+                elif "accent_color" in parsed:
+                    colors["accent"] = parsed["accent_color"]
+                    defined_keys.add("accent")
 
-            if "bg" in parsed:
-                colors["bg"] = parsed["bg"]
-            elif "background" in parsed:
-                colors["bg"] = parsed["background"]
-            elif "bg_color" in parsed:
-                colors["bg"] = parsed["bg_color"]
+            if "bg" not in defined_keys:
+                if "bg" in parsed:
+                    colors["bg"] = parsed["bg"]
+                    defined_keys.add("bg")
+                elif "background" in parsed:
+                    colors["bg"] = parsed["background"]
+                    defined_keys.add("bg")
+                elif "bg_color" in parsed:
+                    colors["bg"] = parsed["bg_color"]
+                    defined_keys.add("bg")
 
-            if "bg_bottom" in parsed:
-                colors["bg_bottom"] = parsed["bg_bottom"]
-            elif "background" in parsed:
-                colors["bg_bottom"] = parsed["background"]
+            if "bg_bottom" not in defined_keys:
+                if "bg_bottom" in parsed:
+                    colors["bg_bottom"] = parsed["bg_bottom"]
+                    defined_keys.add("bg_bottom")
+                elif "background" in parsed:
+                    colors["bg_bottom"] = parsed["background"]
+                    defined_keys.add("bg_bottom")
 
-            if "bg_top" in parsed:
-                colors["bg_top"] = parsed["bg_top"]
+            if "bg_top" not in defined_keys:
+                if "bg_top" in parsed:
+                    colors["bg_top"] = parsed["bg_top"]
+                    defined_keys.add("bg_top")
 
-            if "fg" in parsed:
-                colors["fg"] = parsed["fg"]
-            elif "text_main" in parsed:
-                colors["fg"] = parsed["text_main"]
+            if "fg" not in defined_keys:
+                if "fg" in parsed:
+                    colors["fg"] = parsed["fg"]
+                    defined_keys.add("fg")
+                elif "text_main" in parsed:
+                    colors["fg"] = parsed["text_main"]
+                    defined_keys.add("fg")
 
-            if "muted" in parsed:
-                colors["muted"] = parsed["muted"]
-            elif "text_muted" in parsed:
-                colors["muted"] = parsed["text_muted"]
+            if "muted" not in defined_keys:
+                if "muted" in parsed:
+                    colors["muted"] = parsed["muted"]
+                    defined_keys.add("muted")
+                elif "text_muted" in parsed:
+                    colors["muted"] = parsed["text_muted"]
+                    defined_keys.add("muted")
 
-            if "dim" in parsed:
-                colors["dim"] = parsed["dim"]
-            elif "text_dim" in parsed:
-                colors["dim"] = parsed["text_dim"]
+            if "dim" not in defined_keys:
+                if "dim" in parsed:
+                    colors["dim"] = parsed["dim"]
+                    defined_keys.add("dim")
+                elif "text_dim" in parsed:
+                    colors["dim"] = parsed["text_dim"]
+                    defined_keys.add("dim")
 
-            if "rule" in parsed:
-                colors["rule"] = parsed["rule"]
+            if "rule" not in defined_keys:
+                if "rule" in parsed:
+                    colors["rule"] = parsed["rule"]
+                    defined_keys.add("rule")
         except (OSError, UnicodeError):
             pass
 
@@ -687,13 +754,15 @@ def load_spec_roles(project_dir: str | Path | None) -> dict[str, int]:
         candidate_files.append(p)
         candidate_files.append(p.parent / "card_spec.md")
     elif p.is_dir():
-        candidate_files.append(p / "card_spec.md")
+        proj_root = p.parent if (p.name.startswith("svg_output") or p.name == "cards") else p
+        candidate_files.append(proj_root / "card_spec.md")
 
     repo_root = Path(__file__).resolve().parent.parent
     for base in [Path.cwd(), repo_root]:
         candidate_files.append(base / "card_spec.md")
 
     seen = set()
+    defined_roles: set[str] = set()
     for cand in candidate_files:
         if not cand.is_file():
             continue
@@ -713,12 +782,18 @@ def load_spec_roles(project_dir: str | Path | None) -> dict[str, int]:
                     # 支持 72 statement 或 - 72 statement
                     mm1 = re.match(r"^[-*]?\s*(\d+)\s+([a-zA-Z_]\w*)", line)
                     if mm1:
-                        roles[mm1.group(2)] = int(mm1.group(1))
+                        role_name = mm1.group(2)
+                        if role_name not in defined_roles:
+                            roles[role_name] = int(mm1.group(1))
+                            defined_roles.add(role_name)
                         continue
-                    # 支持 - statement: 72 或 statement: 72
-                    mm2 = re.match(r"^[-*]?\s*([a-zA-Z_]\w*)\s*[:=]\s*(\d+)", line)
+                    # 支持 - statement: 72、- statement 72 或 statement: 72
+                    mm2 = re.match(r"^[-*]?\s*([a-zA-Z_]\w*)\s*[:=\s]\s*(\d+)", line)
                     if mm2:
-                        roles[mm2.group(1)] = int(mm2.group(2))
+                        role_name = mm2.group(1)
+                        if role_name not in defined_roles:
+                            roles[role_name] = int(mm2.group(2))
+                            defined_roles.add(role_name)
         except (OSError, UnicodeError):
             pass
 
@@ -761,13 +836,31 @@ def load_deck_title(
                 pass
 
         # 3. 尝试从 card_spec.md / spec_lock.md 提取 title
-        for spec_f in [proj_dir / "card_spec.md", proj_dir / "spec_lock.md"]:
+        cand_specs = [proj_dir / "card_spec.md"]
+        if resolve_spec is not None:
+            s = resolve_spec(proj_dir)
+            if s and s.is_file() and s not in cand_specs:
+                cand_specs.append(s)
+        if (proj_dir / "spec_lock.md") not in cand_specs:
+            cand_specs.append(proj_dir / "spec_lock.md")
+        for spec_f in cand_specs:
             if spec_f.is_file():
                 try:
                     content = spec_f.read_text(encoding="utf-8")
-                    m = re.search(r"-\s*title\s*[:=]\s*(.+)", content)
+                    m = re.search(r"[-*]?\s*(?:title|objective)\s*[:=]\s*(.+)", content)
                     if m:
-                        return m.group(1).strip()
+                        t = m.group(1).strip()
+                        if t:
+                            return t
+                    for line in content.splitlines():
+                        line = line.strip()
+                        if line.startswith("#"):
+                            t = line.lstrip("#").strip()
+                            if t and not t.lower().startswith((
+                                "canvas", "typography", "colors", "page_map",
+                                "details", "communication", "focus"
+                            )):
+                                return t
                 except Exception:
                     pass
 
@@ -820,8 +913,8 @@ def resolve_project_dir(
     base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
 
     def has_svg_output(p: Path) -> bool:
-        svg_dir = p / "svg_output"
-        return svg_dir.is_dir() and any(svg_dir.glob("*.svg"))
+        cand = _find_svg_dir(p)
+        return cand is not None and cand.is_dir() and any(cand.glob("*.svg"))
 
     # 1. 当前目录本身包含 svg_output/*.svg
     if has_svg_output(base):
@@ -879,7 +972,15 @@ def make_cards(
 ) -> list[Path]:
     """生成竖版传播卡片，支持指定比例、页面过滤与质量门禁校验。"""
     proj_dir = resolve_project_dir(project_dir)
-    src_dir = proj_dir / "svg_output"
+    if proj_dir.is_dir() and (proj_dir.name.startswith("svg_output") or proj_dir.name == "cards"):
+        src_dir = proj_dir
+        proj_dir = proj_dir.parent
+    else:
+        cand_svg = _find_svg_dir(proj_dir)
+        if cand_svg and cand_svg.is_dir() and any(cand_svg.glob("*.svg")):
+            src_dir = cand_svg
+        else:
+            src_dir = proj_dir / "svg_output"
     out_dir = proj_dir / out_dir_name
     staging_dir = Path(tempfile.mkdtemp(prefix=f".{out_dir.name}.", dir=proj_dir))
     backup: Path | None = None
