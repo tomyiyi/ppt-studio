@@ -88,6 +88,24 @@ class TestTavilySearch(unittest.TestCase):
             self.assertEqual(data["query"], "Pantone 2026")
             self.assertEqual(len(data["results"]), 1)
 
+    @patch("scripts.tavily_search.search")
+    @patch("scripts.tavily_search.load_keys")
+    def test_main_cli_with_base_dir_flag(self, mock_load_keys, mock_search):
+        mock_load_keys.return_value = ["test-key-abc"]
+        mock_search.return_value = SAMPLE_RESPONSE
+
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            code = main(
+                ["Pantone 2026", "-o", "data/search_res_flag.json", "--max", "5", "--base-dir", str(base)]
+            )
+            self.assertEqual(code, 0)
+            out_file = base / "data" / "search_res_flag.json"
+            self.assertTrue(out_file.is_file())
+            data = json.loads(out_file.read_text(encoding="utf-8"))
+            self.assertEqual(data["query"], "Pantone 2026")
+            self.assertEqual(len(data["results"]), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
