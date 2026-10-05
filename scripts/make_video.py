@@ -94,14 +94,23 @@ __all__ = [
 
 
 def make_video(
-    project_dir: Path,
+    project_dir: Path | str | None = None,
     voice_key: str = "zh-female",
     format_ratio: str = "16:9",
     subtitles_mode: str = "burned",
     motion: str = "subtle",
-    out_video_path: Path | None = None,
+    out_video_path: Path | str | None = None,
     check: bool = False,
+    base_dir: str | Path | None = None,
 ) -> Path:
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    if project_dir is not None:
+        p_in = Path(project_dir)
+        p_resolved = (base / p_in).resolve() if not p_in.is_absolute() else p_in.resolve()
+        project_dir = resolve_project_dir(p_resolved, base_dir=base)
+    else:
+        project_dir = resolve_project_dir(base_dir=base)
+
     project_dir = project_dir.resolve()
     vo_items = load_voiceover(project_dir)
     if not vo_items:
@@ -120,6 +129,8 @@ def make_video(
         out_dir.mkdir(parents=True, exist_ok=True)
         out_video_path = out_dir / f"{project_dir.name}{suffix}"
     else:
+        out_p = Path(out_video_path)
+        out_video_path = (base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
         out_video_path.parent.mkdir(parents=True, exist_ok=True)
 
     print(f"==================================================")
@@ -296,9 +307,11 @@ def make_video(
 
         if check:
             if run_qa_video is not None:
-                srt_arg = out_srt if subtitles_mode != "none" else None
                 srt_arg = staged_srt if subtitles_mode != "none" else None
-                ok = run_qa_video(staged_video, srt_path=srt_arg)
+                try:
+                    ok = run_qa_video(staged_video, srt_path=srt_arg, base_dir=base)
+                except TypeError:
+                    ok = run_qa_video(staged_video, srt_path=srt_arg)
                 if not ok:
                     raise RuntimeError(f"视频客观质量门禁未通过: {out_video_path}")
                 print("  [门禁] ✓ 视频客观质量门禁通过")
@@ -313,7 +326,7 @@ def make_video(
         # 清理临时文件
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     parser = argparse.ArgumentParser(description="SVG 画布 + 解说稿 → 自动配音短视频")
     parser.add_argument(
         "project",
@@ -329,13 +342,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--check", action="store_true", help="合成完成后执行视频质量客观门禁校验 (qa_video.py)")
     args = parser.parse_args(argv)
 
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+
     try:
-        proj_dir = resolve_project_dir(args.project)
+        proj_dir = resolve_project_dir(args.project, base_dir=base)
     except (FileNotFoundError, ValueError) as err:
         print(f"[err] {err}", file=sys.stderr)
         return 1
 
-    out_p = Path(args.out).resolve() if args.out else None
+    out_p = Path(args.out) if args.out else None
+    if out_p is not None and not out_p.is_absolute():
+        out_p = (base / out_p).resolve()
 
     try:
         make_video(
@@ -346,6 +363,7 @@ def main(argv: list[str] | None = None) -> int:
             motion=args.motion,
             out_video_path=out_p,
             check=args.check,
+            base_dir=base,
         )
     except Exception as err:
         print(f"[err] 视频合成失败: {err}", file=sys.stderr)

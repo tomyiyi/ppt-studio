@@ -286,6 +286,22 @@ class TestMakeVideoCLI(unittest.TestCase):
                 code = main([str(proj), "--check"])
                 self.assertEqual(code, 1)
 
+    def test_cli_with_base_dir_and_relative_paths(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir)
+            proj = base / "valid_proj"
+            create_valid_project(proj)
+
+            with patch("scripts.make_video.make_video") as mock_make:
+                code = main(["valid_proj", "--out", "valid_proj/output/custom.mp4", "--check"], base_dir=base)
+                self.assertEqual(code, 0)
+                mock_make.assert_called_once()
+                call_kwargs = mock_make.call_args.kwargs
+                self.assertEqual(call_kwargs["project_dir"], proj.resolve())
+                self.assertEqual(call_kwargs["out_video_path"], (proj / "output" / "custom.mp4").resolve())
+                self.assertEqual(call_kwargs["base_dir"], base.resolve())
+                self.assertTrue(call_kwargs["check"])
+
 
 class TestMakeVideoQualityGate(unittest.TestCase):
     """测试 make_video 的客观质量门禁联动行为。"""
@@ -400,6 +416,26 @@ class TestMakeVideoQualityGate(unittest.TestCase):
         call_args, call_kwargs = mock_qa.call_args
         self.assertTrue(call_args[0].name == self.out_video.name)
         self.assertIsNone(call_kwargs.get("srt_path"))
+
+    @patch("scripts.make_video.run_cmd")
+    @patch("scripts.make_video.probe_duration")
+    @patch("scripts.make_video.generate_tts")
+    @patch("scripts.make_video.ensure_page_images")
+    @patch("scripts.make_video.run_qa_video")
+    def test_make_video_forwards_base_dir_to_run_qa_video(self, mock_qa, mock_ensure_img, mock_tts, mock_probe, mock_cmd):
+        self._setup_pipeline_mocks(mock_ensure_img, mock_tts, mock_probe, mock_cmd)
+        mock_qa.return_value = True
+
+        out = make_video(
+            "test_proj",
+            out_video_path="test_proj/output/test.mp4",
+            check=True,
+            base_dir=self.tmp_dir.name,
+        )
+        self.assertEqual(out, self.out_video.resolve())
+        mock_qa.assert_called_once()
+        call_args, call_kwargs = mock_qa.call_args
+        self.assertEqual(call_kwargs.get("base_dir"), Path(self.tmp_dir.name).resolve())
 
 
 class TestEnsurePageImages(unittest.TestCase):
