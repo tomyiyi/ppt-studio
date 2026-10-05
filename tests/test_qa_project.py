@@ -322,6 +322,76 @@ class TestResolveProjectDir(unittest.TestCase):
             (proj / "card_spec.md").touch()
             self.assertEqual(resolve_project_dir(".", base_dir=proj), proj.resolve())
 
+    def test_resolve_project_dir_subfolder_and_base_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "my_project"
+            proj.mkdir(parents=True)
+            sub_svg = proj / "svg_output"
+            sub_svg.mkdir()
+            (sub_svg / "01.svg").write_text("<svg></svg>", encoding="utf-8")
+            sub_img = proj / "images"
+            sub_img.mkdir()
+            spec_file = proj / "spec_lock.md"
+            spec_file.write_text("# Spec\n", encoding="utf-8")
+
+            self.assertEqual(resolve_project_dir(sub_svg), proj.resolve())
+            self.assertEqual(resolve_project_dir(sub_img), proj.resolve())
+            self.assertEqual(resolve_project_dir(spec_file), proj.resolve())
+            self.assertEqual(resolve_project_dir(str(sub_svg)), proj.resolve())
+            self.assertEqual(resolve_project_dir(base_dir=sub_svg), proj.resolve())
+            self.assertEqual(resolve_project_dir(base_dir=spec_file), proj.resolve())
+            self.assertEqual(resolve_project_dir("svg_output", base_dir=proj), proj.resolve())
+
+    def test_resolve_project_dir_fallback_without_cpm(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "my_project"
+            proj.mkdir(parents=True)
+            sub_svg = proj / "svg_output"
+            sub_svg.mkdir()
+            (sub_svg / "01.svg").write_text("<svg></svg>", encoding="utf-8")
+            sub_img = proj / "images"
+            sub_img.mkdir()
+            spec_file = proj / "spec_lock.md"
+            spec_file.write_text("# Spec\n", encoding="utf-8")
+
+            with patch("scripts.qa_project._cpm_resolve_project_dir", None):
+                self.assertEqual(resolve_project_dir(sub_svg), proj.resolve())
+                self.assertEqual(resolve_project_dir(sub_img), proj.resolve())
+                self.assertEqual(resolve_project_dir(spec_file), proj.resolve())
+                self.assertEqual(resolve_project_dir(base_dir=sub_svg), proj.resolve())
+                self.assertEqual(resolve_project_dir(base_dir=spec_file), proj.resolve())
+                self.assertEqual(resolve_project_dir("svg_output", base_dir=proj), proj.resolve())
+                self.assertEqual(resolve_project_dir(None, base_dir=sub_svg), proj.resolve())
+
+    def test_run_project_qa_and_main_with_base_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "my_project"
+            proj.mkdir(parents=True)
+            sub_svg = proj / "svg_output"
+            sub_svg.mkdir()
+            (sub_svg / "01.svg").write_text("<svg></svg>", encoding="utf-8")
+            (proj / "spec_lock.md").write_text("# Spec\n", encoding="utf-8")
+
+            with ExitStack() as stack:
+                stack.enter_context(patch("scripts.qa_project.run_image_qa", return_value={"ok": True}))
+                stack.enter_context(patch("scripts.qa_project.run_qa_assets", return_value={"ok": True}))
+                stack.enter_context(patch("scripts.qa_project.run_qa_layout", return_value=True))
+                stack.enter_context(patch("scripts.qa_project.run_qa_cards", return_value=True))
+                stack.enter_context(patch("scripts.qa_project.run_qa_long_card", return_value=True))
+
+                res = run_project_qa(".", base_dir=proj)
+                self.assertTrue(res["ok"])
+
+                res_sub = run_project_qa("svg_output", base_dir=proj)
+                self.assertTrue(res_sub["ok"])
+
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    rc = main([".", "--json"], base_dir=sub_svg)
+                self.assertEqual(rc, 0)
+                data = json.loads(buf.getvalue())
+                self.assertTrue(data["ok"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -23,12 +23,13 @@ from scripts.qa_cards import run_qa_cards
 from scripts.qa_long_card import run_qa_long_card
 
 try:
-    from scripts.check_page_map import find_svg_dir
+    from scripts.check_page_map import find_svg_dir, resolve_project_dir as _cpm_resolve_project_dir
 except ImportError:
     try:
-        from check_page_map import find_svg_dir
+        from check_page_map import find_svg_dir, resolve_project_dir as _cpm_resolve_project_dir
     except ImportError:
         find_svg_dir = None
+        _cpm_resolve_project_dir = None
 
 try:
     from scripts.spec_resolve import resolve_spec
@@ -64,14 +65,15 @@ def resolve_project_dir(
     """自适应探测待验收的项目根目录。
 
     1. 若显式指定非 '.' 的 project_arg：
+       - 优先复用统一解析逻辑（若可用）；
        - 转换为绝对路径（若为相对路径则基于 base_dir 或当前工作目录解析）；
        - 若传入 spec 文件或关联文件，自适应回退到其所属项目目录；
        - 若存在且为子目录（如 images、svg_output、cards、notes、render、render_cards、output 等），自动回退到其父目录；
        - 返回绝对路径。
     2. 若未显式指定 project_arg 或为 '.'：
        - 探测 base_dir（默认当前工作目录）：
+         * 若当前位于子目录（如 images/、svg_output/、cards/、render/ 等）或文件，优先回退到其所属有效项目目录；
          * 若当前目录直接包含有效项目特征（images/、svg_output/、cards/、render_cards/ 或 spec_lock.md、card_spec.md），返回该目录；
-         * 若当前位于子目录（如 images/、svg_output/、cards/、render/ 等），返回其父目录；
        - 从 base/projects 或仓库根目录 projects/ 探测：
          * 收集所有包含有效项目特征的子项目；
          * 若唯一匹配，返回该项目；
@@ -80,6 +82,47 @@ def resolve_project_dir(
     """
     base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     is_default = (project_arg is None or str(project_arg).strip() in ("", "."))
+
+    def is_valid_project(p: Path) -> bool:
+        if not p.is_dir():
+            return False
+        if (
+            p.name in ("images", "svg_output", "render_cards", "render", "notes", "output", "cards")
+            or p.name.startswith("svg_output")
+            or p.name.startswith("render")
+        ):
+            return False
+        cand_svg = _find_svg_dir(p)
+        cand_spec = resolve_spec(p) if resolve_spec is not None else None
+        return (
+            (p / "images").is_dir()
+            or (cand_svg is not None and cand_svg.is_dir() and any(cand_svg.glob("*.svg")))
+            or (p / "svg_output").is_dir()
+            or (p / "cards").is_dir()
+            or (p / "render_cards").is_dir()
+            or (p / "spec_lock.md").is_file()
+            or (cand_spec is not None and cand_spec.is_file())
+            or any(p.glob("spec_lock*.md"))
+            or any(p.glob("card_spec*.md"))
+        )
+
+    if _cpm_resolve_project_dir is not None:
+        try:
+            cand = _cpm_resolve_project_dir(project_arg, base_dir=base_dir)
+        except TypeError:
+            cand = _cpm_resolve_project_dir(project_arg)
+        if (
+            cand.name in ("images", "svg_output", "render_cards", "render", "notes", "output", "cards")
+            or cand.name.startswith("svg_output")
+            or cand.name.startswith("render")
+        ):
+            cand = cand.parent
+        if not is_default:
+            return cand
+        if cand != base:
+            return cand
+        if is_valid_project(cand):
+            return cand
 
     if not is_default:
         p = Path(project_arg)
@@ -99,7 +142,7 @@ def resolve_project_dir(
             ):
                 return p.parent.resolve()
             p = p.parent
-        if p.is_dir() and (
+        if (
             p.name in ("images", "svg_output", "render_cards", "render", "notes", "output", "cards")
             or p.name.startswith("svg_output")
             or p.name.startswith("render")
@@ -107,38 +150,18 @@ def resolve_project_dir(
             return p.parent.resolve()
         return p
 
-    def is_valid_project(p: Path) -> bool:
-        if not p.is_dir():
-            return False
-        cand_svg = _find_svg_dir(p)
-        cand_spec = resolve_spec(p) if resolve_spec is not None else None
-        return (
-            (p / "images").is_dir()
-            or (cand_svg is not None and cand_svg.is_dir() and any(cand_svg.glob("*.svg")))
-            or (p / "svg_output").is_dir()
-            or (p / "cards").is_dir()
-            or (p / "render_cards").is_dir()
-            or (p / "spec_lock.md").is_file()
-            or (cand_spec is not None and cand_spec.is_file())
-            or any(p.glob("spec_lock*.md"))
-            or any(p.glob("card_spec*.md"))
-        )
+    # 优先检测 base 是否位于子产物目录或关联文件中
+    if base.is_file():
+        base = base.parent
+    if (
+        base.name in ("images", "svg_output", "render_cards", "render", "notes", "output", "cards")
+        or base.name.startswith("svg_output")
+        or base.name.startswith("render")
+    ):
+        return base.parent.resolve()
 
     if is_valid_project(base):
         return base
-
-    if (
-        (
-            base.is_dir()
-            and (
-                base.name in ("images", "svg_output", "render_cards", "render", "notes", "output", "cards")
-                or base.name.startswith("svg_output")
-                or base.name.startswith("render")
-            )
-        )
-        or base.is_file()
-    ) and is_valid_project(base.parent):
-        return base.parent.resolve()
 
     candidate_projects_dirs: list[Path] = []
     if base.is_dir() and base.name == "projects":
@@ -180,9 +203,10 @@ def run_project_qa(
     cards_target: str | Path | None = None,
     long_card_target: str | Path | None = None,
     verbose: bool = False,
+    base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """按 image -> assets -> layout -> cards -> long_card 顺序执行项目验收。"""
-    root = resolve_project_dir(project)
+    root = resolve_project_dir(project, base_dir=base_dir)
     image_input = image_targets if image_targets is not None else root / "images"
     stages: dict[str, Any] = {}
     image_result = run_image_qa(image_input, verbose=False)
@@ -190,7 +214,7 @@ def run_project_qa(
     if not image_result["ok"]:
         return {"ok": False, "failed_stage": "image", "stages": stages}
 
-    assets_result = run_qa_assets(root)
+    assets_result = run_qa_assets(root, base_dir=base_dir) if base_dir is not None else run_qa_assets(root)
     stages["assets"] = assets_result
     if not assets_result["ok"]:
         return {"ok": False, "failed_stage": "assets", "stages": stages}
@@ -257,7 +281,7 @@ def write_qa_attestation(result: dict[str, Any], output_path: str | Path) -> dic
     return attestation
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     parser = argparse.ArgumentParser(description="PPT-Studio 项目级全链路客观质量验收门禁")
     parser.add_argument("project", nargs="?", default=".", help="项目根目录（默认当前目录）")
     parser.add_argument("--attestation", help="可选输出验收凭据 JSON 路径")
@@ -265,8 +289,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--verbose", "-v", action="store_true", help="详细日志输出")
     args = parser.parse_args(argv)
 
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     try:
-        result = run_project_qa(args.project, verbose=args.verbose)
+        result = run_project_qa(args.project, verbose=args.verbose, base_dir=base)
         if args.attestation:
             write_qa_attestation(result, args.attestation)
     except (FileNotFoundError, OSError, ValueError, RuntimeError) as err:
