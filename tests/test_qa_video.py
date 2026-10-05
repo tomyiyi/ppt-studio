@@ -9,6 +9,7 @@ tests/test_qa_video.py
 
 import io
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -96,6 +97,35 @@ class TestFindAssociatedSrt(unittest.TestCase):
             srt2.touch()
             self.assertEqual(find_associated_srt(video), srt1)
 
+    def test_find_associated_srt_with_base_dir(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            video = tmp / "sample.mp4"
+            video.touch()
+            srt = tmp / "sample.srt"
+            srt.touch()
+            self.assertEqual(find_associated_srt("sample.mp4", base_dir=tmp_dir), srt)
+
+    def test_explicit_srt_with_base_dir(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            video = tmp / "video.mp4"
+            video.touch()
+            explicit = tmp / "custom.srt"
+            explicit.touch()
+            self.assertEqual(find_associated_srt("video.mp4", "custom.srt", base_dir=tmp_dir), explicit)
+
+    def test_prefix_match_srt_with_base_dir(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            video = tmp / "proj_card_1080p.mp4"
+            video.touch()
+            srt1 = tmp / "proj_card_subtitles.srt"
+            srt1.touch()
+            srt2 = tmp / "unrelated.srt"
+            srt2.touch()
+            self.assertEqual(find_associated_srt("proj_card_1080p.mp4", base_dir=tmp_dir), srt1)
+
     def test_no_srt_returns_none(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp = Path(tmp_dir)
@@ -134,6 +164,18 @@ class TestCheckSubtitles(unittest.TestCase):
             srt = Path(tmp_dir) / "valid.srt"
             srt.write_text(valid_srt_content, encoding="utf-8")
             ok, msg = check_subtitles(srt, 10.0)
+            self.assertTrue(ok)
+            self.assertIn("2 条字幕", msg)
+
+    def test_valid_srt_with_base_dir(self):
+        valid_srt_content = (
+            "1\n00:00:01,000 --> 00:00:04,000\n第一句解说文本\n\n"
+            "2\n00:00:04,500 --> 00:00:08,000\n第二句解说文本\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            srt = Path(tmp_dir) / "valid.srt"
+            srt.write_text(valid_srt_content, encoding="utf-8")
+            ok, msg = check_subtitles("valid.srt", 10.0, base_dir=tmp_dir)
             self.assertTrue(ok)
             self.assertIn("2 条字幕", msg)
 
@@ -610,6 +652,82 @@ class TestQAVideoProgrammaticAPI(unittest.TestCase):
                 res = qa_single_video(v, verbose=False)
             self.assertTrue(res)
             self.assertEqual(buf_out.getvalue(), "")
+
+    @patch("scripts.qa_video.probe_streams")
+    @patch("scripts.qa_video.check_streams", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_resolution", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_av_sync", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_audio_loudness", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_black_frames", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_subtitles", return_value=(True, "ok"))
+    @patch("scripts.qa_video.check_bitrate_and_fps", return_value=(True, "ok"))
+    def test_qa_single_video_with_base_dir(self, *mocks):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            v = Path(tmp_dir) / "sample.mp4"
+            v.touch()
+            mocks[-1].return_value = {
+                "streams": [
+                    {"codec_type": "video", "codec_name": "h264"},
+                    {"codec_type": "audio", "codec_name": "aac"},
+                ],
+                "format": {"duration": "10.0"},
+            }
+            self.assertTrue(qa_single_video("sample.mp4", verbose=False, base_dir=tmp_dir))
+            self.assertTrue(run_qa_single_video("sample.mp4", verbose=False, base_dir=tmp_dir))
+
+    def test_probe_streams_with_base_dir(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            v = Path(tmp_dir) / "probe_test.mp4"
+            v.touch()
+            with patch("scripts.qa_video.run_probe", return_value='{"streams": []}') as mock_probe:
+                res = probe_streams("probe_test.mp4", base_dir=tmp_dir)
+                self.assertEqual(res, {"streams": []})
+                called_cmd = mock_probe.call_args[0][0]
+                self.assertEqual(called_cmd[-1], str(v.resolve()))
+
+    def test_check_audio_loudness_with_base_dir(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            v = Path(tmp_dir) / "audio_test.mp4"
+            v.touch()
+            mock_proc = subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout="",
+                stderr="mean_volume: -20.0 dB\nmax_volume: -1.0 dB",
+            )
+            with patch("subprocess.run", return_value=mock_proc) as mock_sub:
+                from scripts.qa_video import check_audio_loudness
+                ok, msg = check_audio_loudness("audio_test.mp4", base_dir=tmp_dir)
+                self.assertTrue(ok)
+                self.assertIn("平均响度 -20.0 dB", msg)
+                self.assertEqual(mock_sub.call_args[0][0][2], str(v.resolve()))
+
+    def test_check_black_frames_with_base_dir(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            v = Path(tmp_dir) / "black_test.mp4"
+            v.touch()
+            mock_proc = subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+            with patch("subprocess.run", return_value=mock_proc) as mock_sub:
+                from scripts.qa_video import check_black_frames
+                ok, msg = check_black_frames("black_test.mp4", base_dir=tmp_dir)
+                self.assertTrue(ok)
+                self.assertIn("全片无异常死黑屏", msg)
+                self.assertEqual(mock_sub.call_args[0][0][2], str(v.resolve()))
+
+    @patch("scripts.qa_video.qa_single_video", return_value=True)
+    def test_qa_video_passes_base_dir_to_single_video(self, mock_single):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            v = Path(tmp_dir) / "sample.mp4"
+            v.touch()
+            self.assertTrue(qa_video("sample.mp4", verbose=False, base_dir=tmp_dir))
+            mock_single.assert_called_once()
+            _, kwargs = mock_single.call_args
+            self.assertEqual(kwargs.get("base_dir"), Path(tmp_dir).resolve())
 
     def test_qa_video_non_mp4_file_returns_false(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

@@ -83,13 +83,16 @@ def run_probe(cmd: list[str]) -> str:
     return res.stdout.strip()
 
 
-def probe_streams(video_path: Path | str) -> dict:
+def probe_streams(video_path: Path | str, base_dir: Path | str | None = None) -> dict:
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    target = Path(video_path)
+    target = (base / target).resolve() if not target.is_absolute() else target.resolve()
     cmd = [
         "ffprobe", "-v", "error",
         "-show_streams",
         "-show_format",
         "-of", "json",
-        str(video_path),
+        str(target),
     ]
     raw = run_probe(cmd)
     if not raw:
@@ -160,9 +163,12 @@ def check_av_sync(streams_data: dict) -> tuple[bool, str]:
     return True, f"视频 {v_dur:.1f}s / 音频 {a_dur:.1f}s (偏差 {diff:.2f}s ≤ 0.35s)"
 
 
-def check_audio_loudness(video_path: Path | str) -> tuple[bool, str]:
+def check_audio_loudness(video_path: Path | str, base_dir: Path | str | None = None) -> tuple[bool, str]:
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    target = Path(video_path)
+    target = (base / target).resolve() if not target.is_absolute() else target.resolve()
     cmd = [
-        "ffmpeg", "-i", str(video_path),
+        "ffmpeg", "-i", str(target),
         "-af", "volumedetect",
         "-vn", "-sn", "-dn",
         "-f", "null", "/dev/null",
@@ -187,9 +193,12 @@ def check_audio_loudness(video_path: Path | str) -> tuple[bool, str]:
     return True, f"平均响度 {mean_v:.1f} dB · 峰值 {max_v:.1f} dB"
 
 
-def check_black_frames(video_path: Path | str) -> tuple[bool, str]:
+def check_black_frames(video_path: Path | str, base_dir: Path | str | None = None) -> tuple[bool, str]:
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    target = Path(video_path)
+    target = (base / target).resolve() if not target.is_absolute() else target.resolve()
     cmd = [
-        "ffmpeg", "-i", str(video_path),
+        "ffmpeg", "-i", str(target),
         "-vf", "blackdetect=d=1.5:pix_th=0.10",
         "-an", "-f", "null", "/dev/null",
     ]
@@ -213,11 +222,18 @@ def parse_srt_time(t_str: str) -> float:
     return h * 3600 + m * 60 + s
 
 
-def find_associated_srt(video_path: Path | str, explicit_srt: Path | str | None = None) -> Path | None:
+def find_associated_srt(
+    video_path: Path | str,
+    explicit_srt: Path | str | None = None,
+    base_dir: Path | str | None = None,
+) -> Path | None:
     """自动探查关联的字幕文件。"""
-    v_path = Path(video_path).resolve()
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    v_p = Path(video_path)
+    v_path = (base / v_p).resolve() if not v_p.is_absolute() else v_p.resolve()
     if explicit_srt:
-        p_explicit = Path(explicit_srt).resolve()
+        p_explicit = Path(explicit_srt)
+        p_explicit = (base / p_explicit).resolve() if not p_explicit.is_absolute() else p_explicit.resolve()
         if p_explicit.exists():
             return p_explicit
 
@@ -242,8 +258,17 @@ def find_associated_srt(video_path: Path | str, explicit_srt: Path | str | None 
     return None
 
 
-def check_subtitles(srt_path: Path | str | None, video_duration: float) -> tuple[bool, str]:
-    srt_p = Path(srt_path).resolve() if srt_path else None
+def check_subtitles(
+    srt_path: Path | str | None,
+    video_duration: float,
+    base_dir: Path | str | None = None,
+) -> tuple[bool, str]:
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    if srt_path:
+        p = Path(srt_path)
+        srt_p = (base / p).resolve() if not p.is_absolute() else p.resolve()
+    else:
+        srt_p = None
     if srt_p is None or not srt_p.exists():
         return True, "无独立字幕文件（跳过外部 SRT 检查）"
 
@@ -431,6 +456,7 @@ def qa_single_video(
     video_path: Path | str | None,
     srt_path: Path | str | None = None,
     verbose: bool = True,
+    base_dir: Path | str | None = None,
 ) -> bool:
     """对单个 MP4 视频执行 7 项客观工业级质量门禁复核。"""
     def _log(msg: str = "", file=None) -> None:
@@ -441,8 +467,15 @@ def qa_single_video(
         _log("[ERROR] 未提供有效的目标视频路径", file=sys.stderr)
         return False
 
-    video_p = Path(video_path).resolve()
-    srt_p = Path(srt_path).resolve() if srt_path else None
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    v_p = Path(video_path)
+    video_p = (base / v_p).resolve() if not v_p.is_absolute() else v_p.resolve()
+
+    if srt_path:
+        s_p = Path(srt_path)
+        srt_p = (base / s_p).resolve() if not s_p.is_absolute() else s_p.resolve()
+    else:
+        srt_p = None
 
     _log("==================================================")
     _log("🔍 运行 PPT-Studio 视频质量自动化门禁")
@@ -453,7 +486,7 @@ def qa_single_video(
         _log(f"[ERROR] 目标视频文件不存在: {video_p}")
         return False
 
-    meta = probe_streams(video_p)
+    meta = probe_streams(video_p, base_dir=base)
     if not meta:
         _log("[ERROR] 无法通过 ffprobe 解析视频元数据")
         return False
@@ -462,15 +495,15 @@ def qa_single_video(
     a_stream = next((s for s in meta.get("streams", []) if s.get("codec_type") == "audio"), None)
     v_dur = float(meta.get("format", {}).get("duration", 0))
 
-    resolved_srt = find_associated_srt(video_p, srt_p)
+    resolved_srt = find_associated_srt(video_p, srt_p, base_dir=base)
 
     checks = [
         ("流完整性", lambda: check_streams(meta)),
         ("分辨率与像素格式", lambda: check_resolution(v_stream)),
         ("音画同步匹配", lambda: check_av_sync(meta)),
-        ("音频响度与削顶", lambda: check_audio_loudness(video_p)),
-        ("死黑屏与卡顿", lambda: check_black_frames(video_p)),
-        ("字幕时间线", lambda: check_subtitles(resolved_srt, v_dur)),
+        ("音频响度与削顶", lambda: check_audio_loudness(video_p, base_dir=base)),
+        ("死黑屏与卡顿", lambda: check_black_frames(video_p, base_dir=base)),
+        ("字幕时间线", lambda: check_subtitles(resolved_srt, v_dur, base_dir=base)),
         ("帧率与码率健康", lambda: check_bitrate_and_fps(v_stream, meta.get("format", {}))),
     ]
 
@@ -529,7 +562,7 @@ def qa_video(
             except TypeError:
                 return run_qa_subtitles(target, verbose=verbose)
         if target.suffix.lower() == ".mp4":
-            return qa_single_video(target, srt_p, verbose=verbose)
+            return qa_single_video(target, srt_p, verbose=verbose, base_dir=base)
         mp4s = find_videos(target, base_dir=base)
         if not mp4s:
             if verbose:
@@ -537,7 +570,7 @@ def qa_video(
             return False
         all_passed = True
         for i, p in enumerate(mp4s):
-            ok = qa_single_video(p, srt_p, verbose=verbose)
+            ok = qa_single_video(p, srt_p, verbose=verbose, base_dir=base)
             if not ok:
                 all_passed = False
             if verbose and i < len(mp4s) - 1:
@@ -552,7 +585,7 @@ def qa_video(
             return False
         all_passed = True
         for i, p in enumerate(mp4s):
-            ok = qa_single_video(p, srt_p, verbose=verbose)
+            ok = qa_single_video(p, srt_p, verbose=verbose, base_dir=base)
             if not ok:
                 all_passed = False
             if verbose and i < len(mp4s) - 1:
