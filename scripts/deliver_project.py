@@ -267,6 +267,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     parser.add_argument("source", nargs="?", default=None, help="单一产物交付源路径")
     parser.add_argument("destination", nargs="?", default=None, help="单一产物交付目标路径")
     parser.add_argument("--attestation", required=True, help="已生成的 QA attestation JSON")
+    parser.add_argument("--base-dir", default=None, help="指定基础工作目录 (默认: 当前工作目录)")
     parser.add_argument("--source", dest="source_opt", help="单一产物交付源路径（覆盖位置参数）")
     parser.add_argument("--destination", dest="dest_opt", help="单一产物交付目标路径（覆盖位置参数）")
     parser.add_argument("--sources", nargs="+", help="卡片集交付源 SVG 文件列表")
@@ -275,7 +276,11 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     parser.add_argument("--verbose", "-v", action="store_true", help="详细日志输出")
     args = parser.parse_args(argv)
 
-    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    effective_base = (
+        Path(args.base_dir).resolve()
+        if args.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
 
     try:
         if args.sources:
@@ -290,7 +295,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
                 destination_dir=dest_dir,
                 check=args.check,
                 verbose=args.verbose,
-                base_dir=base,
+                base_dir=effective_base,
             )
             print(f"[✓] 已交付卡片集: {len(delivered)} 张至 {dest_dir}")
         else:
@@ -304,7 +309,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
                 destination_path=dst,
                 check=args.check,
                 verbose=args.verbose,
-                base_dir=base,
+                base_dir=effective_base,
             )
             print(f"[✓] 已交付产物: {delivered_file}")
     except (FileNotFoundError, NotADirectoryError, OSError, ValueError, RuntimeError) as err:

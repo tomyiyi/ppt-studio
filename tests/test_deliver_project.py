@@ -636,6 +636,49 @@ class TestDeliverProjectBaseDir(unittest.TestCase):
         self.assertTrue((target_dir / "01.svg").is_file())
         self.assertTrue((target_dir / "02.svg").is_file())
 
+    def test_main_single_delivery_with_base_dir_flag(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = main(
+                [
+                    "video.mp4",
+                    "published/video_flag.mp4",
+                    "--attestation",
+                    "qa.json",
+                    "--base-dir",
+                    str(self.proj),
+                ]
+            )
+        self.assertEqual(code, 0)
+        delivered_path = self.proj / "published/video_flag.mp4"
+        self.assertTrue(delivered_path.is_file())
+        self.assertEqual(delivered_path.read_bytes(), b"sample video bytes")
+
+    def test_main_artifact_set_with_base_dir_flag(self):
+        c1 = self.proj / "c1.svg"
+        c2 = self.proj / "c2.svg"
+        c1.write_bytes(b"<svg>c1</svg>")
+        c2.write_bytes(b"<svg>c2</svg>")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = main(
+                [
+                    "--attestation",
+                    "qa.json",
+                    "--sources",
+                    "c1.svg",
+                    "c2.svg",
+                    "--destination-dir",
+                    "cards_flag_out",
+                    "--base-dir",
+                    str(self.proj),
+                ]
+            )
+        self.assertEqual(code, 0)
+        target_dir = self.proj / "cards_flag_out"
+        self.assertTrue((target_dir / "c1.svg").is_file())
+        self.assertTrue((target_dir / "c2.svg").is_file())
+
 
 if __name__ == "__main__":
     unittest.main()
