@@ -417,12 +417,22 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
         action="store_true",
         help="静默模式（仅通过退出码返回结果）",
     )
+    parser.add_argument(
+        "--base-dir",
+        default=None,
+        help="指定基础工作目录 (默认: 当前工作目录)",
+    )
 
     args = parser.parse_args(argv)
     verbose = not args.quiet if args.quiet else args.verbose
+    effective_base = (
+        Path(args.base_dir).resolve()
+        if args.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
 
     try:
-        paths = resolve_image_targets(args.images if args.images else None, base_dir=base_dir)
+        paths = resolve_image_targets(args.images if args.images else None, base_dir=effective_base)
     except Exception as e:
         if verbose:
             print(f"[err] {e}", file=sys.stderr)

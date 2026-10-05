@@ -423,6 +423,10 @@ class TestRunQaImages(unittest.TestCase):
         code = main(["img1.png", "--check", "--quiet"], base_dir=self.dir_path)
         self.assertEqual(code, 0)
 
+    def test_main_cli_with_base_dir_flag(self):
+        code = main(["img1.png", "--check", "--quiet", "--base-dir", str(self.dir_path)])
+        self.assertEqual(code, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
