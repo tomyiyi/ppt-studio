@@ -419,8 +419,11 @@ def qa_single_pptx(
     expected_slides: int | None = None,
     expected_media: int | None = None,
     verbose: bool = True,
+    base_dir: Path | str | None = None,
 ) -> bool:
-    p = Path(pptx_path).resolve()
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    target_p = Path(pptx_path)
+    p = (base / target_p).resolve() if not target_p.is_absolute() else target_p.resolve()
     if verbose:
         print("=" * 60)
         print("🔍 运行 PPT-Studio PPTX 导出物客观回读质检")
@@ -437,7 +440,11 @@ def qa_single_pptx(
             print(f"  [✗] 目标文件非有效 PPTX/Zip 压缩包: {p}")
         return False
 
-    spec_p = Path(spec_path).resolve() if spec_path else find_spec_lock(p)
+    if spec_path:
+        spec_t = Path(spec_path)
+        spec_p = (base / spec_t).resolve() if not spec_t.is_absolute() else spec_t.resolve()
+    else:
+        spec_p = find_spec_lock(p, base_dir=base)
     ramp, expected_stmt_sz = load_spec_typography(spec_p)
     if verbose:
         print(f"  [i] 采用 spec            : {spec_p if spec_p else '未找到，用默认阶梯'}")
@@ -537,7 +544,7 @@ def run_qa_pptx(
         else:
             spec_p = spec_p.resolve()
     else:
-        spec_p = find_spec_lock(target_path)
+        spec_p = find_spec_lock(target_path, base_dir=base)
 
     if target_path.is_file():
         if target_path.suffix.lower() == ".pptx":
@@ -547,6 +554,7 @@ def run_qa_pptx(
                 expected_slides=expected_slides,
                 expected_media=expected_media,
                 verbose=verbose,
+                base_dir=base,
             )
         try:
             pptx_files = find_pptx_files(target_path, base_dir=base)
@@ -560,13 +568,14 @@ def run_qa_pptx(
             return False
         all_ok = True
         for i, p in enumerate(pptx_files):
-            p_spec = spec_p or find_spec_lock(p)
+            p_spec = spec_p or find_spec_lock(p, base_dir=base)
             ok = qa_single_pptx(
                 p,
                 spec_path=p_spec,
                 expected_slides=expected_slides,
                 expected_media=expected_media,
                 verbose=verbose,
+                base_dir=base,
             )
             if not ok:
                 all_ok = False
@@ -589,13 +598,14 @@ def run_qa_pptx(
 
         all_ok = True
         for i, p in enumerate(pptx_files):
-            p_spec = spec_p or find_spec_lock(p)
+            p_spec = spec_p or find_spec_lock(p, base_dir=base)
             ok = qa_single_pptx(
                 p,
                 spec_path=p_spec,
                 expected_slides=expected_slides,
                 expected_media=expected_media,
                 verbose=verbose,
+                base_dir=base,
             )
             if not ok:
                 all_ok = False
@@ -610,7 +620,10 @@ qa_pptx = run_qa_pptx
 run_qa_single_pptx = qa_single_pptx
 
 
-def find_spec_lock(target_path: Path | str | None = None) -> Path | None:
+def find_spec_lock(
+    target_path: Path | str | None = None,
+    base_dir: Path | str | None = None,
+) -> Path | None:
     """在目标路径周边或默认项目路径中发现 spec 锁（版本感知）。
 
     同一目录存在多个 spec_lock 变体时按 版本 > 基线 选择
@@ -620,7 +633,7 @@ def find_spec_lock(target_path: Path | str | None = None) -> Path | None:
     """
     from scripts.spec_resolve import find_spec
 
-    return find_spec(target_path)
+    return find_spec(target_path, base_dir=base_dir)
 
 
 def find_pptx_files(
@@ -731,7 +744,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
         else:
             spec_path = spec_p.resolve()
     else:
-        spec_path = find_spec_lock(target_path)
+        spec_path = find_spec_lock(target_path, base_dir=base)
 
     try:
         pptx_files = (
@@ -751,7 +764,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
 
     all_ok = True
     for i, p in enumerate(pptx_files):
-        p_spec = spec_path or find_spec_lock(p)
+        p_spec = spec_path or find_spec_lock(p, base_dir=base)
         ok = (
             run_qa_pptx(
                 p,

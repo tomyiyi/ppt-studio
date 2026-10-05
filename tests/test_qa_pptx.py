@@ -450,6 +450,16 @@ class TestFindSpecLock(unittest.TestCase):
             found = find_spec_lock(proj)
             self.assertEqual(found, (proj / "spec_lock.md").resolve())
 
+    def test_find_spec_lock_with_base_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            proj = base / "my_project"
+            proj.mkdir()
+            (proj / "spec_lock.md").touch()
+
+            found = find_spec_lock("my_project", base_dir=base)
+            self.assertEqual(found, (proj / "spec_lock.md").resolve())
+
 
 class TestCheckRelationships(unittest.TestCase):
     """测试 OpenXML .rels 引用闭环。"""
@@ -528,6 +538,12 @@ class TestRunQaPptxAPI(unittest.TestCase):
             self.assertTrue(qa_single_pptx(p, verbose=False))
             self.assertTrue(qa_single_pptx(str(p), verbose=False))
 
+    def test_qa_single_pptx_with_base_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            create_mock_pptx(base / "deck.pptx")
+            self.assertTrue(qa_single_pptx("deck.pptx", verbose=False, base_dir=base))
+
     def test_qa_single_pptx_verbose_false(self):
         with tempfile.TemporaryDirectory() as td:
             p = create_mock_pptx(Path(td) / "deck.pptx")
@@ -565,6 +581,13 @@ class TestRunQaPptxAPI(unittest.TestCase):
             p = create_mock_pptx(Path(td) / "deck.pptx")
             self.assertTrue(run_qa_pptx(p, verbose=False))
             self.assertTrue(run_qa_pptx(str(p), verbose=False))
+
+    def test_run_qa_pptx_with_base_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            create_mock_pptx(base / "deck.pptx")
+            self.assertTrue(run_qa_pptx("deck.pptx", verbose=False, base_dir=base))
+            self.assertTrue(qa_pptx("deck.pptx", verbose=False, base_dir=base))
 
     def test_run_qa_pptx_non_pptx_file_returns_false(self):
         with tempfile.TemporaryDirectory() as td:
