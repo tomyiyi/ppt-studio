@@ -20,9 +20,16 @@ except ModuleNotFoundError:
 _STAGES = ("image", "layout", "cards", "long_card")
 
 
-def validate_attestation_for_preview(path: str | Path) -> dict[str, Any]:
+def validate_attestation_for_preview(
+    path: str | Path,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    p = Path(path)
+    if not p.is_absolute() and base_dir is not None:
+        p = (base / p).resolve()
     try:
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        data = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError("ATTESTATION_INVALID") from exc
     if not isinstance(data, dict) or data.get("schema_version") != 1:
@@ -43,18 +50,33 @@ def deliver_preview(
     title: str | None = None,
     cards: bool = False,
     check: bool = False,
+    base_dir: str | Path | None = None,
 ) -> Path:
     """凭据通过后调用现有 preview builder；失败时不触碰输出文件。"""
-    validate_attestation_for_preview(attestation_path)
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    validate_attestation_for_preview(attestation_path, base_dir=base_dir)
     if not output_path or not str(output_path).strip():
         raise ValueError("交付目标路径不能为空")
     out = Path(output_path)
+    if not out.is_absolute() and base_dir is not None:
+        out = (base / out).resolve()
     if out.is_dir():
         raise IsADirectoryError(f"交付目标不能是已存在目录: {out}")
-    return build_preview(src=src, out=output_path, title=title, cards=cards, check=check)
+
+    resolved_src = src
+    if base_dir is not None:
+        if resolved_src is not None:
+            src_p = Path(resolved_src)
+            if not src_p.is_absolute():
+                resolved_src = (base / src_p).resolve()
+        else:
+            resolved_src = base
+
+    target_out = out if (base_dir is not None and not Path(output_path).is_absolute()) else output_path
+    return build_preview(src=resolved_src, out=target_out, title=title, cards=cards, check=check)
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     parser = argparse.ArgumentParser(description="带 QA attestation 门禁的 HTML preview 交付")
     parser.add_argument("src", nargs="?", default=None, help="包含 SVG 文件的目录或项目根目录（默认自发现）")
     parser.add_argument("output", nargs="?", default=None, help="最终 HTML 输出路径")
@@ -87,6 +109,7 @@ def main(argv: list[str] | None = None) -> int:
             title=args.title,
             cards=args.cards,
             check=args.check,
+            base_dir=base_dir,
         )
         print(f"[✓] 已交付翻页预览: {delivered}")
     except (FileNotFoundError, NotADirectoryError, OSError, ValueError, RuntimeError) as err:

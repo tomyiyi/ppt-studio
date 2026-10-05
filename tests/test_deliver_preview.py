@@ -277,5 +277,65 @@ class TestDeliverPreviewEndToEnd(unittest.TestCase):
         self.assertIn("翻页预览客观质量门禁未通过", err_buf.getvalue())
 
 
+class TestDeliverPreviewBaseDir(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.proj = self.root / "subproj"
+        self.proj.mkdir()
+        self.attestation = self.proj / "qa.json"
+        self.attestation.write_text(json.dumps(valid_attestation()), encoding="utf-8")
+        self.output = self.proj / "preview.html"
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_validate_attestation_with_base_dir(self):
+        data = validate_attestation_for_preview("qa.json", base_dir=self.proj)
+        self.assertEqual(data["schema_version"], 1)
+
+    def test_deliver_preview_relative_paths_with_base_dir(self):
+        with patch("scripts.deliver_preview.build_preview", return_value=self.output) as builder:
+            result = deliver_preview("qa.json", "svgs", "preview.html", base_dir=self.proj)
+        self.assertEqual(result, self.output)
+        builder.assert_called_once_with(
+            src=(self.proj / "svgs").resolve(),
+            out=self.output.resolve(),
+            title=None,
+            cards=False,
+            check=False,
+        )
+
+    def test_deliver_preview_none_src_with_base_dir(self):
+        with patch("scripts.deliver_preview.build_preview", return_value=self.output) as builder:
+            result = deliver_preview("qa.json", None, "preview.html", base_dir=self.proj)
+        self.assertEqual(result, self.output)
+        builder.assert_called_once_with(
+            src=self.proj.resolve(),
+            out=self.output.resolve(),
+            title=None,
+            cards=False,
+            check=False,
+        )
+
+    def test_main_with_base_dir(self):
+        with patch("scripts.deliver_preview.build_preview", return_value=self.output) as builder:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = main(
+                    ["--attestation", "qa.json", "--src", "svgs", "--output", "preview.html"],
+                    base_dir=self.proj,
+                )
+        self.assertEqual(code, 0)
+        builder.assert_called_once_with(
+            src=(self.proj / "svgs").resolve(),
+            out=self.output.resolve(),
+            title=None,
+            cards=False,
+            check=False,
+        )
+        self.assertIn("[✓] 已交付翻页预览", buf.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
