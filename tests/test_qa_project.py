@@ -126,6 +126,18 @@ class TestProjectQA(unittest.TestCase):
         finally:
             output.unlink(missing_ok=True)
 
+    def test_write_attestation_with_base_dir(self):
+        result = {"ok": True, "failed_stage": None, "stages": {
+            name: {"ok": True} for name in ("image", "assets", "layout", "cards", "long_card")
+        }}
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            rel_out = Path("qa_rel.json")
+            expected_file = base / rel_out
+            expected = write_qa_attestation(result, rel_out, base_dir=base)
+            self.assertTrue(expected_file.exists())
+            self.assertEqual(json.loads(expected_file.read_text(encoding="utf-8")), expected)
+
     def test_failed_result_never_becomes_success_attestation(self):
         result = {"ok": True, "failed_stage": "cards", "stages": {
             "image": {"ok": True}, "assets": {"ok": True}, "layout": {"ok": True},
@@ -391,6 +403,15 @@ class TestResolveProjectDir(unittest.TestCase):
                 self.assertEqual(rc, 0)
                 data = json.loads(buf.getvalue())
                 self.assertTrue(data["ok"])
+
+                buf2 = io.StringIO()
+                with redirect_stdout(buf2):
+                    rc2 = main([".", "--attestation", "qa_attestation.json"], base_dir=proj)
+                self.assertEqual(rc2, 0)
+                att_file = proj / "qa_attestation.json"
+                self.assertTrue(att_file.exists())
+                att_data = json.loads(att_file.read_text(encoding="utf-8"))
+                self.assertTrue(att_data["overall"])
 
     def test_run_project_qa_forwards_base_dir_to_sub_qas(self):
         with ExitStack() as stack:

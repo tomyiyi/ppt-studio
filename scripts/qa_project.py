@@ -307,10 +307,16 @@ def build_qa_attestation(result: dict[str, Any]) -> dict[str, Any]:
     return attestation
 
 
-def write_qa_attestation(result: dict[str, Any], output_path: str | Path) -> dict[str, Any]:
+def write_qa_attestation(
+    result: dict[str, Any],
+    output_path: str | Path,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
     """原子写入项目 QA 凭据，并返回实际写入的标准 JSON 对象。"""
     attestation = build_qa_attestation(result)
-    destination = Path(output_path)
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    p = Path(output_path)
+    destination = (base / p).resolve() if not p.is_absolute() else p.resolve()
     destination.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=f".{destination.name}.", dir=destination.parent)
     try:
@@ -341,7 +347,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     try:
         result = run_project_qa(args.project, verbose=args.verbose, base_dir=base)
         if args.attestation:
-            write_qa_attestation(result, args.attestation)
+            write_qa_attestation(result, args.attestation, base_dir=base)
     except (FileNotFoundError, OSError, ValueError, RuntimeError) as err:
         if args.as_json:
             print(json.dumps({"ok": False, "error": str(err)}, ensure_ascii=False))
