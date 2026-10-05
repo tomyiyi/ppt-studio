@@ -595,9 +595,18 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     ap.add_argument("--force", action="store_true", help="连 Generated 的也重跑")
     ap.add_argument("--retry-failed", action="store_true", help="重试 Pending 与 Failed，但不重跑 Generated")
     ap.add_argument("--dry-run", action="store_true", help="只显示本次将处理的任务，不调用生图或修改文件")
+    ap.add_argument(
+        "--base-dir",
+        default=None,
+        help="指定基础工作目录 (默认: 当前工作目录)",
+    )
     args = ap.parse_args(argv)
 
-    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    effective_base = (
+        Path(args.base_dir).resolve()
+        if args.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
 
     if args.dry_run and (args.prompt or args.render_md is not None or args.status or args.check):
         print("[err] --dry-run 只能与 manifest/target、--only、--force、--retry-failed 配合")
@@ -608,7 +617,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
             print("[err] 单张模式需同时给 --filename 和 --project")
             return 2
         proj_p = Path(args.project)
-        proj_dir = (base / proj_p).resolve() if not proj_p.is_absolute() and base_dir else proj_p.resolve()
+        proj_dir = (effective_base / proj_p).resolve() if not proj_p.is_absolute() else proj_p.resolve()
         out = proj_dir / "images" / args.filename if (proj_dir / "images").is_dir() else proj_dir / args.filename
         print(f"· 即席生图 {args.filename} ({args.aspect_ratio})")
         res = generate(args.prompt, ratio=args.aspect_ratio, model=args.model)
@@ -623,7 +632,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     if args.render_md is not None:
         target_raw = args.render_md if args.render_md != "" else (args.manifest or args.target)
         try:
-            mf_path = resolve_manifest_path(target_raw, base_dir=base)
+            mf_path = resolve_manifest_path(target_raw, base_dir=effective_base)
             render_md(mf_path)
             return 0
         except Exception as e:
@@ -632,7 +641,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
 
     if args.status or args.check:
         try:
-            mf_path = resolve_manifest_path(args.manifest or args.target, base_dir=base)
+            mf_path = resolve_manifest_path(args.manifest or args.target, base_dir=effective_base)
             res = check_manifest(mf_path, verbose=True)
             if args.check and not res["ok"]:
                 return 1
@@ -643,7 +652,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
 
     if args.manifest or args.target:
         try:
-            mf_path = resolve_manifest_path(args.manifest or args.target, base_dir=base)
+            mf_path = resolve_manifest_path(args.manifest or args.target, base_dir=effective_base)
             return run_manifest(
                 mf_path,
                 only=args.only,
