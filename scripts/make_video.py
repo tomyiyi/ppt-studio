@@ -153,7 +153,10 @@ def make_video(
     try:
         pages = [item["page"] for item in vo_items]
         print(f"[*] 第 1 步：渲染高精底图（{len(pages)} 页）...")
-        img_map = ensure_page_images(project_dir, pages, format_ratio, tmp_dir)
+        try:
+            img_map = ensure_page_images(project_dir, pages, format_ratio, tmp_dir, base_dir=base)
+        except TypeError:
+            img_map = ensure_page_images(project_dir, pages, format_ratio, tmp_dir)
 
         print(f"[*] 第 2 步：语音合成 (TTS) 与分镜时长计算...")
         all_cues = []
@@ -169,7 +172,10 @@ def make_video(
 
             print(f"    [{idx}/{len(vo_items)}] 生成配音: {p}（{len(text)} 字）...")
             generate_tts(text, voice_name, raw_audio, raw_vtt)
-            audio_dur = probe_duration(raw_audio)
+            try:
+                audio_dur = probe_duration(raw_audio, base_dir=base)
+            except TypeError:
+                audio_dur = probe_duration(raw_audio)
 
             # 在音频末尾添加静音垫片
             final_audio = tmp_dir / f"{p}_audio.wav"
@@ -179,7 +185,10 @@ def make_video(
                 str(final_audio),
             ]
             run_cmd(pad_cmd)
-            slide_dur = probe_duration(final_audio)
+            try:
+                slide_dur = probe_duration(final_audio, base_dir=base)
+            except TypeError:
+                slide_dur = probe_duration(final_audio)
 
             # 解析字幕时间戳
             page_cues = parse_vtt_cues(raw_vtt, offset_sec=accumulated_time)
@@ -297,7 +306,10 @@ def make_video(
             # 直接拷贝
             shutil.copyfile(merged_raw_mp4, staged_video)
 
-        final_dur = probe_duration(staged_video)
+        try:
+            final_dur = probe_duration(staged_video, base_dir=base)
+        except TypeError:
+            final_dur = probe_duration(staged_video)
         file_size_mb = staged_video.stat().st_size / (1024 * 1024)
         print(f"==================================================")
         print(f"🎉 视频合成圆满完成！")
@@ -320,7 +332,10 @@ def make_video(
             else:
                 print("  [warn] 未导入 run_qa_video，跳过视频门禁检查")
 
-        commit_video_pair(staged_video, staged_srt, out_video_path, out_srt)
+        try:
+            commit_video_pair(staged_video, staged_srt, out_video_path, out_srt, base_dir=base)
+        except TypeError:
+            commit_video_pair(staged_video, staged_srt, out_video_path, out_srt)
         print(f"✓ MP4/SRT 成对提交完成: {out_video_path} + {out_srt}")
         return out_video_path
 
