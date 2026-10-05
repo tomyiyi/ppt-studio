@@ -164,6 +164,17 @@ class TestDraftSpecChain(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertTrue((proj / "output" / "spec.md").is_file())
 
+    def test_main_cli_with_base_dir_flag(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            proj = base / "my_proj"
+            proj.mkdir()
+            (proj / "brief.md").write_text(BRIEF, encoding="utf-8")
+            with mock.patch("scripts.brief_to_spec.call_agnes", return_value=GOOD_DRAFT):
+                code = main(["my_proj/brief.md", "-o", "my_proj/output/spec.md", "--base-dir", str(base)])
+            self.assertEqual(code, 0)
+            self.assertTrue((proj / "output" / "spec.md").is_file())
+
     def test_main_cli_file_not_found(self):
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
