@@ -705,6 +705,37 @@ class TestCLI(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("--dry-run 只能与", buf.getvalue())
 
+    def test_cli_check_with_base_dir(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = main(["--check", "agentflow-os-launch"], base_dir=REPO_ROOT / "projects")
+        self.assertEqual(code, 0)
+        self.assertIn("ALL CLEAR ✅", buf.getvalue())
+
+    def test_cli_status_with_base_dir(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = main(["--status", "agentflow-os-launch"], base_dir=REPO_ROOT / "projects")
+        self.assertEqual(code, 0)
+        self.assertIn("ALL CLEAR ✅", buf.getvalue())
+
+    def test_cli_render_md_with_base_dir(self):
+        with mock.patch("scripts.agnes_ppt_bridge.render_md") as mock_render:
+            code = main(["--render-md", "agentflow-os-launch"], base_dir=REPO_ROOT / "projects")
+            self.assertEqual(code, 0)
+            mock_render.assert_called_once()
+            expected_path = (REPO_ROOT / "projects" / "agentflow-os-launch" / "images" / "image_prompts.json").resolve()
+            self.assertEqual(mock_render.call_args[0][0].resolve(), expected_path)
+
+    def test_cli_run_manifest_dry_run_with_base_dir(self):
+        with mock.patch("scripts.agnes_ppt_bridge.run_manifest", return_value=0) as mock_run:
+            code = main(["agentflow-os-launch", "--dry-run"], base_dir=REPO_ROOT / "projects")
+            self.assertEqual(code, 0)
+            mock_run.assert_called_once()
+            expected_path = (REPO_ROOT / "projects" / "agentflow-os-launch" / "images" / "image_prompts.json").resolve()
+            self.assertEqual(mock_run.call_args[0][0].resolve(), expected_path)
+            self.assertTrue(mock_run.call_args[1]["dry_run"])
+
 
 if __name__ == "__main__":
     unittest.main()
