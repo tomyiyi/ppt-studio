@@ -652,6 +652,11 @@ class TestQaCardsSubdirAndSpecResolution(unittest.TestCase):
         self.assertEqual(main(["cards", "-q"], base_dir=self.proj), 0)
         self.assertEqual(main(["cards", "render_cards", "--spec", "card_spec.md", "-q"], base_dir=self.proj), 0)
 
+    def test_cli_with_base_dir_flag(self):
+        self.assertEqual(main([".", "--spec", "card_spec.md", "--base-dir", str(self.proj), "-q"]), 0)
+        self.assertEqual(main(["cards", "--base-dir", str(self.proj), "-q"]), 0)
+        self.assertEqual(main(["cards", "render_cards", "--spec", "card_spec.md", "--base-dir", str(self.proj), "-q"]), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

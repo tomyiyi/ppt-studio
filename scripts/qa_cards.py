@@ -909,26 +909,31 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     parser.add_argument("target", nargs="?", default=".", help="卡片目录、项目目录或目标路径（默认当前目录）")
     parser.add_argument("render_dir", nargs="?", default=None, help="可选渲染图 PNG 目录（缺省时自动查找 render_cards/ 或 render/）")
     parser.add_argument("--spec", help="可选指定 card_spec.md 路径")
+    parser.add_argument("--base-dir", default=None, help="指定基础工作目录 (默认: 当前工作目录)")
     parser.add_argument("--verbose", "-v", action="store_true", default=True, help="详细日志输出（默认开启）")
     parser.add_argument("--quiet", "-q", action="store_true", help="静默模式（仅通过退出码返回）")
     args = parser.parse_args(argv)
 
-    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    effective_base = (
+        Path(args.base_dir).resolve()
+        if args.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
     verbose = not args.quiet if args.quiet else args.verbose
     spec_path = None
     if args.spec:
         s_p = Path(args.spec)
-        spec_path = (base / s_p).resolve() if not s_p.is_absolute() else s_p.resolve()
+        spec_path = (effective_base / s_p).resolve() if not s_p.is_absolute() else s_p.resolve()
     render_dir = None
     if args.render_dir:
         r_p = Path(args.render_dir)
-        render_dir = (base / r_p).resolve() if not r_p.is_absolute() else r_p.resolve()
+        render_dir = (effective_base / r_p).resolve() if not r_p.is_absolute() else r_p.resolve()
 
     # 如果显式传入两个目录 (target, render_dir)
     if args.render_dir:
         t_path = Path(args.target)
         if not t_path.is_absolute():
-            t_path = (base / t_path).resolve()
+            t_path = (effective_base / t_path).resolve()
         else:
             t_path = t_path.resolve()
         if not t_path.exists():
@@ -936,10 +941,10 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
                 print(f"[!] 指定的目标路径不存在: {args.target}", file=sys.stderr)
             return 1
         card_dir = (t_path / "cards").resolve() if (t_path / "cards").is_dir() else t_path
-        success = qa_single_cards(card_dir, render_dir, spec_path, verbose=verbose, base_dir=base)
+        success = qa_single_cards(card_dir, render_dir, spec_path, verbose=verbose, base_dir=effective_base)
         return 0 if success else 1
 
-    ok = run_qa_cards(args.target, render_dir=render_dir, spec_path=spec_path, verbose=verbose, base_dir=base)
+    ok = run_qa_cards(args.target, render_dir=render_dir, spec_path=spec_path, verbose=verbose, base_dir=effective_base)
     return 0 if ok else 1
 
 if __name__ == "__main__":
