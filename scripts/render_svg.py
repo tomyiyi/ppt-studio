@@ -542,7 +542,8 @@ def render_svg(
     :param engine: 渲染引擎 auto|playwright|cli（默认 auto，playwright 失败自动降级 cli）
     :return: 渲染生成的 PNG 文件 Path 列表
     """
-    files, out_dir = resolve_targets(src, out, base_dir=base_dir)
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    files, out_dir = resolve_targets(src, out, base_dir=base)
     _warn_if_tmp_full()
 
     if only:
@@ -576,6 +577,13 @@ def render_svg(
         raise RuntimeError(f"渲染未全部成功完成 ({ok}/{len(files)}): {'; '.join(errors)}")
 
     if check:
+        # 规范路径自适应
+        resolved_spec = None
+        if spec_path is not None:
+            sp = Path(spec_path)
+            resolved = (base / sp).resolve() if not sp.is_absolute() else sp.resolve()
+            resolved_spec = str(resolved) if isinstance(spec_path, str) else resolved
+
         # 判断是卡片还是版面幻灯片
         is_cards = any("cards" in p.parts for p in files) or (files and files[0].parent.name == "cards")
         target_render_dir = out_dir.parent if is_single_png_out else out_dir
@@ -583,7 +591,11 @@ def render_svg(
         if is_cards:
             target_cards_dir = files[0].parent
             if run_qa_cards is not None:
-                passed = run_qa_cards(target_cards_dir, render_dir=target_render_dir, spec_path=spec_path)
+                passed = (
+                    run_qa_cards(target_cards_dir, render_dir=target_render_dir, spec_path=resolved_spec, base_dir=base)
+                    if base_dir is not None
+                    else run_qa_cards(target_cards_dir, render_dir=target_render_dir, spec_path=resolved_spec)
+                )
                 if not passed:
                     raise RuntimeError(f"卡片客观质量门禁未通过: {target_cards_dir}")
                 print("  [门禁] ✓ 卡片客观质量门禁通过")
@@ -592,7 +604,11 @@ def render_svg(
         else:
             target_layout = files[0] if len(files) == 1 else files[0].parent
             if run_qa_layout is not None:
-                passed = run_qa_layout(target_layout, render_dir=target_render_dir, spec_path=spec_path)
+                passed = (
+                    run_qa_layout(target_layout, render_dir=target_render_dir, spec_path=resolved_spec, base_dir=base)
+                    if base_dir is not None
+                    else run_qa_layout(target_layout, render_dir=target_render_dir, spec_path=resolved_spec)
+                )
                 if not passed:
                     raise RuntimeError(f"SVG 版面客观质量门禁未通过: {target_layout}")
                 print("  [门禁] ✓ SVG 版面客观质量门禁通过")
@@ -602,7 +618,7 @@ def render_svg(
     return rendered
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     ap = argparse.ArgumentParser(description="渲染 PPT Master SVG 为 PNG")
     ap.add_argument("src", nargs="?", default=None, help="单个 .svg、svg 目录或项目目录（默认自动发现）")
     ap.add_argument("out", nargs="?", default=None, help="输出目录（可选，默认自动推导为 render 或 render_cards）")
@@ -614,6 +630,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="渲染引擎：auto=playwright 失败自动降级 chromium CLI（默认）")
     args = ap.parse_args(argv)
 
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+
     try:
         render_svg(
             src=args.src,
@@ -622,6 +640,7 @@ def main(argv: list[str] | None = None) -> int:
             only=args.only,
             check=args.check,
             spec_path=args.spec,
+            base_dir=base,
             engine=args.engine,
         )
         return 0

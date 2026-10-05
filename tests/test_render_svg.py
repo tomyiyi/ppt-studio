@@ -792,3 +792,56 @@ class TestRenderSvgSubdirAndSpecResolution(unittest.TestCase):
         rc2 = main([str(self.render_dir), "--engine", "cli"])
         self.assertEqual(rc2, 0)
 
+    @patch("scripts.render_svg.render_svg")
+    def test_main_cli_with_base_dir(self, mock_render_svg):
+        mock_render_svg.return_value = []
+        rc = main(["svg_output", "--spec", "spec_lock.md"], base_dir=self.proj)
+        self.assertEqual(rc, 0)
+        self.assertEqual(mock_render_svg.call_args.kwargs.get("src"), "svg_output")
+        self.assertEqual(mock_render_svg.call_args.kwargs.get("spec_path"), "spec_lock.md")
+        self.assertEqual(mock_render_svg.call_args.kwargs.get("base_dir"), self.proj.resolve())
+
+    @patch("scripts.render_svg._render_page", return_value=True)
+    @patch("scripts.render_svg.run_qa_layout", return_value=True)
+    def test_render_svg_check_forwards_base_dir_and_resolved_spec(self, mock_qa_layout, mock_render):
+        rendered = render_svg(
+            src=self.svg_file,
+            out=self.render_dir,
+            check=True,
+            spec_path="spec_lock.md",
+            base_dir=self.proj,
+        )
+        self.assertEqual(len(rendered), 1)
+        mock_qa_layout.assert_called_once()
+        _, kwargs = mock_qa_layout.call_args
+        self.assertEqual(kwargs.get("base_dir"), self.proj.resolve())
+        self.assertEqual(kwargs.get("spec_path"), str(self.spec_file.resolve()))
+
+    @patch("scripts.render_svg._render_page", return_value=True)
+    @patch("scripts.render_svg.run_qa_cards", return_value=True)
+    def test_render_svg_check_cards_forwards_base_dir_and_resolved_spec(self, mock_qa_cards, mock_render):
+        proj_cards = Path(self.td.name) / "cards_proj_gate"
+        cards_dir = proj_cards / "cards"
+        render_cards_dir = proj_cards / "render_cards"
+        cards_dir.mkdir(parents=True)
+        render_cards_dir.mkdir(parents=True)
+        card_file = cards_dir / "01_card.svg"
+        create_minimal_svg(card_file)
+        spec_file = proj_cards / "card_spec.md"
+        spec_file.write_text("# Card Spec\n", encoding="utf-8")
+
+        rendered = render_svg(
+            src=card_file,
+            out=render_cards_dir,
+            check=True,
+            spec_path="card_spec.md",
+            base_dir=proj_cards,
+        )
+        self.assertEqual(len(rendered), 1)
+        mock_qa_cards.assert_called_once()
+        _, kwargs = mock_qa_cards.call_args
+        self.assertEqual(kwargs.get("base_dir"), proj_cards.resolve())
+        self.assertEqual(kwargs.get("spec_path"), str(spec_file.resolve()))
+
+
+
