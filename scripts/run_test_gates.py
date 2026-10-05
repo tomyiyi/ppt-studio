@@ -11,34 +11,43 @@ from pathlib import Path
 PROCESS_MODULES = {"tests.test_prepare_agnes_image"}
 
 
-def discovered_modules(root: Path) -> list[str]:
+def discovered_modules(root: Path | str) -> list[str]:
+    root_p = Path(root).resolve()
+    tests_dir = root_p / "tests"
+    if not tests_dir.is_dir():
+        return []
     return sorted(
-        ".".join(path.relative_to(root).with_suffix("").parts)
-        for path in (root / "tests").glob("test_*.py")
+        ".".join(path.relative_to(root_p).with_suffix("").parts)
+        for path in tests_dir.glob("test_*.py")
     )
 
 
-def run_gate(name: str, modules: list[str], root: Path) -> int:
+def run_gate(name: str, modules: list[str], root: Path | str) -> int:
     if not modules:
         print(f"{name.upper()}_GATE=PASS (no modules)")
         return 0
+    root_p = Path(root).resolve()
     runner = os.environ.get("PPT_TEST_PYTHON", sys.executable)
     proc = subprocess.run(
         [runner, "-m", "unittest", *modules, "-q"],
-        cwd=root,
+        cwd=root_p,
         text=True,
     )
     print(f"{name.upper()}_GATE_RC={proc.returncode}")
     return proc.returncode
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     mode = (argv or sys.argv[1:])
     if len(mode) != 1 or mode[0] not in {"fast", "process", "all"}:
         print("usage: run_test_gates.py {fast|process|all}", file=sys.stderr)
         return 2
 
-    root = Path(os.environ.get("PPT_TEST_ROOT", Path(__file__).resolve().parent.parent))
+    root = (
+        Path(base_dir).resolve()
+        if base_dir
+        else Path(os.environ.get("PPT_TEST_ROOT", Path(__file__).resolve().parent.parent)).resolve()
+    )
     modules = discovered_modules(root)
     fast = [module for module in modules if module not in PROCESS_MODULES]
     process = [module for module in modules if module in PROCESS_MODULES]
