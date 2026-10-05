@@ -336,6 +336,32 @@ class TestDeliverPreviewBaseDir(unittest.TestCase):
         )
         self.assertIn("[✓] 已交付翻页预览", buf.getvalue())
 
+    def test_main_with_base_dir_flag(self):
+        with patch("scripts.deliver_preview.build_preview", return_value=self.output) as builder:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = main(
+                    [
+                        "--attestation",
+                        "qa.json",
+                        "--src",
+                        "svgs",
+                        "--output",
+                        "preview.html",
+                        "--base-dir",
+                        str(self.proj),
+                    ]
+                )
+        self.assertEqual(code, 0)
+        builder.assert_called_once_with(
+            src=(self.proj / "svgs").resolve(),
+            out=self.output.resolve(),
+            title=None,
+            cards=False,
+            check=False,
+        )
+        self.assertIn("[✓] 已交付翻页预览", buf.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

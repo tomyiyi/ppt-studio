@@ -81,12 +81,20 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     parser.add_argument("src", nargs="?", default=None, help="包含 SVG 文件的目录或项目根目录（默认自发现）")
     parser.add_argument("output", nargs="?", default=None, help="最终 HTML 输出路径")
     parser.add_argument("--attestation", required=True, help="已生成的 QA attestation JSON")
+    parser.add_argument("--base-dir", default=None, help="指定基础工作目录 (默认: 当前工作目录)")
     parser.add_argument("--src", dest="src_opt", help="包含 SVG 文件的目录或项目根目录（覆盖位置参数）")
     parser.add_argument("--output", dest="output_opt", help="最终 HTML 输出路径（覆盖位置参数）")
     parser.add_argument("--title", default=None, help="HTML 标题")
     parser.add_argument("--cards", action="store_true", help="沿用 build_preview 的 cards 模式")
     parser.add_argument("--check", action="store_true", help="交付前执行翻页预览客观质量门禁校验")
     args = parser.parse_args(argv)
+
+    explicit_base = args.base_dir is not None or base_dir is not None
+    effective_base = (
+        Path(args.base_dir).resolve()
+        if args.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
 
     src = args.src_opt or args.src
     out = args.output_opt or args.output
@@ -109,7 +117,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
             title=args.title,
             cards=args.cards,
             check=args.check,
-            base_dir=base_dir,
+            base_dir=effective_base if explicit_base else None,
         )
         print(f"[✓] 已交付翻页预览: {delivered}")
     except (FileNotFoundError, NotADirectoryError, OSError, ValueError, RuntimeError) as err:
