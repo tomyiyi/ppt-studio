@@ -73,6 +73,20 @@ class TestBiliSearch(unittest.TestCase):
             self.assertEqual(payload["count"], 1)
             self.assertEqual(payload["results"][0]["title"], "2026秋冬趋势")
 
+    @patch("scripts.bili_search.urllib.request.urlopen")
+    def test_main_cli_with_base_dir_flag(self, mock_open):
+        import tempfile
+        mock_open.return_value = _fake_response(SAMPLE)
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            code = main(["2026趋势", "--max", "1", "-o", "data/bili_res_flag.json", "--base-dir", str(base)])
+            self.assertEqual(code, 0)
+            out_file = base / "data" / "bili_res_flag.json"
+            self.assertTrue(out_file.is_file())
+            payload = json.loads(out_file.read_text(encoding="utf-8"))
+            self.assertEqual(payload["count"], 1)
+            self.assertEqual(payload["results"][0]["title"], "2026秋冬趋势")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -87,15 +87,24 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     ap.add_argument("query")
     ap.add_argument("--max", type=int, default=10)
     ap.add_argument("-o", "--output")
+    ap.add_argument(
+        "--base-dir",
+        default=None,
+        help="指定基础工作目录 (默认: 当前工作目录)",
+    )
     a = ap.parse_args(argv)
+    effective_base = (
+        Path(a.base_dir).resolve()
+        if a.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
     results = search(a.query, a.max)
     payload = {"query": a.query, "source": "bilibili",
                "count": len(results), "results": results}
     out = json.dumps(payload, ensure_ascii=False, indent=2)
     if a.output:
-        base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
         out_p = Path(a.output)
-        out_file = (base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
+        out_file = (effective_base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
         out_file.parent.mkdir(parents=True, exist_ok=True)
         out_file.write_text(out, encoding="utf-8")
         print("[ok] %d 条结果 → %s" % (len(results), out_file))
