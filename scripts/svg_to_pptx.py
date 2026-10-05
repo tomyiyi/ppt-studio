@@ -582,7 +582,7 @@ def check_dependencies() -> tuple[bool, list[str]]:
     return (not problems, problems)
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     ap = argparse.ArgumentParser(description="SVG 画布 → 可编辑 PPTX 导出（背景层 + 文本层）")
     ap.add_argument("src", nargs="?", help="SVG 目录或项目目录（缺省自动发现唯一项目）")
     ap.add_argument("-o", "--output", help="输出 .pptx 路径（缺省 <项目>/output/<svg目录名>.pptx）")
@@ -591,6 +591,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--bg-dir", help="保留背景 PNG 的目录（默认用临时目录，转换后删除）")
     ap.add_argument("--check", action="store_true", help="仅检查依赖是否就绪")
     args = ap.parse_args(argv)
+
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
 
     if args.check:
         ok, problems = check_dependencies()
@@ -606,20 +608,33 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        svg_dir, project_dir = resolve_svg_dir(args.src)
+        svg_dir, project_dir = (
+            resolve_svg_dir(args.src, base_dir=base)
+            if base_dir is not None
+            else resolve_svg_dir(args.src)
+        )
     except (FileNotFoundError, ValueError) as exc:
         print(f"[✗] {exc}", file=sys.stderr)
         return 2
 
     svg_files = sorted(svg_dir.glob("*.svg"))
-    out = Path(args.output).resolve() if args.output else (
-        project_dir / "output" / f"{svg_dir.name}.pptx").resolve()
+    if args.output:
+        out_p = Path(args.output)
+        out = (base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
+    else:
+        out = (project_dir / "output" / f"{svg_dir.name}.pptx").resolve()
+
+    if args.bg_dir:
+        bg_p = Path(args.bg_dir)
+        bg_dir = (base / bg_p).resolve() if not bg_p.is_absolute() else bg_p.resolve()
+    else:
+        bg_dir = None
 
     try:
         stats = build_pptx(svg_files,
                            out,
                            fmt=args.format,
-                           bg_dir=Path(args.bg_dir) if args.bg_dir else None)
+                           bg_dir=bg_dir)
     except Exception as exc:
         print(f"[✗] 转换失败: {exc}", file=sys.stderr)
         return 1

@@ -369,6 +369,16 @@ class TestBuildEndToEnd(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertTrue(out.is_file())
 
+    def test_main_cli_with_base_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            _write_fixture(tdp)
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = main([".", "-o", "cli_rel.pptx"], base_dir=tdp)
+            self.assertEqual(code, 0)
+            self.assertTrue((tdp / "cli_rel.pptx").is_file())
+
     def test_atomic_save_keeps_old_file_on_save_failure(self):
         """save 中途抛错：旧产物原样保留，临时文件被清理。"""
         with tempfile.TemporaryDirectory() as td:
