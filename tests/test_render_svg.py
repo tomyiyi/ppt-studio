@@ -801,6 +801,13 @@ class TestRenderSvgSubdirAndSpecResolution(unittest.TestCase):
         self.assertEqual(mock_render_svg.call_args.kwargs.get("spec_path"), "spec_lock.md")
         self.assertEqual(mock_render_svg.call_args.kwargs.get("base_dir"), self.proj.resolve())
 
+        mock_render_svg.reset_mock()
+        rc_flag = main(["svg_output", "--spec", "spec_lock.md", "--base-dir", str(self.proj)])
+        self.assertEqual(rc_flag, 0)
+        self.assertEqual(mock_render_svg.call_args.kwargs.get("src"), "svg_output")
+        self.assertEqual(mock_render_svg.call_args.kwargs.get("spec_path"), "spec_lock.md")
+        self.assertEqual(mock_render_svg.call_args.kwargs.get("base_dir"), self.proj.resolve())
+
     @patch("scripts.render_svg._render_page", return_value=True)
     @patch("scripts.render_svg.run_qa_layout", return_value=True)
     def test_render_svg_check_forwards_base_dir_and_resolved_spec(self, mock_qa_layout, mock_render):

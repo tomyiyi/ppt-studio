@@ -628,9 +628,18 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     ap.add_argument("--spec", default=None, help="可选指定规范文件 (spec_lock.md 或 card_spec.md)")
     ap.add_argument("--engine", default="auto", choices=("auto", "playwright", "cli"),
                     help="渲染引擎：auto=playwright 失败自动降级 chromium CLI（默认）")
+    ap.add_argument(
+        "--base-dir",
+        default=None,
+        help="指定基础工作目录 (默认: 当前工作目录)",
+    )
     args = ap.parse_args(argv)
 
-    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    effective_base = (
+        Path(args.base_dir).resolve()
+        if args.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
 
     try:
         render_svg(
@@ -640,7 +649,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
             only=args.only,
             check=args.check,
             spec_path=args.spec,
-            base_dir=base,
+            base_dir=effective_base,
             engine=args.engine,
         )
         return 0
