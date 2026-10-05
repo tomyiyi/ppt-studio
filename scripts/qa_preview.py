@@ -53,14 +53,25 @@ except ImportError:
         _cpm_resolve_project_dir = None
 
 
-def resolve_project_dir(project_arg: str | Path | None = None) -> Path:
+def resolve_project_dir(
+    project_arg: str | Path | None = None,
+    base_dir: str | Path | None = None,
+) -> Path:
     """自适应解析项目根目录（支持从子目录 images、svg_output*、cards 等或文件回退）。"""
     if _cpm_resolve_project_dir is not None:
-        return _cpm_resolve_project_dir(project_arg)
+        try:
+            return _cpm_resolve_project_dir(project_arg, base_dir=base_dir)
+        except TypeError:
+            return _cpm_resolve_project_dir(project_arg)
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     if project_arg is not None and str(project_arg).strip() not in ("", "."):
-        p = Path(project_arg).resolve()
+        p = Path(project_arg)
+        if not p.is_absolute():
+            p = (base / p).resolve()
+        else:
+            p = p.resolve()
     else:
-        p = Path.cwd().resolve()
+        p = base
     if p.is_file():
         p = p.parent
     if (
@@ -453,7 +464,7 @@ def find_preview_files(target: Path | str | None = None, base_dir: Path | None =
         if target_path.suffix.lower() in [".html", ".htm"]:
             return [target_path]
         # 自适应从关联项目解析 HTML 预览
-        proj = resolve_project_dir(target_path)
+        proj = resolve_project_dir(target_path, base_dir=base)
         cand_files: list[Path] = []
         if (proj / "output").is_dir():
             cand_files.extend(sorted((proj / "output").glob("*.html")))
@@ -480,7 +491,7 @@ def find_preview_files(target: Path | str | None = None, base_dir: Path | None =
         files_to_check.extend(sorted((target_path / "output").glob("*.html")))
         files_to_check.extend(sorted((target_path / "output").glob("*.htm")))
     # 3. 关联项目解析（如 target_path 为子目录 images、render、svg_output、cards 等）
-    proj = resolve_project_dir(target_path)
+    proj = resolve_project_dir(target_path, base_dir=base)
     if proj != target_path:
         if (proj / "output").is_dir():
             files_to_check.extend(sorted((proj / "output").glob("*.html")))

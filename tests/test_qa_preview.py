@@ -697,8 +697,17 @@ class TestQAPreviewSubdirAndSpecResolution(unittest.TestCase):
             self.assertEqual(resolve_project_dir(self.images_dir), self.proj.resolve())
             self.assertEqual(resolve_project_dir(self.notes_dir), self.proj.resolve())
             self.assertEqual(resolve_project_dir(self.spec_file), self.proj.resolve())
+            self.assertEqual(resolve_project_dir(base_dir=self.svg_dir), self.proj.resolve())
+            self.assertEqual(resolve_project_dir(base_dir=self.spec_file), self.proj.resolve())
             self.assertEqual(resolve_project_dir(""), Path.cwd().resolve())
             self.assertEqual(resolve_project_dir("."), Path.cwd().resolve())
+
+    def test_resolve_project_dir_base_dir(self):
+        self.assertEqual(resolve_project_dir(base_dir=self.svg_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(base_dir=self.render_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(base_dir=self.images_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(base_dir=self.notes_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(base_dir=self.spec_file), self.proj.resolve())
 
     def test_find_preview_files_from_subfolder(self):
         found_render = find_preview_files(self.render_dir)
