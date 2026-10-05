@@ -1105,9 +1105,18 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     ap.add_argument("--only", help="只处理文件名包含该串的页")
     ap.add_argument("--spec", help="自定义卡片规格文件路径（例如 card_spec.md）")
     ap.add_argument("--check", action="store_true", help="构建完成后执行卡片客观质量门禁校验 (qa_cards.py)")
+    ap.add_argument(
+        "--base-dir",
+        default=None,
+        help="指定基础工作目录 (默认: 当前工作目录)",
+    )
     args = ap.parse_args(argv)
 
-    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    effective_base = (
+        Path(args.base_dir).resolve()
+        if args.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
     try:
         make_cards(
             project_dir=args.project,
@@ -1116,7 +1125,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
             only=args.only,
             check=args.check,
             spec_path=args.spec,
-            base_dir=base,
+            base_dir=effective_base,
         )
         return 0
     except (FileNotFoundError, ValueError, RuntimeError) as err:

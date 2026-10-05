@@ -158,6 +158,13 @@ class TestMakeCardsAtomicOutput(unittest.TestCase):
             ret = main([str(self.root), "--check"], base_dir=self.root)
             self.assertEqual(ret, 0)
 
+        # Test main with --base-dir CLI option
+        with ExitStack() as stack:
+            for p in self.patches():
+                stack.enter_context(p)
+            ret = main([str(self.root), "--check", "--base-dir", str(self.root)])
+            self.assertEqual(ret, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
