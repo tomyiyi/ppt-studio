@@ -131,7 +131,7 @@ def research(topic: str, backends: tuple[str, ...] | list[str] = DEFAULT_BACKEND
     }
 
 
-def main() -> None:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     backend_names = ", ".join(b.name for b in BACKENDS)
     ap = argparse.ArgumentParser(description="三段式研究→spec（1+2段，走 search_router 统一路由）")
     ap.add_argument("topic")
@@ -143,7 +143,7 @@ def main() -> None:
                     help="显式启用小红书后端（需有效 Cookie；默认关闭）")
     ap.add_argument("--per-query", type=int, default=5)
     ap.add_argument("-o", "--output")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
     if a.backends:
         backend_list = [s.strip() for s in a.backends.split(",") if s.strip()]
     else:
@@ -159,12 +159,17 @@ def main() -> None:
     brief = research(a.topic, backends=backend_list, per_query=a.per_query)
     out = json.dumps(brief, ensure_ascii=False, indent=2)
     if a.output:
-        Path(a.output).write_text(out, encoding="utf-8")
+        base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+        out_p = Path(a.output)
+        out_file = (base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        out_file.write_text(out, encoding="utf-8")
         print("[ok] %d 来源（后端: %s）→ %s"
-              % (brief["source_count"], ",".join(brief["backends"]), a.output))
+              % (brief["source_count"], ",".join(brief["backends"]), out_file))
     else:
         print(out)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

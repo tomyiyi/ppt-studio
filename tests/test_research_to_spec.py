@@ -15,7 +15,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from scripts.research_to_spec import (
     gen_subqueries, research, search_all_backends, _to_scorable,
-    DEFAULT_BACKENDS,
+    DEFAULT_BACKENDS, main,
 )
 
 # router 归一化格式的假结果
@@ -132,6 +132,19 @@ class TestResearchToSpec(unittest.TestCase):
         prompt = build_brief_prompt(brief["topic"], citable)
         self.assertIn("2026时尚", prompt)
         self.assertIn("[1]", prompt)
+
+    @patch("scripts.research_to_spec.router_search", side_effect=_router_side_effect)
+    def test_main_cli_with_base_dir_and_relative_output(self, _):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            code = main(["2026时尚", "-o", "my_proj/out/brief.json", "--per-query", "1"], base_dir=base)
+            self.assertEqual(code, 0)
+            out_file = base / "my_proj" / "out" / "brief.json"
+            self.assertTrue(out_file.is_file())
+            data = json.loads(out_file.read_text(encoding="utf-8"))
+            self.assertEqual(data["topic"], "2026时尚")
+            self.assertGreater(data["source_count"], 0)
 
 
 if __name__ == "__main__":
