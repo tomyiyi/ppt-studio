@@ -37,14 +37,25 @@ except ImportError:
         _cpm_resolve_project_dir = None  # type: ignore
 
 
-def resolve_project_dir(project_arg: str | Path | None = None) -> Path:
+def resolve_project_dir(
+    project_arg: str | Path | None = None,
+    base_dir: str | Path | None = None,
+) -> Path:
     """自适应解析项目根目录（支持从子目录 images、svg_output*、cards 等或文件回退）。"""
     if _cpm_resolve_project_dir is not None:
-        return _cpm_resolve_project_dir(project_arg)
+        try:
+            return _cpm_resolve_project_dir(project_arg, base_dir=base_dir)
+        except TypeError:
+            return _cpm_resolve_project_dir(project_arg)
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     if project_arg is not None and str(project_arg).strip() not in ("", "."):
-        p = Path(project_arg).resolve()
+        p = Path(project_arg)
+        if not p.is_absolute():
+            p = (base / p).resolve()
+        else:
+            p = p.resolve()
     else:
-        p = Path.cwd().resolve()
+        p = base
     if p.is_file():
         p = p.parent
     if (
@@ -90,16 +101,26 @@ def _parse_len(val: str | None) -> float | None:
         return None
 
 
-def run_qa_assets(project_dir: str | Path, *, min_scale: float = 0.5) -> dict[str, Any]:
+def run_qa_assets(
+    project_dir: str | Path,
+    *,
+    min_scale: float = 0.5,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
     """检查项目 SVG 目录下所有 <image> 引用的资产完整性。
 
     返回 dict(ok=无 fail 项, issues=[fail...], warnings=[warn...],
              n_images=本地引用数, n_skipped_data_uri=内嵌图数)。
     """
-    raw_p = Path(project_dir).resolve()
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    p_arg = Path(project_dir)
+    if not p_arg.is_absolute():
+        raw_p = (base / p_arg).resolve()
+    else:
+        raw_p = p_arg.resolve()
     is_single_svg = raw_p.is_file() and raw_p.suffix.lower() == ".svg"
 
-    proj = resolve_project_dir(project_dir)
+    proj = resolve_project_dir(raw_p, base_dir=base)
     svg_dir = find_svg_dir(proj) if find_svg_dir is not None else None
     if svg_dir is None and str(proj) != str(raw_p) and find_svg_dir is not None:
         svg_dir = find_svg_dir(raw_p)
@@ -157,7 +178,7 @@ def run_qa_assets(project_dir: str | Path, *, min_scale: float = 0.5) -> dict[st
             "svg_dir": str(svg_dir), "pil_ok": _PIL_OK}
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     ap = argparse.ArgumentParser(
         description="SVG 引用图片资产门禁：存在性 / 可解码 / 分辨率充足度")
     ap.add_argument("project_dir", nargs="?", default=".",
@@ -165,7 +186,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--min-scale", type=float, default=0.5,
                     help="分辨率 fail 阈值（默认 0.5）")
     a = ap.parse_args(argv)
-    rep = run_qa_assets(a.project_dir, min_scale=a.min_scale)
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    rep = run_qa_assets(a.project_dir, min_scale=a.min_scale, base_dir=base)
     for w in rep["warnings"]:
         print(f"  [warn] {w}")
     for i in rep["issues"]:

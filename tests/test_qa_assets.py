@@ -126,6 +126,7 @@ class TestQaAssets(QaAssetsTestBase):
 
 class TestQaAssetsSubdirAndSingleSvgResolution(QaAssetsTestBase):
     def test_resolve_project_dir_subfolder_and_file(self):
+        from unittest.mock import patch
         with tempfile.TemporaryDirectory() as td:
             proj = self.make_project(td, "")
             (proj / "spec_lock.md").write_text("# Spec\n", encoding="utf-8")
@@ -136,6 +137,36 @@ class TestQaAssetsSubdirAndSingleSvgResolution(QaAssetsTestBase):
             self.assertEqual(resolve_project_dir(sub_img), proj.resolve())
             self.assertEqual(resolve_project_dir(spec_file), proj.resolve())
             self.assertEqual(resolve_project_dir(str(sub_svg)), proj.resolve())
+            self.assertEqual(resolve_project_dir(base_dir=sub_svg), proj.resolve())
+            self.assertEqual(resolve_project_dir(base_dir=spec_file), proj.resolve())
+            self.assertEqual(resolve_project_dir("svg_output", base_dir=proj), proj.resolve())
+
+            with patch("scripts.qa_assets._cpm_resolve_project_dir", None):
+                self.assertEqual(resolve_project_dir(sub_svg), proj.resolve())
+                self.assertEqual(resolve_project_dir(sub_img), proj.resolve())
+                self.assertEqual(resolve_project_dir(spec_file), proj.resolve())
+                self.assertEqual(resolve_project_dir(base_dir=sub_svg), proj.resolve())
+                self.assertEqual(resolve_project_dir(base_dir=spec_file), proj.resolve())
+                self.assertEqual(resolve_project_dir("svg_output", base_dir=proj), proj.resolve())
+                self.assertEqual(resolve_project_dir(""), Path.cwd().resolve())
+                self.assertEqual(resolve_project_dir("."), Path.cwd().resolve())
+
+    def test_run_qa_assets_with_base_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = self.make_project(
+                td, IMG_TMPL.format(href="../images/good.png", w=400, h=300))
+            (proj / "spec_lock.md").write_text("# Spec\n", encoding="utf-8")
+            _make_png(proj / "images" / "good.png", 800, 600)
+            rep_rel = run_qa_assets(".", base_dir=proj)
+            self.assertTrue(rep_rel["ok"])
+            self.assertEqual(rep_rel["n_images"], 1)
+
+            rep_sub = run_qa_assets("svg_output", base_dir=proj)
+            self.assertTrue(rep_sub["ok"])
+            self.assertEqual(rep_sub["n_images"], 1)
+
+            self.assertEqual(main([".", "--min-scale", "0.5"], base_dir=proj), 0)
+            self.assertEqual(main(["svg_output"], base_dir=proj), 0)
 
     def test_run_qa_assets_from_subfolder(self):
         with tempfile.TemporaryDirectory() as td:
