@@ -8,7 +8,10 @@ video_subtitle.py -- VTT/SRT 字幕解析与转换
 
 from __future__ import annotations
 
+import argparse
+import json
 import re
+import sys
 from pathlib import Path
 
 
@@ -98,10 +101,76 @@ def write_srt(
     return dest
 
 
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="video_subtitle -- WebVTT 字幕解析与转换工具",
+    )
+    parser.add_argument(
+        "vtt_file",
+        help="WebVTT 字幕文件路径",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="输出 SRT 文件路径 (可选；未指定且未指定 --json 则输出至标准输出)",
+    )
+    parser.add_argument(
+        "--offset",
+        type=float,
+        default=0.0,
+        help="字幕时间偏移秒数 (默认: 0.0)",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="以 JSON 格式输出解析后的 cue 列表",
+    )
+    parser.add_argument(
+        "--base-dir",
+        default=None,
+        help="指定基础工作目录 (默认: 当前工作目录)",
+    )
+    args = parser.parse_args(argv)
+
+    effective_base = (
+        Path(args.base_dir).resolve()
+        if args.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
+
+    raw_vtt = Path(args.vtt_file)
+    vtt_path = (effective_base / raw_vtt).resolve() if not raw_vtt.is_absolute() else raw_vtt.resolve()
+
+    if not vtt_path.is_file():
+        print(f"[!] 找不到 VTT 字幕文件: {vtt_path}", file=sys.stderr)
+        return 1
+
+    cues = parse_vtt_cues(vtt_path, offset_sec=args.offset, base_dir=effective_base)
+
+    if args.json:
+        print(json.dumps(cues, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.output:
+        raw_out = Path(args.output)
+        out_path = (effective_base / raw_out).resolve() if not raw_out.is_absolute() else raw_out.resolve()
+        write_srt(cues, out_path, base_dir=effective_base)
+        print(f"[+] SRT 文件已写入: {out_path}")
+        return 0
+
+    print(format_srt_cues(cues), end="")
+    return 0
+
+
 __all__ = [
     "vtt_time_to_seconds",
     "seconds_to_srt_time",
     "parse_vtt_cues",
     "format_srt_cues",
     "write_srt",
+    "main",
 ]
+
+if __name__ == "__main__":
+    raise SystemExit(main())

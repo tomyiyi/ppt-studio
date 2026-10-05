@@ -1,9 +1,18 @@
+import contextlib
+import io
+import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from scripts.video_subtitle import (
     format_srt_cues,
+    main,
     parse_vtt_cues,
     seconds_to_srt_time,
     vtt_time_to_seconds,
@@ -99,6 +108,89 @@ class TestVideoSubtitle(unittest.TestCase):
         self.assertTrue(hasattr(make_video, "parse_vtt_cues"))
         self.assertTrue(hasattr(make_video, "seconds_to_srt_time"))
         self.assertTrue(hasattr(make_video, "vtt_time_to_seconds"))
+
+
+class TestVideoSubtitleMain(unittest.TestCase):
+    SAMPLE_VTT = """WEBVTT
+
+00:00:01.000 --> 00:00:03.500
+第一行字幕
+多行内容
+
+00:00:04.000 --> 00:00:06.000
+第二行字幕
+"""
+
+    def test_main_stdout(self):
+        with tempfile.TemporaryDirectory() as td:
+            vtt_p = Path(td) / "test.vtt"
+            vtt_p.write_text(self.SAMPLE_VTT, encoding="utf-8")
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = main([str(vtt_p)])
+            self.assertEqual(rc, 0)
+            out = buf.getvalue()
+            self.assertIn("00:00:01,000 --> 00:00:03,500", out)
+            self.assertIn("第一行字幕 多行内容", out)
+
+    def test_main_output_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            vtt_p = base / "test.vtt"
+            vtt_p.write_text(self.SAMPLE_VTT, encoding="utf-8")
+            out_p = base / "out" / "sub.srt"
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = main([str(vtt_p), "-o", str(out_p)], base_dir=base)
+            self.assertEqual(rc, 0)
+            self.assertTrue(out_p.is_file())
+            content = out_p.read_text(encoding="utf-8")
+            self.assertIn("00:00:04,000 --> 00:00:06,000", content)
+            self.assertIn("第二行字幕", content)
+
+    def test_main_with_offset(self):
+        with tempfile.TemporaryDirectory() as td:
+            vtt_p = Path(td) / "test.vtt"
+            vtt_p.write_text(self.SAMPLE_VTT, encoding="utf-8")
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = main([str(vtt_p), "--offset", "2.5"])
+            self.assertEqual(rc, 0)
+            out = buf.getvalue()
+            self.assertIn("00:00:03,500 --> 00:00:06,000", out)
+
+    def test_main_json_output(self):
+        with tempfile.TemporaryDirectory() as td:
+            vtt_p = Path(td) / "test.vtt"
+            vtt_p.write_text(self.SAMPLE_VTT, encoding="utf-8")
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = main([str(vtt_p), "--json"])
+            self.assertEqual(rc, 0)
+            data = json.loads(buf.getvalue())
+            self.assertEqual(len(data), 2)
+            self.assertEqual(data[0]["text"], "第一行字幕 多行内容")
+
+    def test_main_with_base_dir_relative(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            vtt_dir = base / "subs"
+            vtt_dir.mkdir()
+            vtt_p = vtt_dir / "sample.vtt"
+            vtt_p.write_text(self.SAMPLE_VTT, encoding="utf-8")
+
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = main(["subs/sample.vtt", "-o", "out/sample.srt", "--base-dir", str(base)])
+            self.assertEqual(rc, 0)
+            self.assertTrue((base / "out" / "sample.srt").is_file())
+
+    def test_main_file_not_found(self):
+        err_buf = io.StringIO()
+        with contextlib.redirect_stderr(err_buf):
+            rc = main(["/non_existent_path.vtt"])
+        self.assertEqual(rc, 1)
+        self.assertIn("找不到 VTT 字幕文件", err_buf.getvalue())
 
 
 if __name__ == "__main__":
