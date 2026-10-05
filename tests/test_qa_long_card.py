@@ -646,6 +646,14 @@ class TestQALongCardSubdirAndSpecResolution(unittest.TestCase):
             self.assertEqual(main(["card_spec.md", "-q"], base_dir=self.proj), 0)
             self.assertEqual(main([".", "--project", ".", "-q"], base_dir=self.proj), 0)
 
+    @patch("scripts.qa_long_card.run_qa_single_long_card", return_value=True)
+    def test_cli_with_base_dir_flag(self, mock_single):
+        with patch("sys.stdout", new_callable=io.StringIO):
+            self.assertEqual(main([".", "--base-dir", str(self.proj), "-q"]), 0)
+            self.assertEqual(main(["output", "--base-dir", str(self.proj), "-q"]), 0)
+            self.assertEqual(main(["card_spec.md", "--base-dir", str(self.proj), "-q"]), 0)
+            self.assertEqual(main([".", "--project", ".", "--base-dir", str(self.proj), "-q"]), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

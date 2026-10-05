@@ -826,16 +826,21 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     parser.add_argument("--project", help="项目根目录（用于校验源卡片数量与版式规范）")
     parser.add_argument("--no-header", action="store_true", help="声明长图不包含顶部 Header")
     parser.add_argument("--no-footer", action="store_true", help="声明长图不包含底部 Footer")
+    parser.add_argument("--base-dir", default=None, help="指定基础工作目录 (默认: 当前工作目录)")
     parser.add_argument("--verbose", "-v", action="store_true", default=True, help="详细日志输出（默认开启）")
     parser.add_argument("--quiet", "-q", action="store_true", help="静默模式（仅通过退出码返回）")
     args = parser.parse_args(argv)
 
-    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    effective_base = (
+        Path(args.base_dir).resolve()
+        if args.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
     verbose = not args.quiet if args.quiet else args.verbose
     explicit_project = None
     if args.project:
         try:
-            explicit_project = resolve_project_dir(args.project, base_dir=base)
+            explicit_project = resolve_project_dir(args.project, base_dir=effective_base)
         except FileNotFoundError as err:
             if verbose:
                 print(f"[!] {err}", file=sys.stderr)
@@ -847,7 +852,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
         require_header=not args.no_header,
         require_footer=not args.no_footer,
         verbose=verbose,
-        base_dir=base,
+        base_dir=effective_base,
     )
     return 0 if ok else 1
 
