@@ -295,6 +295,33 @@ class TestDriftReportSubdirAndVersionResolution(DriftReportTestBase):
             expected_out = proj / "output" / "drift-report.html"
             self.assertTrue(expected_out.is_file())
 
+    def test_main_cli_with_base_dir_flag(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = self.make_project(td)
+            # Use relative path '.' with --base-dir set to proj
+            rc = main([".", "--base-dir", str(proj)])
+            self.assertEqual(rc, 0)
+            expected_out = proj / "output" / "drift-report.html"
+            self.assertTrue(expected_out.is_file())
+
+    def test_main_cli_with_relative_spec_and_base_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = self.make_project(td)
+            custom_spec = proj / "alt_spec.md"
+            custom_spec.write_text(SPEC.replace("statement: 56", "statement: 24"), encoding="utf-8")
+            rc = main([
+                ".",
+                "--spec", "alt_spec.md",
+                "-o", "output/alt_drift.md",
+                "--format", "md",
+                "--base-dir", str(proj),
+            ])
+            self.assertEqual(rc, 0)
+            expected_out = proj / "output" / "alt_drift.md"
+            self.assertTrue(expected_out.is_file())
+            content = expected_out.read_text(encoding="utf-8")
+            self.assertIn("spec statement 字号：24px", content)
+
 
 if __name__ == "__main__":
     unittest.main()

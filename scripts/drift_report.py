@@ -351,12 +351,25 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     ap.add_argument("-o", "--output", help="输出路径（缺省 <项目>/output/drift-report.<html|md>，随 --format）")
     ap.add_argument("--format", choices=["html", "md"], default="html",
                     help="html=可视化对比报告（默认），md=决策简报 Markdown（可直接粘贴给用户做决策）")
+    ap.add_argument(
+        "--base-dir",
+        default=None,
+        help="指定基础工作目录 (默认: 当前工作目录)",
+    )
     a = ap.parse_args(argv)
 
-    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
-    proj = resolve_project_dir(a.project_dir, base_dir=base)
+    effective_base = (
+        Path(a.base_dir).resolve()
+        if a.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
+    proj = resolve_project_dir(a.project_dir, base_dir=effective_base)
+    spec_arg = None
+    if a.spec:
+        s_p = Path(a.spec)
+        spec_arg = (effective_base / s_p).resolve() if not s_p.is_absolute() else s_p.resolve()
     try:
-        rep = build_report(proj, Path(a.spec) if a.spec else None, base_dir=base)
+        rep = build_report(proj, spec_arg, base_dir=effective_base)
     except (FileNotFoundError, ValueError) as e:
         print(f"[fail] {e}", file=sys.stderr)
         return 1
@@ -364,7 +377,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     if a.output:
         out = Path(a.output)
         if not out.is_absolute():
-            out = (base / out).resolve()
+            out = (effective_base / out).resolve()
         else:
             out = out.resolve()
     else:
