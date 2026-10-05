@@ -908,6 +908,21 @@ def resolve_project_dir(
             proj = proj.resolve()
         if not proj.exists():
             raise FileNotFoundError(f"指定的项目目录不存在: {project_arg}")
+        if proj.is_file():
+            proj = proj.parent
+        if (
+            proj.name in ("images", "svg_output", "render_cards", "render", "notes", "output", "cards")
+            or proj.name.startswith("svg_output")
+            or proj.name.startswith("render")
+        ) and proj.is_dir():
+            if (
+                any(proj.parent.glob("spec_lock*.md"))
+                or any(proj.parent.glob("card_spec*.md"))
+                or any(proj.parent.glob("svg_output*"))
+                or (proj.parent / "cards").is_dir()
+                or (proj.parent / "images").is_dir()
+            ):
+                proj = proj.parent
         return proj
 
     base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
@@ -919,6 +934,16 @@ def resolve_project_dir(
     # 1. 当前目录本身包含 svg_output/*.svg
     if has_svg_output(base):
         return base
+
+    # 若传入或当前位于文件或产物子目录中
+    if base.is_file() and has_svg_output(base.parent):
+        return base.parent
+    if (
+        base.name in ("images", "svg_output", "render_cards", "render", "notes", "output", "cards")
+        or base.name.startswith("svg_output")
+        or base.name.startswith("render")
+    ) and base.is_dir() and has_svg_output(base.parent):
+        return base.parent
 
     # 2. 从 projects/ 目录下安全发现
     candidate_projects_dirs: list[Path] = []

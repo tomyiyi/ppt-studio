@@ -92,6 +92,34 @@ class TestMakeCardsAtomicOutput(unittest.TestCase):
             resolved = resolve_project_dir(base_dir=base)
             self.assertEqual(resolved, proj.resolve())
 
+    def test_resolve_project_dir_explicit_subfolders_and_file(self):
+        from scripts.make_cards import resolve_project_dir
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "custom_proj"
+            (proj / "svg_output").mkdir(parents=True)
+            (proj / "svg_output" / "01.svg").write_text("<svg/>", encoding="utf-8")
+            spec = proj / "spec_lock.md"
+            spec.write_text("# spec", encoding="utf-8")
+            self.assertEqual(resolve_project_dir(str(spec)), proj.resolve())
+            for sub_name in ("cards", "notes", "render", "render_cards", "images", "output"):
+                sub = proj / sub_name
+                sub.mkdir(parents=True, exist_ok=True)
+                self.assertEqual(resolve_project_dir(str(sub)), proj.resolve())
+
+    def test_resolve_project_dir_auto_discovery_from_subfolder_and_file(self):
+        from scripts.make_cards import resolve_project_dir
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "custom_proj"
+            (proj / "svg_output").mkdir(parents=True)
+            (proj / "svg_output" / "01.svg").write_text("<svg/>", encoding="utf-8")
+            spec = proj / "spec_lock.md"
+            spec.write_text("# spec", encoding="utf-8")
+            self.assertEqual(resolve_project_dir(base_dir=spec), proj.resolve())
+            for sub_name in ("cards", "notes", "render", "render_cards", "images", "output"):
+                sub = proj / sub_name
+                sub.mkdir(parents=True, exist_ok=True)
+                self.assertEqual(resolve_project_dir(base_dir=sub), proj.resolve())
+
 
     def test_load_deck_title_prioritizes_versioned_spec_lock(self):
         from scripts.make_cards import load_deck_title
