@@ -134,6 +134,30 @@ class TestMakeCardsAtomicOutput(unittest.TestCase):
         roles = load_spec_roles(self.root / "svg_output")
         self.assertEqual(roles["statement"], 80)
 
+    def test_make_cards_forwards_base_dir_and_qa_check(self):
+        from scripts.make_cards import main
+        qa_called = []
+
+        def mock_qa(target, spec_path=None, base_dir=None):
+            qa_called.append((target, spec_path, base_dir))
+            return True
+
+        with ExitStack() as stack:
+            for p in self.patches():
+                stack.enter_context(p)
+            stack.enter_context(patch("scripts.make_cards.run_qa_cards", side_effect=mock_qa))
+            result = make_cards(self.root, check=True, base_dir=self.root)
+            self.assertEqual(len(result), 2)
+            self.assertEqual(len(qa_called), 1)
+            self.assertEqual(qa_called[0][2], self.root.resolve())
+
+        # Test main forwards base_dir
+        with ExitStack() as stack:
+            for p in self.patches():
+                stack.enter_context(p)
+            ret = main([str(self.root), "--check"], base_dir=self.root)
+            self.assertEqual(ret, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

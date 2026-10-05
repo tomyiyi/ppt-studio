@@ -994,9 +994,11 @@ def make_cards(
     only: str | None = None,
     check: bool = False,
     spec_path: str | Path | None = None,
+    base_dir: str | Path | None = None,
 ) -> list[Path]:
     """生成竖版传播卡片，支持指定比例、页面过滤与质量门禁校验。"""
-    proj_dir = resolve_project_dir(project_dir)
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    proj_dir = resolve_project_dir(project_dir, base_dir=base)
     if proj_dir.is_dir() and (proj_dir.name.startswith("svg_output") or proj_dir.name == "cards"):
         src_dir = proj_dir
         proj_dir = proj_dir.parent
@@ -1029,7 +1031,11 @@ def make_cards(
         proj_str = str(proj_dir)
         focus = load_focus(proj_str)
         total = len(files)
-        spec_target = spec_path if spec_path else proj_str
+        if spec_path:
+            sp = Path(spec_path)
+            spec_target = str((base / sp).resolve() if not sp.is_absolute() else sp.resolve())
+        else:
+            spec_target = proj_str
         colors = load_spec_colors(spec_target)
         sizes = load_spec_roles(spec_target)
         all_src_files = sorted(src_dir.glob("*.svg"))
@@ -1052,7 +1058,11 @@ def make_cards(
 
         print(f"完成 {len(generated)}/{len(files)}  ({W}×{H}, 图片带 {band_h}px)")
         if check and run_qa_cards is not None:
-            if not run_qa_cards(staging_dir, spec_path=spec_path):
+            try:
+                cards_ok = bool(run_qa_cards(staging_dir, spec_path=spec_path, base_dir=base))
+            except TypeError:
+                cards_ok = bool(run_qa_cards(staging_dir, spec_path=spec_path))
+            if not cards_ok:
                 raise RuntimeError(f"卡片客观质量门禁未通过: {out_dir}")
             print("  [门禁] ✓ 卡片客观质量门禁通过")
         elif check:
@@ -1082,7 +1092,7 @@ def make_cards(
         raise
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     ap = argparse.ArgumentParser(description="SVG 画布 → 竖版传播卡片")
     ap.add_argument(
         "project",
@@ -1097,6 +1107,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--check", action="store_true", help="构建完成后执行卡片客观质量门禁校验 (qa_cards.py)")
     args = ap.parse_args(argv)
 
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     try:
         make_cards(
             project_dir=args.project,
@@ -1105,6 +1116,7 @@ def main(argv: list[str] | None = None) -> int:
             only=args.only,
             check=args.check,
             spec_path=args.spec,
+            base_dir=base,
         )
         return 0
     except (FileNotFoundError, ValueError, RuntimeError) as err:
