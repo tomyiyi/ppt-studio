@@ -603,6 +603,10 @@ class TestRunQaBoostInk(unittest.TestCase):
         code = main(["img1.png", "--check", "--min-ink", "1.0", "--quiet"], base_dir=self.tmp_path)
         self.assertEqual(code, 0)
 
+    def test_main_cli_with_base_dir_flag(self):
+        code = main(["img1.png", "--check", "--min-ink", "1.0", "--quiet", "--base-dir", str(self.tmp_path)])
+        self.assertEqual(code, 0)
+
     def test_boost_ink_with_base_dir(self):
         res = boost_ink("img1.png", apply=False, base_dir=self.tmp_path)
         self.assertEqual(len(res), 1)
