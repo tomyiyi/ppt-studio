@@ -150,6 +150,9 @@ class TestMultiVersionAndSubdir(unittest.TestCase):
             self.assertEqual(resolve_project_dir(sub), proj.resolve())
             spec_file = proj / "spec_lock.md"
             self.assertEqual(resolve_project_dir(spec_file), proj.resolve())
+            self.assertEqual(resolve_project_dir(base_dir=sub), proj.resolve())
+            self.assertEqual(resolve_project_dir(base_dir=spec_file), proj.resolve())
+            self.assertEqual(resolve_project_dir("svg_output_v4", base_dir=proj), proj.resolve())
 
             render_cards = proj / "render_cards"
             render_cards.mkdir(parents=True, exist_ok=True)
@@ -157,14 +160,47 @@ class TestMultiVersionAndSubdir(unittest.TestCase):
             output_dir.mkdir(parents=True, exist_ok=True)
             self.assertEqual(resolve_project_dir(render_cards), proj.resolve())
             self.assertEqual(resolve_project_dir(output_dir), proj.resolve())
+            self.assertEqual(resolve_project_dir(base_dir=render_cards), proj.resolve())
+            self.assertEqual(resolve_project_dir(base_dir=output_dir), proj.resolve())
 
             with patch("scripts.sync_spec._cpm_resolve_project_dir", None):
                 self.assertEqual(resolve_project_dir(sub), proj.resolve())
                 self.assertEqual(resolve_project_dir(render_cards), proj.resolve())
                 self.assertEqual(resolve_project_dir(output_dir), proj.resolve())
                 self.assertEqual(resolve_project_dir(spec_file), proj.resolve())
+                self.assertEqual(resolve_project_dir(base_dir=sub), proj.resolve())
+                self.assertEqual(resolve_project_dir(base_dir=spec_file), proj.resolve())
+                self.assertEqual(resolve_project_dir("svg_output_v4", base_dir=proj), proj.resolve())
                 self.assertEqual(resolve_project_dir(""), Path.cwd().resolve())
                 self.assertEqual(resolve_project_dir("."), Path.cwd().resolve())
+
+    def test_check_with_base_dir(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            proj = _make_proj(d, {"01_a.svg": "0 0 1920 1080"}, "0 0 1920 1080")
+            ok, issues, ctx = check(".", base_dir=proj)
+            self.assertTrue(ok)
+            self.assertEqual(ctx["svg_vb"], "0 0 1920 1080")
+
+            ok_sub, issues_sub, ctx_sub = check("svg_output_v4", base_dir=proj)
+            self.assertTrue(ok_sub)
+            self.assertEqual(ctx_sub["svg_vb"], "0 0 1920 1080")
+
+            ok_spec, _, ctx_spec = check(".", spec_path="spec_lock.md", base_dir=proj)
+            self.assertTrue(ok_spec)
+            self.assertEqual(ctx_spec["svg_vb"], "0 0 1920 1080")
+
+    def test_main_cli_with_base_dir(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            proj = _make_proj(d, {"01_a.svg": "0 0 1920 1080"}, "0 0 1280 720")
+            alt_spec = proj / "spec_alt.md"
+            alt_spec.write_text("## canvas\n- viewBox: 0 0 1280 720\n", encoding="utf-8")
+            with self.assertRaises(SystemExit) as cm:
+                main([".", "--spec", "spec_alt.md", "--fix"], base_dir=proj)
+            self.assertEqual(cm.exception.code, 0)
+            txt = alt_spec.read_text(encoding="utf-8")
+            self.assertIn("- viewBox: 0 0 1920 1080\n", txt)
 
     def test_main_cli_spec_and_fix(self):
         import tempfile

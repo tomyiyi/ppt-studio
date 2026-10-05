@@ -108,14 +108,25 @@ def find_svg_dir(project_dir: Path | str) -> Path | None:
     return None
 
 
-def resolve_project_dir(project_arg: str | Path | None = None) -> Path:
+def resolve_project_dir(
+    project_arg: str | Path | None = None,
+    base_dir: str | Path | None = None,
+) -> Path:
     """自适应解析项目根目录（支持从子目录 images、svg_output*、cards 等或文件回退）。"""
     if _cpm_resolve_project_dir is not None:
-        return _cpm_resolve_project_dir(project_arg)
+        try:
+            return _cpm_resolve_project_dir(project_arg, base_dir=base_dir)
+        except TypeError:
+            return _cpm_resolve_project_dir(project_arg)
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     if project_arg is not None and str(project_arg).strip() not in ("", "."):
-        p = Path(project_arg).resolve()
+        p = Path(project_arg)
+        if not p.is_absolute():
+            p = (base / p).resolve()
+        else:
+            p = p.resolve()
     else:
-        p = Path.cwd().resolve()
+        p = base
     if p.is_file():
         p = p.parent
     if (
@@ -137,15 +148,24 @@ def resolve_project_dir(project_arg: str | Path | None = None) -> Path:
 def check(
     project_dir: Path | str,
     spec_path: Path | str | None = None,
+    base_dir: Path | str | None = None,
 ) -> tuple[bool, list[str], dict]:
     """返回 (无漂移, 问题列表, 上下文{spec_vb, svg_vb, svg_dir, spec})。"""
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    p_dir = Path(project_dir)
+    if not p_dir.is_absolute():
+        p_dir = (base / p_dir).resolve()
+    else:
+        p_dir = p_dir.resolve()
+
     issues: list[str] = []
     ctx: dict = {}
-    proj = resolve_project_dir(project_dir)
+    proj = resolve_project_dir(p_dir, base_dir=base)
 
     spec: Path | None = None
     if spec_path:
-        spec = Path(spec_path).resolve()
+        s_p = Path(spec_path)
+        spec = (base / s_p).resolve() if not s_p.is_absolute() else s_p.resolve()
     else:
         if resolve_spec is not None:
             spec = resolve_spec(proj)
@@ -154,17 +174,17 @@ def check(
         if (
             (spec is None or not spec.is_file())
             and find_spec is not None
-            and str(proj) != str(Path(project_dir).resolve())
+            and str(proj) != str(p_dir)
         ):
-            spec = find_spec(Path(project_dir).resolve())
+            spec = find_spec(p_dir)
 
     ctx["spec"] = str(spec) if spec else ""
     if spec is None or not spec.is_file():
         return False, ["找不到 spec_lock（已按 版本>基线 规则查找）"], ctx
 
     svg_dir = find_svg_dir(proj)
-    if not svg_dir and str(proj) != str(Path(project_dir).resolve()):
-        svg_dir = find_svg_dir(Path(project_dir).resolve())
+    if not svg_dir and str(proj) != str(p_dir):
+        svg_dir = find_svg_dir(p_dir)
     if not svg_dir:
         return False, ["找不到 SVG 目录"], ctx
     ctx["svg_dir"] = str(svg_dir)
@@ -201,15 +221,23 @@ def fix_canvas(spec_path: Path | str, new_vb: str) -> bool:
     return False
 
 
-def main() -> None:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> None:
     ap = argparse.ArgumentParser(description="SVG → spec 反向同步检查")
-    ap.add_argument("project_dir", help="项目目录或子目录")
+    ap.add_argument("project_dir", nargs="?", default=".", help="项目目录或子目录")
     ap.add_argument("--spec", help="可选指定 spec_lock.md 路径")
     ap.add_argument("--fix", action="store_true", help="把 SVG 的 viewBox 写回 spec")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     proj = Path(a.project_dir)
-    spec_arg = Path(a.spec).resolve() if a.spec else None
-    ok, issues, ctx = check(proj, spec_path=spec_arg)
+    if not proj.is_absolute():
+        proj = (base / proj).resolve()
+    else:
+        proj = proj.resolve()
+    spec_arg = None
+    if a.spec:
+        s_p = Path(a.spec)
+        spec_arg = (base / s_p).resolve() if not s_p.is_absolute() else s_p.resolve()
+    ok, issues, ctx = check(proj, spec_path=spec_arg, base_dir=base)
     print("[i] 采用 spec: %s" % (ctx.get("spec") or "未找到"))
     if ok:
         print("[ok] spec 与 SVG 无漂移（viewBox=%s）" % ctx.get("svg_vb"))
@@ -226,7 +254,7 @@ def main() -> None:
         if target_spec and fix_canvas(target_spec, ctx["svg_vb"]):
             print("[fix] spec viewBox 已更新为 %s" % ctx["svg_vb"])
         # 重新检查
-        ok2, _, _ = check(proj, spec_path=spec_arg)
+        ok2, _, _ = check(proj, spec_path=spec_arg, base_dir=base)
         sys.exit(0 if ok2 else 1)
     sys.exit(1)
 
