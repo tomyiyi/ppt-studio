@@ -175,15 +175,28 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     ap.add_argument("-o", "--output", help="输出 JSON 文件")
     ap.add_argument("--api", action="store_true", help="签名 API 模式（需 xhshow 库）")
     ap.add_argument("--key-file", help="指定 Cookie 文件路径（默认 ~/.config/ppt-studio/xiaohongshu.json）")
+    ap.add_argument(
+        "--base-dir",
+        default=None,
+        help="指定基础工作目录 (默认: 当前工作目录)",
+    )
     a = ap.parse_args(argv)
+    effective_base = (
+        Path(a.base_dir).resolve()
+        if a.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
+    key_file = None
+    if a.key_file:
+        kf_p = Path(a.key_file)
+        key_file = (effective_base / kf_p).resolve() if not kf_p.is_absolute() else kf_p.resolve()
     try:
-        results = search(a.keyword, a.max, use_api=a.api, key_file=a.key_file)
+        results = search(a.keyword, a.max, use_api=a.api, key_file=key_file)
     except CookieExpiredError as e:
         sys.exit("[error] %s" % e)
     if a.output:
-        base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
         out_p = Path(a.output)
-        out_file = (base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
+        out_file = (effective_base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
         out_file.parent.mkdir(parents=True, exist_ok=True)
         out_file.write_text(json.dumps(results, ensure_ascii=False, indent=2),
                             encoding="utf-8")
