@@ -494,6 +494,33 @@ class TestMainCLI(unittest.TestCase):
             code = main([str(proj), "--out", str(out_img), "--check"])
             self.assertEqual(code, 1)
 
+    @patch("scripts.make_long_card.run_qa_long_card")
+    def test_make_long_card_and_main_with_base_dir(self, mock_qa):
+        mock_qa.return_value = True
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir)
+            proj = base / "deck"
+            create_minimal_card_project(proj, count=2, card_size=(200, 300))
+
+            # Test make_long_card with relative out_path and base_dir
+            res = make_long_card(
+                project_dir=proj,
+                out_path="output/relative_long.png",
+                check=True,
+                base_dir=base,
+            )
+            expected_out = (base / "output/relative_long.png").resolve()
+            self.assertEqual(res, expected_out)
+            self.assertTrue(expected_out.exists())
+            self.assertEqual(mock_qa.call_args[1]["base_dir"], base.resolve())
+
+            # Test main with relative project and out_path and base_dir
+            mock_qa.reset_mock()
+            code = main(["deck", "--out", "output/cli_rel_long.png", "--check"], base_dir=base)
+            self.assertEqual(code, 0)
+            self.assertTrue((base / "output/cli_rel_long.png").exists())
+            self.assertEqual(mock_qa.call_args[1]["base_dir"], base.resolve())
+
 
 if __name__ == "__main__":
     unittest.main()

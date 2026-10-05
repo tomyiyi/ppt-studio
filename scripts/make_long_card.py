@@ -513,7 +513,9 @@ def make_long_card(
     include_header: bool = True,
     include_footer: bool = True,
     check: bool = False,
+    base_dir: str | Path | None = None,
 ) -> Path:
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     card_dir = project_dir / "cards"
     render_dir = project_dir / "render_cards"
     if not card_dir.exists():
@@ -571,6 +573,9 @@ def make_long_card(
             out_path = repo_root / "output" / f"{project_dir.name}_长图.png"
         else:
             out_path = project_dir / "output" / f"{project_dir.name}_长图.png"
+    else:
+        out_p_raw = Path(out_path)
+        out_path = (base / out_p_raw).resolve() if not out_p_raw.is_absolute() else out_p_raw.resolve()
     out_path = Path(out_path).resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fd, staged_name = tempfile.mkstemp(prefix=f".{out_path.name}.", dir=out_path.parent)
@@ -598,12 +603,21 @@ def make_long_card(
 
     if check:
         if run_qa_long_card is not None:
-            ok = run_qa_long_card(
-                staged_path,
-                project_dir=project_dir,
-                require_header=include_header,
-                require_footer=include_footer,
-            )
+            try:
+                ok = run_qa_long_card(
+                    staged_path,
+                    project_dir=project_dir,
+                    require_header=include_header,
+                    require_footer=include_footer,
+                    base_dir=base,
+                )
+            except TypeError:
+                ok = run_qa_long_card(
+                    staged_path,
+                    project_dir=project_dir,
+                    require_header=include_header,
+                    require_footer=include_footer,
+                )
             if not ok:
                 staged_path.unlink(missing_ok=True)
                 raise RuntimeError(f"长图客观质量门禁未通过: {out_path}")
@@ -620,7 +634,7 @@ def make_long_card(
     return out_path
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     parser = argparse.ArgumentParser(description="多卡片纵向缝合为单张长图")
     parser.add_argument("project", nargs="?", default=".", help="项目根目录，例如 projects/agentflow-os-launch（默认当前目录自发现）")
     parser.add_argument("--out", help="输出图片路径，默认输出至 <project>/output/<name>_长图.png")
@@ -630,13 +644,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--check", action="store_true", help="构建完成后执行长图客观质量门禁校验 (qa_long_card.py)")
     args = parser.parse_args(argv)
 
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     try:
-        proj_dir = resolve_project_dir(args.project)
+        proj_dir = resolve_project_dir(args.project, base_dir=base)
     except (FileNotFoundError, ValueError) as err:
         print(f"[err] {err}", file=sys.stderr)
         return 1
 
-    out_p = Path(args.out).resolve() if args.out else None
+    out_p = Path(args.out) if args.out else None
+    if out_p is not None:
+        out_p = (base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
 
     try:
         make_long_card(
@@ -646,6 +663,7 @@ def main(argv: list[str] | None = None) -> int:
             include_header=not args.no_header,
             include_footer=not args.no_footer,
             check=args.check,
+            base_dir=base,
         )
         return 0
     except (FileNotFoundError, ValueError, RuntimeError) as err:
