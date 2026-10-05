@@ -896,6 +896,15 @@ class TestQAVideoSubdirAndSpecResolution(unittest.TestCase):
             self.assertEqual(code2, 0)
         self.assertEqual(mock_single.call_count, 2)
 
+    @patch("scripts.qa_video.qa_single_video", return_value=True)
+    def test_cli_with_base_dir_flag(self, mock_single):
+        with patch("sys.stdout", new_callable=io.StringIO):
+            code1 = main([".", "--base-dir", str(self.render_dir)])
+            self.assertEqual(code1, 0)
+            code2 = main(["spec_lock.md", "--base-dir", str(self.proj)])
+            self.assertEqual(code2, 0)
+        self.assertEqual(mock_single.call_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

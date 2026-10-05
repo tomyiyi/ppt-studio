@@ -604,26 +604,32 @@ run_qa_subtitles = run_qa_subtitles
 def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     parser = argparse.ArgumentParser(description="PPT-Studio 视频质量自动化门禁")
     parser.add_argument("target", nargs="?", default=".", help="视频文件路径、包含 *.mp4 的目录或项目目录（默认当前目录）")
+    parser.add_argument("--base-dir", default=None, help="指定基础工作目录 (默认: 当前工作目录)")
     parser.add_argument("--srt", help="可选指定 SRT 文件路径")
     parser.add_argument("--verbose", "-v", action="store_true", default=True, help="详细日志输出（默认开启）")
     parser.add_argument("--quiet", "-q", action="store_true", help="静默模式（仅通过退出码返回）")
     args = parser.parse_args(argv)
 
-    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    explicit_base = args.base_dir is not None or base_dir is not None
+    effective_base = (
+        Path(args.base_dir).resolve()
+        if args.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
     verbose = not args.quiet if args.quiet else args.verbose
     if args.target is None or str(args.target).strip() in ("", "."):
-        target_path = base
+        target_path = effective_base
     else:
         target_path = Path(args.target)
     if not target_path.is_absolute():
-        target_path = (base / target_path).resolve()
+        target_path = (effective_base / target_path).resolve()
     else:
         target_path = target_path.resolve()
 
     if args.srt:
         srt_p = Path(args.srt)
         if not srt_p.is_absolute():
-            srt_p = (base / srt_p).resolve()
+            srt_p = (effective_base / srt_p).resolve()
         else:
             srt_p = srt_p.resolve()
     else:
@@ -636,14 +642,18 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
 
     if target_path.is_file():
         passed = (
-            qa_video(target_path, srt_p, verbose=verbose, base_dir=base)
-            if base_dir is not None
+            qa_video(target_path, srt_p, verbose=verbose, base_dir=effective_base)
+            if explicit_base
             else qa_video(target_path, srt_p, verbose=verbose)
         )
         return 0 if passed else 2
 
     elif target_path.is_dir():
-        mp4s = find_videos(target_path, base_dir=base) if base_dir is not None else find_videos(target_path)
+        mp4s = (
+            find_videos(target_path, base_dir=effective_base)
+            if explicit_base
+            else find_videos(target_path)
+        )
         if not mp4s:
             if verbose:
                 print(f"[ERROR] 在 {target_path} 或 output/、projects/*/output/ 下未找到 mp4 视频", file=sys.stderr)
@@ -652,8 +662,8 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
         all_ok = True
         for i, p in enumerate(mp4s):
             ok = (
-                qa_video(p, srt_p, verbose=verbose, base_dir=base)
-                if base_dir is not None
+                qa_video(p, srt_p, verbose=verbose, base_dir=effective_base)
+                if explicit_base
                 else qa_video(p, srt_p, verbose=verbose)
             )
             if not ok:
