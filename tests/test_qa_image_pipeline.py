@@ -105,7 +105,12 @@ class TestImageQAPipeline(unittest.TestCase):
         with patch("scripts.qa_image_pipeline.run_image_qa", return_value={"ok": True, "total": 1, "passed": 1, "failed": 0, "items": []}) as mock_qa:
             code = main(["a.png"], base_dir="/proj")
         self.assertEqual(code, 0)
-        mock_qa.assert_called_once_with(["a.png"], verbose=True, base_dir="/proj")
+        mock_qa.assert_called_once_with(["a.png"], verbose=True, base_dir=Path("/proj").resolve())
+
+        with patch("scripts.qa_image_pipeline.run_image_qa", return_value={"ok": True, "total": 1, "passed": 1, "failed": 0, "items": []}) as mock_qa2:
+            code2 = main(["a.png", "--base-dir", "/proj2"])
+        self.assertEqual(code2, 0)
+        mock_qa2.assert_called_once_with(["a.png"], verbose=True, base_dir=Path("/proj2").resolve())
 
 
 if __name__ == "__main__":

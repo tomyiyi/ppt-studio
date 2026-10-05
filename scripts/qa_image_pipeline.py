@@ -63,8 +63,14 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     parser = argparse.ArgumentParser(description="运行 PPT 图片统一质量门禁")
     parser.add_argument("targets", nargs="+", help="一个或多个图片、目录或项目路径")
     parser.add_argument("--json", action="store_true", dest="as_json", help="仅输出 JSON 结果")
+    parser.add_argument("--base-dir", default=None, help="指定基础工作目录 (默认: 当前工作目录)")
     args = parser.parse_args(argv)
-    result = run_image_qa(args.targets, verbose=not args.as_json, base_dir=base_dir)
+    effective_base = (
+        Path(args.base_dir).resolve()
+        if args.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
+    result = run_image_qa(args.targets, verbose=not args.as_json, base_dir=effective_base)
     if args.as_json:
         print(json.dumps(result, ensure_ascii=False, default=str))
     else:
