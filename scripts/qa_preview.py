@@ -580,13 +580,18 @@ run_qa_single_preview = run_qa_html_file
 def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     parser = argparse.ArgumentParser(description="PPT-Studio HTML 预览与多形态展厅客观质量门禁")
     parser.add_argument("target", nargs="?", default=".", help="HTML 文件路径、output 目录或项目根目录（默认当前目录自发现）")
+    parser.add_argument("--base-dir", default=None, help="指定基础工作目录 (默认: 当前工作目录)")
     parser.add_argument("--verbose", "-v", action="store_true", default=True, help="详细日志输出（默认开启）")
     parser.add_argument("--quiet", "-q", action="store_true", help="静默模式（仅通过退出码返回）")
     args = parser.parse_args(argv)
 
     verbose = not args.quiet if args.quiet else args.verbose
-    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
-    ok = run_qa_preview(args.target, verbose=verbose, base_dir=base)
+    effective_base = (
+        Path(args.base_dir).resolve()
+        if args.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
+    ok = run_qa_preview(args.target, verbose=verbose, base_dir=effective_base)
     return 0 if ok else 1
 
 

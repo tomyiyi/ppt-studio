@@ -753,6 +753,15 @@ class TestQAPreviewSubdirAndSpecResolution(unittest.TestCase):
             self.assertEqual(main([str(rel_proj)], base_dir=base), 0)
             self.assertEqual(main([str(rel_html)], base_dir=base), 0)
 
+    def test_cli_with_base_dir_flag(self):
+        base = Path(self.td.name)
+        rel_proj = self.proj.relative_to(base)
+        rel_html = self.preview_html.relative_to(base)
+
+        with patch("sys.stdout", new_callable=io.StringIO):
+            self.assertEqual(main([str(rel_proj), "--base-dir", str(base)]), 0)
+            self.assertEqual(main([str(rel_html), "--base-dir", str(base)]), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
