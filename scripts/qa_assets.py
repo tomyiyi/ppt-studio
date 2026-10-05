@@ -185,9 +185,14 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
                     help="项目目录（缺省当前目录）")
     ap.add_argument("--min-scale", type=float, default=0.5,
                     help="分辨率 fail 阈值（默认 0.5）")
+    ap.add_argument("--base-dir", default=None, help="指定基础工作目录 (默认: 当前工作目录)")
     a = ap.parse_args(argv)
-    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
-    rep = run_qa_assets(a.project_dir, min_scale=a.min_scale, base_dir=base)
+    effective_base = (
+        Path(a.base_dir).resolve()
+        if a.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
+    rep = run_qa_assets(a.project_dir, min_scale=a.min_scale, base_dir=effective_base)
     for w in rep["warnings"]:
         print(f"  [warn] {w}")
     for i in rep["issues"]:

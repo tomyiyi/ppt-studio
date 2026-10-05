@@ -167,6 +167,8 @@ class TestQaAssetsSubdirAndSingleSvgResolution(QaAssetsTestBase):
 
             self.assertEqual(main([".", "--min-scale", "0.5"], base_dir=proj), 0)
             self.assertEqual(main(["svg_output"], base_dir=proj), 0)
+            self.assertEqual(main([".", "--min-scale", "0.5", "--base-dir", str(proj)]), 0)
+            self.assertEqual(main(["svg_output", "--base-dir", str(proj)]), 0)
 
     def test_run_qa_assets_from_subfolder(self):
         with tempfile.TemporaryDirectory() as td:
