@@ -629,9 +629,15 @@ def run_qa_single_long_card(
     require_header: bool = True,
     require_footer: bool = True,
     verbose: bool = True,
+    base_dir: str | Path | None = None,
 ) -> bool:
     """对单张长图执行 7 项客观质量门禁复核。"""
-    target_p = Path(target_path).resolve()
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    target_p = Path(target_path)
+    if not target_p.is_absolute():
+        target_p = (base / target_p).resolve()
+    else:
+        target_p = target_p.resolve()
 
     def _log(msg: str = "") -> None:
         if verbose:
@@ -653,10 +659,13 @@ def run_qa_single_long_card(
     arr = np.array(img)
 
     # 自动探测 project_dir
-    proj_p = Path(project_dir).resolve() if project_dir else None
+    proj_p = None
+    if project_dir:
+        p_p = Path(project_dir)
+        proj_p = (base / p_p).resolve() if not p_p.is_absolute() else p_p.resolve()
     if proj_p is None:
         try:
-            proj_p = resolve_project_dir(None, target_path=target_p)
+            proj_p = resolve_project_dir(None, target_path=target_p, base_dir=base)
         except ValueError:
             proj_p = None
 
@@ -723,13 +732,14 @@ def run_qa_long_card(
     require_header: bool = True,
     require_footer: bool = True,
     verbose: bool = True,
+    base_dir: str | Path | None = None,
 ) -> bool:
     """运行 PPT-Studio 长图客观质量门禁。
 
     支持输入单个长图文件路径、包含长图的目录路径，或留空默认自发现。
     支持 Path、str 或 None 输入。
     """
-    base = Path.cwd().resolve()
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     if target_path is not None and str(target_path).strip() not in ("", "."):
         target_p = Path(target_path)
         if not target_p.is_absolute():
@@ -753,9 +763,10 @@ def run_qa_long_card(
                 require_header=require_header,
                 require_footer=require_footer,
                 verbose=verbose,
+                base_dir=base,
             )
         try:
-            files_to_check = find_long_cards(target_p)
+            files_to_check = find_long_cards(target_p, base_dir=base)
         except (FileNotFoundError, ValueError) as err:
             if verbose:
                 print(f"[!] {err}", file=sys.stderr)
@@ -767,7 +778,7 @@ def run_qa_long_card(
     elif target_p.is_dir():
         # 目录或自动发现模式
         try:
-            files_to_check = find_long_cards(target_p)
+            files_to_check = find_long_cards(target_p, base_dir=base)
         except (FileNotFoundError, ValueError) as err:
             if verbose:
                 print(f"[!] {err}", file=sys.stderr)
@@ -780,12 +791,12 @@ def run_qa_long_card(
     else:
         return False
 
-    explicit_project = resolve_project_dir(project_dir) if project_dir else None
+    explicit_project = resolve_project_dir(project_dir, base_dir=base) if project_dir else None
 
     all_ok = True
     for i, f in enumerate(files_to_check):
         try:
-            proj = explicit_project or resolve_project_dir(None, target_path=f)
+            proj = explicit_project or resolve_project_dir(None, target_path=f, base_dir=base)
         except ValueError as err:
             if verbose:
                 print(f"[!] {err}", file=sys.stderr)
@@ -796,6 +807,7 @@ def run_qa_long_card(
             require_header=require_header,
             require_footer=require_footer,
             verbose=verbose,
+            base_dir=base,
         )
         if not res:
             all_ok = False
@@ -808,7 +820,7 @@ qa_long_card = run_qa_long_card
 qa_single_long_card = run_qa_single_long_card
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     parser = argparse.ArgumentParser(description="PPT-Studio 长图客观质量门禁")
     parser.add_argument("target", nargs="?", default=".", help="长图 PNG 文件路径或包含长图/output/*.png 的项目目录（默认当前目录）")
     parser.add_argument("--project", help="项目根目录（用于校验源卡片数量与版式规范）")
@@ -818,11 +830,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--quiet", "-q", action="store_true", help="静默模式（仅通过退出码返回）")
     args = parser.parse_args(argv)
 
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     verbose = not args.quiet if args.quiet else args.verbose
     explicit_project = None
     if args.project:
         try:
-            explicit_project = resolve_project_dir(args.project)
+            explicit_project = resolve_project_dir(args.project, base_dir=base)
         except FileNotFoundError as err:
             if verbose:
                 print(f"[!] {err}", file=sys.stderr)
@@ -834,6 +847,7 @@ def main(argv: list[str] | None = None) -> int:
         require_header=not args.no_header,
         require_footer=not args.no_footer,
         verbose=verbose,
+        base_dir=base,
     )
     return 0 if ok else 1
 

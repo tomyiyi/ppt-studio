@@ -635,6 +635,17 @@ class TestQALongCardSubdirAndSpecResolution(unittest.TestCase):
             self.assertEqual(code2, 0)
         self.assertEqual(mock_single.call_count, 2)
 
+    @patch("scripts.qa_long_card.run_qa_single_long_card", return_value=True)
+    def test_qa_long_card_with_base_dir(self, mock_single):
+        self.assertTrue(run_qa_long_card(".", verbose=False, base_dir=self.proj))
+        self.assertTrue(run_qa_long_card("output", verbose=False, base_dir=self.proj))
+        self.assertTrue(run_qa_long_card("card_spec.md", verbose=False, base_dir=self.proj))
+        with patch("sys.stdout", new_callable=io.StringIO):
+            self.assertEqual(main([".", "-q"], base_dir=self.proj), 0)
+            self.assertEqual(main(["output", "-q"], base_dir=self.proj), 0)
+            self.assertEqual(main(["card_spec.md", "-q"], base_dir=self.proj), 0)
+            self.assertEqual(main([".", "--project", ".", "-q"], base_dir=self.proj), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
