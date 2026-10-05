@@ -118,7 +118,7 @@ def make_video(
         project_dir = resolve_project_dir(base_dir=base)
 
     project_dir = project_dir.resolve()
-    vo_items = load_voiceover(project_dir)
+    vo_items = load_voiceover(project_dir, base_dir=base)
     if not vo_items:
         raise ValueError("未找到任何有效解说分镜 (voiceover 为空)")
     voice_name = VOICE_MAP.get(voice_key, voice_key)
