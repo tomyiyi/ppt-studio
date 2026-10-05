@@ -18,29 +18,38 @@ def transform_svg(text, mapping, role_mapping):
         return COLOR_ATTR.sub(replace_color, tag)
     return TAG.sub(transform_tag, text)
 
-def main(argv=None):
-    p = argparse.ArgumentParser()
+def main(argv=None, base_dir: str | Path | None = None) -> int:
+    p = argparse.ArgumentParser(description="根据 theme.json 主题色配置替换 SVG 及 spec 中的颜色值")
     p.add_argument("source_svg", type=Path)
     p.add_argument("output_svg", type=Path)
     p.add_argument("--theme", required=True, type=Path)
     p.add_argument("--spec-in", type=Path)
     p.add_argument("--spec-out", type=Path)
     a = p.parse_args(argv)
-    theme = json.loads(a.theme.read_text(encoding="utf-8"))
+
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    source_svg = (base / a.source_svg).resolve() if not a.source_svg.is_absolute() else a.source_svg.resolve()
+    output_svg = (base / a.output_svg).resolve() if not a.output_svg.is_absolute() else a.output_svg.resolve()
+    theme_path = (base / a.theme).resolve() if not a.theme.is_absolute() else a.theme.resolve()
+
+    theme = json.loads(theme_path.read_text(encoding="utf-8"))
     palette = theme["colors"]
     mapping = {k.upper(): v.upper() for k, v in palette.items()}
     role_mapping = {role: {k.upper(): v.upper() for k, v in colors.items()} for role, colors in theme.get("role_colors", {}).items()}
-    a.output_svg.mkdir(parents=True, exist_ok=True)
-    for src in sorted(a.source_svg.glob("*.svg")):
+    output_svg.mkdir(parents=True, exist_ok=True)
+    for src in sorted(source_svg.glob("*.svg")):
         text = src.read_text(encoding="utf-8")
         text = transform_svg(text, mapping, role_mapping)
-        (a.output_svg / src.name).write_text(text, encoding="utf-8")
+        (output_svg / src.name).write_text(text, encoding="utf-8")
     if a.spec_in and a.spec_out:
-        spec = a.spec_in.read_text(encoding="utf-8")
+        spec_in = (base / a.spec_in).resolve() if not a.spec_in.is_absolute() else a.spec_in.resolve()
+        spec_out = (base / a.spec_out).resolve() if not a.spec_out.is_absolute() else a.spec_out.resolve()
+        spec = spec_in.read_text(encoding="utf-8")
         for old, new in mapping.items():
             spec = spec.replace(old, new).replace(old.lower(), new)
-        a.spec_out.write_text(spec, encoding="utf-8")
-    print(f"THEME_APPLIED name={theme['name']} files={len(list(a.output_svg.glob('*.svg')))}")
+        spec_out.write_text(spec, encoding="utf-8")
+    print(f"THEME_APPLIED name={theme['name']} files={len(list(output_svg.glob('*.svg')))}")
+    return 0
 
 if __name__ == "__main__":
     main()
