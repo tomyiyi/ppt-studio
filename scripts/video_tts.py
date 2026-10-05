@@ -8,6 +8,7 @@ video_tts.py -- 视频管线的语音合成与解说稿加载
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import subprocess
@@ -120,8 +121,92 @@ def generate_tts(
             raise RuntimeError(f"TTS 生成失败: {res.stderr}")
 
 
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="video_tts -- 视频管线的语音合成与解说稿加载工具",
+    )
+    parser.add_argument(
+        "project",
+        nargs="?",
+        default=None,
+        help="项目目录 (包含 voiceover.json 或 notes/*.md)",
+    )
+    parser.add_argument(
+        "--text",
+        default=None,
+        help="直接合成指定单句文本",
+    )
+    parser.add_argument(
+        "--voice",
+        default="zh-female",
+        help=f"发音人代码或全名 (默认: zh-female，支持: {', '.join(VOICE_MAP.keys())})",
+    )
+    parser.add_argument(
+        "--audio",
+        default=None,
+        help="输出音频文件路径 (搭配 --text)",
+    )
+    parser.add_argument(
+        "--vtt",
+        default=None,
+        help="输出 VTT 字幕文件路径 (搭配 --text)",
+    )
+    parser.add_argument(
+        "--list-voices",
+        action="store_true",
+        help="列出内置发音人别名映射",
+    )
+    parser.add_argument(
+        "--base-dir",
+        default=None,
+        help="指定基础工作目录 (默认: 当前工作目录)",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="以 JSON 格式输出项目解说稿 (默认行为)",
+    )
+    args = parser.parse_args(argv)
+
+    if args.list_voices:
+        print(json.dumps(VOICE_MAP, ensure_ascii=False, indent=2))
+        return 0
+
+    effective_base = (
+        Path(args.base_dir).resolve()
+        if args.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
+
+    if args.text is not None:
+        if not args.audio or not args.vtt:
+            print("[!] 指定 --text 时必须同时提供 --audio 与 --vtt 输出路径", file=sys.stderr)
+            return 2
+        voice_target = VOICE_MAP.get(args.voice, args.voice)
+        try:
+            generate_tts(args.text, voice_target, args.audio, args.vtt, base_dir=effective_base)
+            print(f"[+] TTS 生成成功: audio={args.audio}, vtt={args.vtt}")
+            return 0
+        except Exception as e:
+            print(f"[!] TTS 生成异常: {e}", file=sys.stderr)
+            return 1
+
+    target_proj = args.project if args.project is not None else "."
+    try:
+        vo_list = load_voiceover(target_proj, base_dir=effective_base)
+        print(json.dumps(vo_list, ensure_ascii=False, indent=2))
+        return 0
+    except Exception as e:
+        print(f"[!] 加载解说稿失败: {e}", file=sys.stderr)
+        return 1
+
+
 __all__ = [
     "VOICE_MAP",
     "load_voiceover",
     "generate_tts",
+    "main",
 ]
+
+if __name__ == "__main__":
+    raise SystemExit(main())

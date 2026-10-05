@@ -1,13 +1,21 @@
+import contextlib
+import io
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from scripts.video_tts import (
     VOICE_MAP,
     generate_tts,
     load_voiceover,
+    main,
 )
 
 
@@ -104,6 +112,74 @@ class TestVideoTts(unittest.TestCase):
             generate_tts("测试文本", "zh-CN-XiaoxiaoNeural", str(out_audio), str(out_vtt))
             self.assertTrue(mock_run.called)
             self.assertTrue((base / "out").is_dir())
+
+
+class TestVideoTtsMain(unittest.TestCase):
+    def test_main_list_voices(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = main(["--list-voices"])
+        self.assertEqual(rc, 0)
+        data = json.loads(buf.getvalue())
+        self.assertIn("zh-female", data)
+        self.assertEqual(data["zh-female"], "zh-CN-XiaoxiaoNeural")
+
+    def test_main_project_load(self):
+        sample = [{"page": "01", "title": "封面", "narration": "欢迎收看"}]
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            proj = base / "proj"
+            proj.mkdir()
+            (proj / "voiceover.json").write_text(json.dumps(sample), encoding="utf-8")
+
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = main([str(proj)])
+            self.assertEqual(rc, 0)
+            data = json.loads(buf.getvalue())
+            self.assertEqual(len(data), 1)
+            self.assertEqual(data[0]["title"], "封面")
+
+    def test_main_project_with_base_dir(self):
+        sample = [{"page": "01", "narration": "相对路径测试"}]
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            proj = base / "nested"
+            proj.mkdir()
+            (proj / "voiceover.json").write_text(json.dumps(sample), encoding="utf-8")
+
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = main(["nested", "--base-dir", str(base)])
+            self.assertEqual(rc, 0)
+            data = json.loads(buf.getvalue())
+            self.assertEqual(data[0]["narration"], "相对路径测试")
+
+    @patch("scripts.video_tts.generate_tts")
+    def test_main_text_tts_mock(self, mock_gen):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = main(["--text", "测试文本", "--audio", "out.mp3", "--vtt", "out.vtt"])
+        self.assertEqual(rc, 0)
+        self.assertTrue(mock_gen.called)
+        args, kwargs = mock_gen.call_args
+        self.assertEqual(args[0], "测试文本")
+        self.assertEqual(args[1], "zh-CN-XiaoxiaoNeural")
+        self.assertIn("audio=out.mp3", buf.getvalue())
+
+    def test_main_text_missing_paths(self):
+        err_buf = io.StringIO()
+        with contextlib.redirect_stderr(err_buf):
+            rc = main(["--text", "测试文本"])
+        self.assertEqual(rc, 2)
+        self.assertIn("必须同时提供 --audio 与 --vtt", err_buf.getvalue())
+
+    def test_main_project_not_found(self):
+        err_buf = io.StringIO()
+        with contextlib.redirect_stderr(err_buf):
+            rc = main(["/non_existent_project_dir_abc"])
+        self.assertEqual(rc, 1)
+        self.assertIn("加载解说稿失败", err_buf.getvalue())
 
 
 if __name__ == "__main__":
