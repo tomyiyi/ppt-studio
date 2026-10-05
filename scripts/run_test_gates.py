@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import subprocess
 import sys
 import os
@@ -38,23 +39,37 @@ def run_gate(name: str, modules: list[str], root: Path | str) -> int:
 
 
 def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
-    mode = (argv or sys.argv[1:])
-    if len(mode) != 1 or mode[0] not in {"fast", "process", "all"}:
-        print("usage: run_test_gates.py {fast|process|all}", file=sys.stderr)
-        return 2
+    parser = argparse.ArgumentParser(
+        description="Run the PPT test suite as explicit fast/process gates."
+    )
+    parser.add_argument(
+        "mode",
+        choices=["fast", "process", "all"],
+        help="运行模式 (fast, process, all)",
+    )
+    parser.add_argument(
+        "--base-dir",
+        default=None,
+        help="指定基础工作目录 (默认: PPT_TEST_ROOT 或仓库根目录)",
+    )
+    args = parser.parse_args(argv)
 
     root = (
-        Path(base_dir).resolve()
-        if base_dir
-        else Path(os.environ.get("PPT_TEST_ROOT", Path(__file__).resolve().parent.parent)).resolve()
+        Path(args.base_dir).resolve()
+        if args.base_dir
+        else (
+            Path(base_dir).resolve()
+            if base_dir
+            else Path(os.environ.get("PPT_TEST_ROOT", Path(__file__).resolve().parent.parent)).resolve()
+        )
     )
     modules = discovered_modules(root)
     fast = [module for module in modules if module not in PROCESS_MODULES]
     process = [module for module in modules if module in PROCESS_MODULES]
 
-    if mode[0] == "fast":
+    if args.mode == "fast":
         return run_gate("fast", fast, root)
-    if mode[0] == "process":
+    if args.mode == "process":
         return run_gate("process", process, root)
 
     fast_rc = run_gate("fast", fast, root)

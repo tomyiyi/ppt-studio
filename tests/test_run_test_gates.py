@@ -88,6 +88,12 @@ class TestRunTestGates(unittest.TestCase):
             self.assertEqual(rc_all, 0)
             self.assertEqual(mock_gate.call_count, 2)
 
+            # test fast mode with --base-dir CLI flag
+            mock_gate.reset_mock()
+            rc_flag = main(["fast", "--base-dir", td])
+            self.assertEqual(rc_flag, 0)
+            mock_gate.assert_called_with("fast", ["tests.test_fake"], Path(td).resolve())
+
 
 if __name__ == "__main__":
     unittest.main()
