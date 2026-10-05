@@ -49,9 +49,11 @@ except ImportError:
 try:
     from scripts.video_tts import VOICE_MAP, generate_tts, load_voiceover
     from scripts.video_subtitle import (
+        format_srt_cues,
         parse_vtt_cues,
         seconds_to_srt_time,
         vtt_time_to_seconds,
+        write_srt,
     )
     from scripts.video_assemble import (
         commit_video_pair,
@@ -63,9 +65,11 @@ try:
 except ImportError:
     from video_tts import VOICE_MAP, generate_tts, load_voiceover
     from video_subtitle import (
+        format_srt_cues,
         parse_vtt_cues,
         seconds_to_srt_time,
         vtt_time_to_seconds,
+        write_srt,
     )
     from video_assemble import (
         commit_video_pair,
@@ -79,6 +83,7 @@ __all__ = [
     "VOICE_MAP",
     "commit_video_pair",
     "ensure_page_images",
+    "format_srt_cues",
     "generate_tts",
     "load_voiceover",
     "make_video",
@@ -90,6 +95,7 @@ __all__ = [
     "run_qa_video",
     "seconds_to_srt_time",
     "vtt_time_to_seconds",
+    "write_srt",
 ]
 
 
@@ -194,11 +200,7 @@ def make_video(
 
         # 生成工程统一 SRT
         srt_file = tmp_dir / "timeline.srt"
-        with open(srt_file, "w", encoding="utf-8") as f:
-            for c_idx, cue in enumerate(all_cues, 1):
-                f.write(f"{c_idx}\n")
-                f.write(f"{seconds_to_srt_time(cue['start'])} --> {seconds_to_srt_time(cue['end'])}\n")
-                f.write(f"{cue['text']}\n\n")
+        write_srt(all_cues, srt_file)
 
         # 先在事务临时目录中准备字幕；正式目录只在 MP4 和 SRT 都成功后更新。
         out_srt = out_video_path.with_suffix(".srt")
