@@ -23,6 +23,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 API = "https://api.bilibili.com/x/web-interface/search/type"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -81,22 +82,27 @@ def search(query: str, max_results: int = 10) -> list[dict]:
     return out
 
 
-def main() -> None:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     ap = argparse.ArgumentParser(description="B站视频搜索（中文社媒层）")
     ap.add_argument("query")
     ap.add_argument("--max", type=int, default=10)
     ap.add_argument("-o", "--output")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
     results = search(a.query, a.max)
     payload = {"query": a.query, "source": "bilibili",
                "count": len(results), "results": results}
     out = json.dumps(payload, ensure_ascii=False, indent=2)
     if a.output:
-        open(a.output, "w", encoding="utf-8").write(out)
-        print("[ok] %d 条结果 → %s" % (len(results), a.output))
+        base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+        out_p = Path(a.output)
+        out_file = (base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        out_file.write_text(out, encoding="utf-8")
+        print("[ok] %d 条结果 → %s" % (len(results), out_file))
     else:
         print(out)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

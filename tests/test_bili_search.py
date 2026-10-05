@@ -11,7 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.bili_search import search
+from scripts.bili_search import search, main
 
 
 def _fake_response(payload):
@@ -58,6 +58,20 @@ class TestBiliSearch(unittest.TestCase):
         mock_open.side_effect = Exception("timeout")
         out = search("x", max_results=5)
         self.assertEqual(out, [])
+
+    @patch("scripts.bili_search.urllib.request.urlopen")
+    def test_main_cli_with_base_dir_and_relative_output(self, mock_open):
+        import tempfile
+        mock_open.return_value = _fake_response(SAMPLE)
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            code = main(["2026趋势", "--max", "1", "-o", "data/bili_res.json"], base_dir=base)
+            self.assertEqual(code, 0)
+            out_file = base / "data" / "bili_res.json"
+            self.assertTrue(out_file.is_file())
+            payload = json.loads(out_file.read_text(encoding="utf-8"))
+            self.assertEqual(payload["count"], 1)
+            self.assertEqual(payload["results"][0]["title"], "2026秋冬趋势")
 
 
 if __name__ == "__main__":
