@@ -157,8 +157,10 @@ def report(path: Path | str) -> dict:
 
 def resolve_image_targets(
     target_paths: list[str | Path] | str | Path | None = None,
+    base_dir: str | Path | None = None,
 ) -> list[Path]:
     """解析目标图片文件列表。支持单个文件、图片目录、项目根目录（自动探寻 images/）或自发现唯一项目。"""
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     if target_paths is not None:
         if isinstance(target_paths, (str, Path)):
             raw_list = [target_paths]
@@ -178,13 +180,14 @@ def resolve_image_targets(
 
     if raw_list:
         for item in raw_list:
-            p = Path(item).resolve()
-            if not p.exists():
+            p = Path(item)
+            cand = (base / p).resolve() if not p.is_absolute() else p.resolve()
+            if not cand.exists():
                 raise FileNotFoundError(f"指定的路径不存在: {item}")
-            if p.is_file():
-                add_path(p)
-            elif p.is_dir():
-                img_dir = p / "images"
+            if cand.is_file():
+                add_path(cand)
+            elif cand.is_dir():
+                img_dir = cand / "images"
                 if img_dir.is_dir():
                     candidates = [
                         f for f in sorted(img_dir.glob("*.png"))
@@ -195,7 +198,7 @@ def resolve_image_targets(
                             add_path(c)
                         continue
                 candidates = [
-                    f for f in sorted(p.glob("*.png"))
+                    f for f in sorted(cand.glob("*.png"))
                     if not f.name.startswith(("_pre_", "_raw_"))
                 ]
                 if candidates:
@@ -206,20 +209,28 @@ def resolve_image_targets(
         return resolved
 
     # 未显式指定 target_paths 时，尝试自发现
-    cwd_images = Path("images").resolve()
-    if cwd_images.is_dir():
+    base_images = (base / "images").resolve() if base.is_dir() else (base.parent / "images").resolve()
+    if base_images.is_dir():
         candidates = [
-            f for f in sorted(cwd_images.glob("*.png"))
+            f for f in sorted(base_images.glob("*.png"))
             if not f.name.startswith(("_pre_", "_raw_"))
         ]
         if candidates:
             return candidates
 
     repo_root = Path(__file__).resolve().parent.parent
+    candidate_projects_dirs: list[Path] = []
+    if base.is_dir() and base.name == "projects":
+        candidate_projects_dirs.append(base)
+    elif (base / "projects").is_dir():
+        candidate_projects_dirs.append(base / "projects")
     projects_dir = repo_root / "projects"
-    if projects_dir.is_dir():
+    if projects_dir.is_dir() and projects_dir.resolve() not in [d.resolve() for d in candidate_projects_dirs]:
+        candidate_projects_dirs.append(projects_dir)
+
+    for p_dir in candidate_projects_dirs:
         project_subdirs = [
-            d for d in projects_dir.iterdir() if d.is_dir() and not d.name.startswith(".")
+            d for d in p_dir.iterdir() if d.is_dir() and not d.name.startswith(".")
         ]
         projects_with_images = [
             d for d in project_subdirs
@@ -297,16 +308,18 @@ def run_qa_images(
     targets: str | Path | list[str | Path] | None = None,
     min_ink: float = 2.0,
     verbose: bool = True,
+    base_dir: str | Path | None = None,
 ) -> bool:
     """运行 PPT-Studio 配图客观质量门禁。
 
     :param targets: 目标图片、目录、项目路径或图片列表（默认自发现）
     :param min_ink: 最低墨量百分比阈值（默认: 2.0%）
     :param verbose: 是否输出日志（默认 True）
+    :param base_dir: 基础目录，用于相对路径解析（可选）
     :return: 全部通过返回 True，否则返回 False
     """
     try:
-        paths = resolve_image_targets(targets)
+        paths = resolve_image_targets(targets, base_dir=base_dir)
     except Exception as e:
         if verbose:
             print(f"[err] {e}", file=sys.stderr)
@@ -365,7 +378,7 @@ qa_single_image = check_image_quality
 run_qa_single_image = check_image_quality
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="配图客观验收（当无法肉眼看图时用数据代替眼睛）"
     )
@@ -409,7 +422,7 @@ def main(argv: list[str] | None = None) -> int:
     verbose = not args.quiet if args.quiet else args.verbose
 
     try:
-        paths = resolve_image_targets(args.images if args.images else None)
+        paths = resolve_image_targets(args.images if args.images else None, base_dir=base_dir)
     except Exception as e:
         if verbose:
             print(f"[err] {e}", file=sys.stderr)

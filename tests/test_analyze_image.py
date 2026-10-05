@@ -415,6 +415,14 @@ class TestRunQaImages(unittest.TestCase):
         self.assertIs(qa_single_image, check_image_quality)
         self.assertIs(run_qa_single_image, check_image_quality)
 
+    def test_run_qa_images_with_base_dir(self):
+        self.assertTrue(run_qa_images("img1.png", verbose=False, base_dir=self.dir_path))
+        self.assertTrue(run_qa_images(["img1.png", "img2.png"], verbose=False, base_dir=self.dir_path))
+
+    def test_main_cli_with_base_dir_and_check(self):
+        code = main(["img1.png", "--check", "--quiet"], base_dir=self.dir_path)
+        self.assertEqual(code, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
