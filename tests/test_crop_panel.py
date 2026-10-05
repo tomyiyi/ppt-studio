@@ -823,6 +823,12 @@ class TestCropPanelContract(unittest.TestCase):
         expected_out = self.tmp_path / rel_out
         self.assertTrue(expected_out.is_file())
 
+        rel_out_cli = Path("nested") / "cropped_rel_cli.png"
+        code_cli = main([str(self.good_img), "--out", str(rel_out_cli), "--apply", "--quiet", "--base-dir", str(self.tmp_path)])
+        self.assertEqual(code_cli, 0)
+        expected_out_cli = self.tmp_path / rel_out_cli
+        self.assertTrue(expected_out_cli.is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

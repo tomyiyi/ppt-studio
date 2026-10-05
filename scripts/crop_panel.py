@@ -574,13 +574,23 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
         action="store_true",
         help="静默模式（仅通过退出码返回结果）",
     )
+    parser.add_argument(
+        "--base-dir",
+        default=None,
+        help="指定基础工作目录 (默认: 当前工作目录)",
+    )
 
     args = parser.parse_args(argv)
+    effective_base = (
+        Path(args.base_dir).resolve()
+        if args.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
     verbose = not args.quiet if args.quiet else args.verbose
 
     src_args = args.src if args.src else None
     try:
-        targets = resolve_crop_targets(src_args, base_dir=base_dir)
+        targets = resolve_crop_targets(src_args, base_dir=effective_base)
     except (FileNotFoundError, ValueError) as e:
         if verbose:
             print(f"[!] {e}", file=sys.stderr)
@@ -606,7 +616,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
                 aspect=args.aspect,
                 pad=args.pad,
                 apply=args.apply,
-                base_dir=base_dir,
+                base_dir=effective_base,
             )
         except (FileNotFoundError, ValueError) as e:
             if verbose:
