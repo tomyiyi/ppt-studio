@@ -478,9 +478,12 @@ def build_preview(
     title: str | None = None,
     cards: bool = False,
     check: bool = False,
+    base_dir: str | Path | None = None,
 ) -> Path:
-    src_path = resolve_src_dir(src, cards=cards)
-    out_path = Path(out).resolve()
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    src_path = resolve_src_dir(src, base_dir=base, cards=cards)
+    out_p = Path(out)
+    out_path = (base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
 
     if not src_path.is_dir():
         raise FileNotFoundError(f"未找到源目录: {src_path}")
@@ -580,7 +583,14 @@ window.addEventListener('keydown',e=>{{if(e.key==='ArrowRight'||e.key===' '){{e.
 
     if check:
         if run_qa_slide_preview is not None:
-            ok = run_qa_slide_preview(staged_path)
+            try:
+                ok = (
+                    run_qa_slide_preview(staged_path, base_dir=base)
+                    if base_dir is not None
+                    else run_qa_slide_preview(staged_path)
+                )
+            except TypeError:
+                ok = run_qa_slide_preview(staged_path)
             if not ok:
                 staged_path.unlink(missing_ok=True)
                 raise RuntimeError(f"翻页预览客观质量门禁未通过: {out_path}")
@@ -597,7 +607,7 @@ window.addEventListener('keydown',e=>{{if(e.key==='ArrowRight'||e.key===' '){{e.
     return out_path
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     parser = argparse.ArgumentParser(description="把若干 SVG 打包成单文件 HTML 翻页预览")
     parser.add_argument(
         "src",
@@ -612,6 +622,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--title-override", dest="opt_title", default=None, help="显式指定标题（覆盖位置参数）")
     args = parser.parse_args(argv)
 
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     chosen_title = args.opt_title if args.opt_title is not None else args.title
     try:
         build_preview(
@@ -620,6 +631,7 @@ def main(argv: list[str] | None = None) -> int:
             title=chosen_title,
             cards=args.cards,
             check=args.check,
+            base_dir=base,
         )
     except (FileNotFoundError, ValueError, RuntimeError) as err:
         print(f"[err] {err}", file=sys.stderr)

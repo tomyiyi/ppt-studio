@@ -13,6 +13,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 # 将项目根目录加入 sys.path
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -650,6 +651,48 @@ class TestBuildPreviewSubdirAndSpecResolution(unittest.TestCase):
         )
         self.assertEqual(res2.returncode, 0, msg=f"CLI failed: {res2.stderr}")
         self.assertTrue(out_cli2.exists())
+
+    def test_build_preview_and_main_with_base_dir(self):
+        base = Path(self.td.name)
+        rel_src = self.svg_dir.relative_to(base)
+        rel_out = Path("relative_out.html")
+        expected_out = (base / rel_out).resolve()
+
+        res_path = build_preview(src=rel_src, out=rel_out, base_dir=base)
+        self.assertEqual(res_path, expected_out)
+        self.assertTrue(expected_out.exists())
+
+        # CLI / main with base_dir
+        rel_out_cli = Path("relative_cli_out.html")
+        expected_cli_out = (base / rel_out_cli).resolve()
+        code = main([str(rel_src), str(rel_out_cli)], base_dir=base)
+        self.assertEqual(code, 0)
+        self.assertTrue(expected_cli_out.exists())
+
+    @patch("scripts.build_preview.run_qa_slide_preview")
+    def test_build_preview_check_forwards_base_dir(self, mock_qa):
+        mock_qa.return_value = True
+        base = Path(self.td.name)
+        rel_src = self.svg_dir.relative_to(base)
+        rel_out = Path("checked_rel_out.html")
+        build_preview(src=rel_src, out=rel_out, check=True, base_dir=base)
+        mock_qa.assert_called_once()
+        _, kwargs = mock_qa.call_args
+        self.assertEqual(kwargs.get("base_dir"), base)
+
+    @patch("scripts.build_preview.run_qa_slide_preview")
+    def test_build_preview_check_typeerror_fallback(self, mock_qa):
+        def _qa_side_effect(*args, **kwargs):
+            if "base_dir" in kwargs:
+                raise TypeError("unexpected keyword argument 'base_dir'")
+            return True
+
+        mock_qa.side_effect = _qa_side_effect
+        base = Path(self.td.name)
+        rel_src = self.svg_dir.relative_to(base)
+        rel_out = Path("fallback_rel_out.html")
+        out_path = build_preview(src=rel_src, out=rel_out, check=True, base_dir=base)
+        self.assertTrue(out_path.exists())
 
 
 if __name__ == "__main__":
