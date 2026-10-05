@@ -826,4 +826,13 @@ class TestQaLayoutSubdirAndSpecResolution(unittest.TestCase):
         with patch("scripts.qa_layout._cpm_resolve_project_dir", None):
             self.assertEqual(resolve_project_dir(self.svg_dir), self.proj.resolve())
             self.assertEqual(resolve_project_dir(self.spec_file), self.proj.resolve())
+            self.assertEqual(resolve_project_dir(base_dir=self.svg_dir), self.proj.resolve())
+            self.assertEqual(resolve_project_dir(base_dir=self.spec_file), self.proj.resolve())
+
+    def test_resolve_project_dir_base_dir(self):
+        self.assertEqual(resolve_project_dir(base_dir=self.svg_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(base_dir=self.render_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(base_dir=self.images_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(base_dir=self.spec_file), self.proj.resolve())
+
 
