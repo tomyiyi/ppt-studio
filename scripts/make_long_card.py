@@ -642,18 +642,27 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     parser.add_argument("--no-header", action="store_true", help="不包含顶部 Header")
     parser.add_argument("--no-footer", action="store_true", help="不包含底部 Footer")
     parser.add_argument("--check", action="store_true", help="构建完成后执行长图客观质量门禁校验 (qa_long_card.py)")
+    parser.add_argument(
+        "--base-dir",
+        default=None,
+        help="指定基础工作目录 (默认: 当前工作目录)",
+    )
     args = parser.parse_args(argv)
 
-    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    effective_base = (
+        Path(args.base_dir).resolve()
+        if args.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
     try:
-        proj_dir = resolve_project_dir(args.project, base_dir=base)
+        proj_dir = resolve_project_dir(args.project, base_dir=effective_base)
     except (FileNotFoundError, ValueError) as err:
         print(f"[err] {err}", file=sys.stderr)
         return 1
 
     out_p = Path(args.out) if args.out else None
     if out_p is not None:
-        out_p = (base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
+        out_p = (effective_base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
 
     try:
         make_long_card(
@@ -663,7 +672,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
             include_header=not args.no_header,
             include_footer=not args.no_footer,
             check=args.check,
-            base_dir=base,
+            base_dir=effective_base,
         )
         return 0
     except (FileNotFoundError, ValueError, RuntimeError) as err:

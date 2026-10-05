@@ -521,6 +521,13 @@ class TestMainCLI(unittest.TestCase):
             self.assertTrue((base / "output/cli_rel_long.png").exists())
             self.assertEqual(mock_qa.call_args[1]["base_dir"], base.resolve())
 
+            # Test main with --base-dir CLI option
+            mock_qa.reset_mock()
+            code_cli = main(["deck", "--out", "output/cli_flag_long.png", "--check", "--base-dir", str(base)])
+            self.assertEqual(code_cli, 0)
+            self.assertTrue((base / "output/cli_flag_long.png").exists())
+            self.assertEqual(mock_qa.call_args[1]["base_dir"], base.resolve())
+
 
 if __name__ == "__main__":
     unittest.main()
