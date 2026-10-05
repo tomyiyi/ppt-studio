@@ -502,6 +502,88 @@ class TestValidateDeliveredArtifact(unittest.TestCase):
             validate_delivered_artifact(f, verbose=True)
         qa_mock.assert_called_once_with(f, verbose=True)
 
+    def test_validate_delivered_artifact_with_base_dir(self):
+        proj = self.root / "subproj"
+        proj.mkdir()
+        f = proj / "deck.pptx"
+        f.write_bytes(b"pptx")
+        with patch("scripts.deliver_project.run_qa_pptx", return_value=True) as qa_mock:
+            validate_delivered_artifact("deck.pptx", base_dir=proj)
+        qa_mock.assert_called_once_with(f.resolve(), verbose=False)
+
+
+class TestDeliverProjectBaseDir(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.proj = self.root / "proj_base"
+        self.proj.mkdir()
+        self.attestation = self.proj / "qa.json"
+        self.attestation.write_text(json.dumps(valid_attestation()), encoding="utf-8")
+        self.source = self.proj / "video.mp4"
+        self.source.write_bytes(b"sample video bytes")
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_load_valid_attestation_with_base_dir(self):
+        data = load_valid_attestation("qa.json", base_dir=self.proj)
+        self.assertEqual(data["schema_version"], 1)
+
+    def test_deliver_project_relative_paths_with_base_dir(self):
+        out = deliver_project("qa.json", "video.mp4", "out/video.mp4", base_dir=self.proj)
+        self.assertEqual(out, (self.proj / "out/video.mp4").resolve())
+        self.assertTrue(out.is_file())
+        self.assertEqual(out.read_bytes(), b"sample video bytes")
+
+    def test_deliver_artifact_set_relative_paths_with_base_dir(self):
+        c1 = self.proj / "01.svg"
+        c2 = self.proj / "02.svg"
+        c1.write_bytes(b"<svg>card 1</svg>")
+        c2.write_bytes(b"<svg>card 2</svg>")
+        out = deliver_artifact_set(
+            "qa.json",
+            ["01.svg", "02.svg"],
+            "cards_delivered",
+            base_dir=self.proj,
+        )
+        self.assertEqual(len(out), 2)
+        target_dir = (self.proj / "cards_delivered").resolve()
+        self.assertTrue((target_dir / "01.svg").is_file())
+        self.assertTrue((target_dir / "02.svg").is_file())
+
+    def test_main_single_delivery_with_base_dir(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = main(
+                ["video.mp4", "published/video.mp4", "--attestation", "qa.json"],
+                base_dir=self.proj,
+            )
+        self.assertEqual(code, 0)
+        delivered_path = self.proj / "published/video.mp4"
+        self.assertTrue(delivered_path.is_file())
+        self.assertEqual(delivered_path.read_bytes(), b"sample video bytes")
+
+    def test_main_artifact_set_with_base_dir(self):
+        c1 = self.proj / "01.svg"
+        c2 = self.proj / "02.svg"
+        c1.write_bytes(b"<svg>card 1</svg>")
+        c2.write_bytes(b"<svg>card 2</svg>")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = main(
+                [
+                    "--attestation", "qa.json",
+                    "--sources", "01.svg", "02.svg",
+                    "--destination-dir", "cards_cli_out",
+                ],
+                base_dir=self.proj,
+            )
+        self.assertEqual(code, 0)
+        target_dir = self.proj / "cards_cli_out"
+        self.assertTrue((target_dir / "01.svg").is_file())
+        self.assertTrue((target_dir / "02.svg").is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

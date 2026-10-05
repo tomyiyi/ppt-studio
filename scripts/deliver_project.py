@@ -33,10 +33,14 @@ except ModuleNotFoundError:
 _STAGES = ("image", "layout", "cards", "long_card")
 
 
-def load_valid_attestation(path: str | Path) -> dict[str, Any]:
+def load_valid_attestation(path: str | Path, base_dir: str | Path | None = None) -> dict[str, Any]:
     """读取并严格校验 schema v1 的通过凭据；异常统一 fail-closed。"""
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    p = Path(path)
+    if not p.is_absolute():
+        p = (base / p).resolve()
     try:
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        data = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"QA attestation 无法读取或解析: {path}") from exc
     if not isinstance(data, dict) or data.get("schema_version") != 1:
@@ -54,9 +58,13 @@ def validate_delivered_artifact(
     original_name: str | None = None,
     *,
     verbose: bool = False,
+    base_dir: str | Path | None = None,
 ) -> None:
     """根据产物类型自动调用对应客观质量门禁。"""
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     path = Path(artifact_path)
+    if not path.is_absolute():
+        path = (base / path).resolve()
     display_name = original_name or path.name
     if not path.is_file():
         raise FileNotFoundError(f"交付源产物不存在: {path}")
@@ -88,11 +96,17 @@ def deliver_project(
     *,
     check: bool = False,
     verbose: bool = False,
+    base_dir: str | Path | None = None,
 ) -> Path:
     """凭据通过后原子复制一个已生成产物；失败时不产生交付副作用。"""
-    load_valid_attestation(attestation_path)
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    load_valid_attestation(attestation_path, base_dir=base)
     source = Path(source_path)
+    if not source.is_absolute():
+        source = (base / source).resolve()
     destination = Path(destination_path)
+    if not destination.is_absolute():
+        destination = (base / destination).resolve()
     if not source.is_file():
         raise FileNotFoundError(f"交付源产物不存在: {source}")
     if source.stat().st_size == 0:
@@ -108,7 +122,7 @@ def deliver_project(
         os.close(fd)
         shutil.copy2(source, temp_path)
         if check:
-            validate_delivered_artifact(temp_path, original_name=source.name, verbose=verbose)
+            validate_delivered_artifact(temp_path, original_name=source.name, verbose=verbose, base_dir=base)
         os.replace(temp_path, destination)
     except Exception:
         try:
@@ -126,9 +140,11 @@ def deliver_artifact_set(
     *,
     check: bool = False,
     verbose: bool = False,
+    base_dir: str | Path | None = None,
 ) -> list[Path]:
     """在 cards QA 通过后事务性交付一组 SVG；失败时保留旧目录。"""
-    attestation = load_valid_attestation(attestation_path)
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    attestation = load_valid_attestation(attestation_path, base_dir=base)
     if attestation["stages"]["cards"]["ok"] is not True:
         raise ValueError("cards QA 未通过，禁止交付卡片集")
 
@@ -136,12 +152,14 @@ def deliver_artifact_set(
     seen: set[Path] = set()
     for raw_source in sources:
         source = Path(raw_source)
+        if not source.is_absolute():
+            source = (base / source).resolve()
         resolved = source.resolve()
         if resolved in seen:
-            raise ValueError(f"卡片源重复: {source}")
+            raise ValueError(f"卡片源重复: {raw_source}")
         seen.add(resolved)
         if source.suffix.lower() != ".svg":
-            raise ValueError(f"卡片集包含非 SVG 文件: {source}")
+            raise ValueError(f"卡片集包含非 SVG 文件: {raw_source}")
         if not source.is_file():
             raise FileNotFoundError(f"卡片源产物不存在: {source}")
         if source.stat().st_size == 0:
@@ -151,6 +169,8 @@ def deliver_artifact_set(
         raise ValueError("卡片集不能为空")
 
     destination = Path(destination_dir)
+    if not destination.is_absolute():
+        destination = (base / destination).resolve()
     if destination.exists() and not destination.is_dir():
         raise NotADirectoryError(f"卡片交付目标不是目录: {destination}")
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -192,7 +212,7 @@ def deliver_artifact_set(
         raise
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     parser = argparse.ArgumentParser(description="带 QA attestation 门禁的已生成产物交付")
     parser.add_argument("source", nargs="?", default=None, help="单一产物交付源路径")
     parser.add_argument("destination", nargs="?", default=None, help="单一产物交付目标路径")
@@ -204,6 +224,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--check", action="store_true", help="交付前执行目标产物客观质量门禁校验")
     parser.add_argument("--verbose", "-v", action="store_true", help="详细日志输出")
     args = parser.parse_args(argv)
+
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
 
     try:
         if args.sources:
@@ -218,6 +240,7 @@ def main(argv: list[str] | None = None) -> int:
                 destination_dir=dest_dir,
                 check=args.check,
                 verbose=args.verbose,
+                base_dir=base,
             )
             print(f"[✓] 已交付卡片集: {len(delivered)} 张至 {dest_dir}")
         else:
@@ -231,6 +254,7 @@ def main(argv: list[str] | None = None) -> int:
                 destination_path=dst,
                 check=args.check,
                 verbose=args.verbose,
+                base_dir=base,
             )
             print(f"[✓] 已交付产物: {delivered_file}")
     except (FileNotFoundError, NotADirectoryError, OSError, ValueError, RuntimeError) as err:
