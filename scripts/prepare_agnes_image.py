@@ -379,10 +379,18 @@ def resolve_image_targets(
             return candidates
 
     repo_root = Path(__file__).resolve().parent.parent
+    candidate_projects_dirs: list[Path] = []
+    if base.is_dir() and base.name == "projects":
+        candidate_projects_dirs.append(base)
+    elif (base / "projects").is_dir():
+        candidate_projects_dirs.append(base / "projects")
     projects_dir = repo_root / "projects"
-    if projects_dir.is_dir():
+    if projects_dir.is_dir() and projects_dir.resolve() not in [d.resolve() for d in candidate_projects_dirs]:
+        candidate_projects_dirs.append(projects_dir)
+
+    for p_dir in candidate_projects_dirs:
         project_subdirs = [
-            d for d in projects_dir.iterdir()
+            d for d in p_dir.iterdir()
             if d.is_dir() and not d.name.startswith(".")
         ]
         projects_with_images = [
@@ -438,10 +446,18 @@ def resolve_manifest_target(
             return c
 
     repo_root = Path(__file__).resolve().parent.parent
+    candidate_projects_dirs: list[Path] = []
+    if base.is_dir() and base.name == "projects":
+        candidate_projects_dirs.append(base)
+    elif (base / "projects").is_dir():
+        candidate_projects_dirs.append(base / "projects")
     projects_dir = repo_root / "projects"
-    if projects_dir.is_dir():
+    if projects_dir.is_dir() and projects_dir.resolve() not in [d.resolve() for d in candidate_projects_dirs]:
+        candidate_projects_dirs.append(projects_dir)
+
+    for p_dir in candidate_projects_dirs:
         found = []
-        for sub in sorted(projects_dir.iterdir()):
+        for sub in sorted(p_dir.iterdir()):
             if sub.is_dir() and not sub.name.startswith("."):
                 mf = sub / "images" / "image_prompts.json"
                 if mf.is_file():
@@ -625,9 +641,10 @@ def check_images(
     targets: list[Path | str] | Path | str | None = None,
     size: tuple[int, int] | None = None,
     verbose: bool = True,
+    base_dir: str | Path | None = None,
 ) -> BatchResult:
     """客观质量门禁判定：验证目标图片是否存在未抹平接缝、尺寸或格式损坏。"""
-    target_files, failures = _resolve_and_dedup_targets(targets)
+    target_files, failures = _resolve_and_dedup_targets(targets, base_dir=base_dir)
 
     results: list[dict] = []
     failed_seams: list[str] = []
@@ -773,15 +790,17 @@ def run_qa_prepared_images(
     targets: list[Path | str] | Path | str | None = None,
     size: tuple[int, int] | None = None,
     verbose: bool = True,
+    base_dir: str | Path | None = None,
 ) -> bool:
     """运行 PPT-Studio 配图客观后处理门禁校验。
 
     :param targets: 目标图片、目录、项目路径或图片列表（默认自发现）
     :param size: 期望尺寸 (宽, 高) 元组，例如 (2560, 1440)
     :param verbose: 是否输出人类可读的门禁检验报告（默认 True）
+    :param base_dir: 基础工作目录（可选）
     :return: 门禁是否通过 (True / False)
     """
-    res = check_images(targets, size=size, verbose=verbose)
+    res = check_images(targets, size=size, verbose=verbose, base_dir=base_dir)
     return bool(res.get("ok"))
 
 
@@ -800,6 +819,7 @@ def prepare_agnes_images(
     no_backup: bool = False,
     check: bool = False,
     verbose: bool = False,
+    base_dir: str | Path | None = None,
 ) -> BatchResult:
     """批量或单张执行 Agnes 配图后处理（裁切、去接缝、亮度调整），支持质量门禁校验与可选写盘。
 
@@ -812,12 +832,16 @@ def prepare_agnes_images(
     :param no_backup: 写盘时是否跳过备份原图
     :param check: 处理后是否执行客观质量门禁校验 (check_images)
     :param verbose: 是否打印处理日志
+    :param base_dir: 基础目录，用于相对路径解析（可选）
     :return: 包含总数、成功数、失败数、定位明细与报告的结构化结果 (BatchResult)
     """
     tw, th = parse_size(size) if isinstance(size, str) else size
-    target_files, failures = _resolve_and_dedup_targets(targets)
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    target_files, failures = _resolve_and_dedup_targets(targets, base_dir=base)
 
     out_path = Path(out) if out else None
+    if out_path and not out_path.is_absolute():
+        out_path = (base / out_path).resolve()
     single_out = None
     batch_out_dir = None
     if out_path:
@@ -901,7 +925,7 @@ def prepare_agnes_images(
 
     if check:
         chk_targets = processed_targets if apply else target_files
-        gate_res = check_images(chk_targets, size=(tw, th), verbose=verbose)
+        gate_res = check_images(chk_targets, size=(tw, th), verbose=verbose, base_dir=base)
         if not gate_res["ok"]:
             issues_summary = []
             if gate_res.get("unreadable"):
@@ -936,9 +960,10 @@ def prepare_agnes_images(
 prepare_images = prepare_agnes_images
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     ap = argparse.ArgumentParser(description="Agnes 配图后处理：裁 16:9 + 去接缝 + 压暗")
     ap.add_argument("raw", nargs="*", default=[], help="原始输入图片路径、图片目录或项目路径（默认自发现，支持多个目标）")
+    ap.add_argument("--base-dir", default=None, help="指定基础工作目录 (默认: 当前工作目录)")
     ap.add_argument("--out", dest="out_flag", default=None, help="显式指定输出图片路径或目录")
     ap.add_argument("--size", default="2560x1440", help="目标分辨率 (默认: 2560x1440)")
     ap.add_argument("--brightness", type=float, default=1.0, help="亮度缩放系数 (默认: 1.0)")
@@ -952,6 +977,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--quiet", "-q", action="store_true", help="静默模式（仅通过退出码返回结果）")
     a = ap.parse_args(argv)
     verbose = not a.quiet if a.quiet else a.verbose
+    effective_base = Path(a.base_dir).resolve() if a.base_dir else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
 
     # 1. 门禁模式
     if a.check:
@@ -968,13 +994,13 @@ def main(argv: list[str] | None = None) -> int:
         if a.json:
             # 显式 opt-in 机器可读模式：直接序列化 check_images 结构化结果
             # stdout 纯净，不混入人类日志
-            res = check_images(check_targets, size=target_size, verbose=False)
+            res = check_images(check_targets, size=target_size, verbose=False, base_dir=effective_base)
             print(json.dumps(res, ensure_ascii=False, indent=2))
             return 0 if res["ok"] else 1
         else:
             try:
-                targets = resolve_image_targets(check_targets)
-                res = check_images(targets, size=target_size, verbose=verbose)
+                targets = resolve_image_targets(check_targets, base_dir=effective_base)
+                res = check_images(targets, size=target_size, verbose=verbose, base_dir=effective_base)
                 return 0 if res["ok"] else 1
             except Exception as e:
                 if verbose:
@@ -985,7 +1011,7 @@ def main(argv: list[str] | None = None) -> int:
     if a.manifest is not None:
         raw_manifest_arg = a.manifest if a.manifest != "" else (a.raw[0] if a.raw else None)
         try:
-            mf_path = resolve_manifest_target(raw_manifest_arg)
+            mf_path = resolve_manifest_target(raw_manifest_arg, base_dir=effective_base)
         except (FileNotFoundError, ValueError) as e:
             if verbose:
                 print(f"[!] {e}", file=sys.stderr)
@@ -1094,13 +1120,14 @@ def main(argv: list[str] | None = None) -> int:
             no_backup=a.no_backup,
             check=False,
             verbose=False,
+            base_dir=effective_base,
         )
         print(json.dumps(res, ensure_ascii=False, indent=2))
         return 0 if res["ok"] else 1
 
     # 默认不带 --json 的 CLI 输出必须完全保持现状
     try:
-        targets = resolve_image_targets(raw_targets)
+        targets = resolve_image_targets(raw_targets, base_dir=effective_base)
     except (FileNotFoundError, ValueError) as e:
         if verbose:
             print(f"[!] {e}", file=sys.stderr)
@@ -1110,6 +1137,8 @@ def main(argv: list[str] | None = None) -> int:
     if len(targets) == 1 and output_target:
         src_p = targets[0]
         out_p = Path(output_target)
+        if not out_p.is_absolute():
+            out_p = (effective_base / out_p).resolve()
         try:
             rep = prepare(src_p, out_p, (tw, th), a.brightness, a.seam)
         except (FileNotFoundError, ValueError) as e:

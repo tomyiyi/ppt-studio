@@ -2963,6 +2963,93 @@ class TestCLIProcessExitContract(unittest.TestCase):
         self.assertEqual(p_q.stderr, "")
 
 
+class TestPrepareAgnesImageBaseDir(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.base = Path(self.temp_dir.name)
+        self.img_dir = self.base / "images"
+        self.img_dir.mkdir(parents=True)
+        self.img1 = self.img_dir / "slide1.png"
+        self.img2 = self.img_dir / "slide2.png"
+        create_test_image(self.img1, width=160, height=90)
+        create_test_image(self.img2, width=160, height=90)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_resolve_image_targets_with_base_dir(self):
+        # 1. 相对目录
+        res = resolve_image_targets("images", base_dir=self.base)
+        self.assertEqual(len(res), 2)
+        self.assertEqual({p.name for p in res}, {"slide1.png", "slide2.png"})
+        self.assertTrue(all(p.is_absolute() for p in res))
+
+        # 2. 相对单文件
+        res_single = resolve_image_targets("images/slide1.png", base_dir=self.base)
+        self.assertEqual(len(res_single), 1)
+        self.assertEqual(res_single[0].resolve(), self.img1.resolve())
+
+        # 3. None 自发现 base_dir 下的 images
+        res_none = resolve_image_targets(None, base_dir=self.base)
+        self.assertEqual(len(res_none), 2)
+
+    def test_resolve_manifest_target_with_base_dir(self):
+        mf_path = self.img_dir / "image_prompts.json"
+        mf_path.write_text(json.dumps({"items": []}, ensure_ascii=False), encoding="utf-8")
+
+        # 相对路径解析
+        resolved = resolve_manifest_target("images/image_prompts.json", base_dir=self.base)
+        self.assertEqual(resolved.resolve(), mf_path.resolve())
+
+        # 相对目录解析
+        resolved_dir = resolve_manifest_target("images", base_dir=self.base)
+        self.assertEqual(resolved_dir.resolve(), mf_path.resolve())
+
+        # None 自发现
+        resolved_none = resolve_manifest_target(None, base_dir=self.base)
+        self.assertEqual(resolved_none.resolve(), mf_path.resolve())
+
+    def test_check_images_and_run_qa_with_base_dir(self):
+        res = check_images("images", size=(160, 90), verbose=False, base_dir=self.base)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["total"], 2)
+
+        ok = run_qa_prepared_images("images", size=(160, 90), verbose=False, base_dir=self.base)
+        self.assertTrue(ok)
+
+    def test_prepare_agnes_images_with_base_dir(self):
+        out_dir = self.base / "out"
+        res = prepare_agnes_images(
+            targets="images",
+            out="out",
+            size=(100, 50),
+            apply=True,
+            base_dir=self.base,
+        )
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["success_count"], 2)
+        self.assertTrue((out_dir / "slide1.png").is_file())
+        self.assertTrue((out_dir / "slide2.png").is_file())
+
+    def test_main_cli_with_base_dir_flag(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = main(["images", "--check", "--json", "--base-dir", str(self.base)])
+        self.assertEqual(code, 0)
+        data = json.loads(buf.getvalue())
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["total"], 2)
+
+    def test_main_function_with_base_dir_kwarg(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = main(["images", "--check", "--json"], base_dir=self.base)
+        self.assertEqual(code, 0)
+        data = json.loads(buf.getvalue())
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["total"], 2)
+
+
 if __name__ == "__main__":
     unittest.main()
 
