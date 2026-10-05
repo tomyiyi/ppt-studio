@@ -17,13 +17,14 @@ from pathlib import Path
 KEY_FILE = Path.home() / ".config" / "ppt-studio" / "tavily.json"
 API_URL = "https://api.tavily.com/search"
 
-def load_keys() -> list[str]:
+def load_keys(key_file: Path | str | None = None) -> list[str]:
     keys: list[str] = []
     env = os.environ.get("TAVILY_API_KEY", "").strip()
     if env:
         keys.append(env)
+    target_file = Path(key_file).resolve() if key_file else KEY_FILE
     try:
-        data = json.loads(KEY_FILE.read_text(encoding="utf-8"))
+        data = json.loads(target_file.read_text(encoding="utf-8"))
         for k in data.get("keys", []):
             if k and k not in keys:
                 keys.append(k)
@@ -46,13 +47,13 @@ def search(query: str, key: str, depth: str, max_results: int) -> dict:
     with urllib.request.urlopen(req, timeout=60) as r:
         return json.loads(r.read().decode())
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
+    ap = argparse.ArgumentParser(description="Tavily 搜索（专业媒体层）")
     ap.add_argument("query")
     ap.add_argument("--depth", default="advanced", choices=["basic", "advanced"])
     ap.add_argument("--max", type=int, default=10)
     ap.add_argument("-o", "--output")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
 
     last_err = None
     for key in load_keys():
@@ -68,10 +69,16 @@ def main() -> None:
     # 输出时剥掉 key 回显（防泄漏）
     out = json.dumps(result, ensure_ascii=False, indent=2)
     if a.output:
-        Path(a.output).write_text(out, encoding="utf-8")
-        print(f"[ok] {len(result.get(results, []))} 条结果 → {a.output}")
+        base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+        out_p = Path(a.output)
+        out_file = (base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        out_file.write_text(out, encoding="utf-8")
+        print(f"[ok] {len(result.get('results', []))} 条结果 → {out_file}")
     else:
         print(out)
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
