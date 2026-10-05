@@ -209,12 +209,22 @@ def run_project_qa(
     root = resolve_project_dir(project, base_dir=base_dir)
     image_input = image_targets if image_targets is not None else root / "images"
     stages: dict[str, Any] = {}
-    image_result = run_image_qa(image_input, verbose=False)
+    try:
+        image_result = (
+            run_image_qa(image_input, verbose=False, base_dir=base_dir)
+            if base_dir is not None
+            else run_image_qa(image_input, verbose=False)
+        )
+    except TypeError:
+        image_result = run_image_qa(image_input, verbose=False)
     stages["image"] = image_result
     if not image_result["ok"]:
         return {"ok": False, "failed_stage": "image", "stages": stages}
 
-    assets_result = run_qa_assets(root, base_dir=base_dir) if base_dir is not None else run_qa_assets(root)
+    try:
+        assets_result = run_qa_assets(root, base_dir=base_dir) if base_dir is not None else run_qa_assets(root)
+    except TypeError:
+        assets_result = run_qa_assets(root)
     stages["assets"] = assets_result
     if not assets_result["ok"]:
         return {"ok": False, "failed_stage": "assets", "stages": stages}

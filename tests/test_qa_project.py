@@ -392,6 +392,29 @@ class TestResolveProjectDir(unittest.TestCase):
                 data = json.loads(buf.getvalue())
                 self.assertTrue(data["ok"])
 
+    def test_run_project_qa_forwards_base_dir_to_image_and_assets(self):
+        with ExitStack() as stack:
+            img_mock = stack.enter_context(patch("scripts.qa_project.run_image_qa", return_value={"ok": True}))
+            assets_mock = stack.enter_context(patch("scripts.qa_project.run_qa_assets", return_value={"ok": True}))
+            layout_mock = stack.enter_context(patch("scripts.qa_project.run_qa_layout", return_value=True))
+            cards_mock = stack.enter_context(patch("scripts.qa_project.run_qa_cards", return_value=True))
+            long_card_mock = stack.enter_context(patch("scripts.qa_project.run_qa_long_card", return_value=True))
+
+            res = run_project_qa(
+                "/tmp/proj",
+                image_targets=["img.png"],
+                layout_target="l",
+                cards_target="c",
+                long_card_target="d",
+                base_dir="/tmp/base",
+            )
+            self.assertTrue(res["ok"])
+            img_mock.assert_called_once_with(["img.png"], verbose=False, base_dir="/tmp/base")
+            assets_mock.assert_called_once_with(Path("/tmp/proj"), base_dir="/tmp/base")
+            layout_mock.assert_called_once_with("l", verbose=False)
+            cards_mock.assert_called_once_with("c", verbose=False)
+            long_card_mock.assert_called_once_with("d", verbose=False)
+
 
 if __name__ == "__main__":
     unittest.main()
