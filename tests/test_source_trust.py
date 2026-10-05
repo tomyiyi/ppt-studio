@@ -136,6 +136,29 @@ class TestScoreSources(unittest.TestCase):
             self.assertEqual(scored[0]["grade"], "A")
             self.assertGreaterEqual(scored[0]["trust"], 80)
 
+    def test_main_cli_with_base_dir_flag(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            in_file = base / "inputs" / "sources.json"
+            in_file.parent.mkdir(parents=True, exist_ok=True)
+            in_file.write_text(
+                json.dumps([
+                    {"url": "https://www.pantone.com/article", "title": "Pantone 2026 Trend", "published_at": "2026-09-01"}
+                ]),
+                encoding="utf-8"
+            )
+            code = main(
+                ["-i", "inputs/sources.json", "-o", "outputs/scored.json", "--base-dir", str(base)]
+            )
+            self.assertEqual(code, 0)
+            out_file = base / "outputs" / "scored.json"
+            self.assertTrue(out_file.is_file())
+            scored = json.loads(out_file.read_text(encoding="utf-8"))
+            self.assertEqual(len(scored), 1)
+            self.assertEqual(scored[0]["grade"], "A")
+            self.assertGreaterEqual(scored[0]["trust"], 80)
+
 
 if __name__ == "__main__":
     unittest.main()

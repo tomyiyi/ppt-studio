@@ -139,11 +139,20 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     ap = argparse.ArgumentParser(description="来源可信度打分 → A/B/C/D")
     ap.add_argument("-i", "--input", help="输入 JSON 文件（缺省读 stdin）")
     ap.add_argument("-o", "--output", help="输出 JSON 文件（缺省 stdout）")
+    ap.add_argument(
+        "--base-dir",
+        default=None,
+        help="指定基础工作目录 (默认: 当前工作目录)",
+    )
     a = ap.parse_args(argv)
-    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    effective_base = (
+        Path(a.base_dir).resolve()
+        if a.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
     if a.input:
         inp_p = Path(a.input)
-        inp_file = (base / inp_p).resolve() if not inp_p.is_absolute() else inp_p.resolve()
+        inp_file = (effective_base / inp_p).resolve() if not inp_p.is_absolute() else inp_p.resolve()
         raw = inp_file.read_text(encoding="utf-8")
     else:
         raw = sys.stdin.read()
@@ -154,7 +163,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     text = json.dumps(result, ensure_ascii=False, indent=2)
     if a.output:
         out_p = Path(a.output)
-        out_file = (base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
+        out_file = (effective_base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
         out_file.parent.mkdir(parents=True, exist_ok=True)
         out_file.write_text(text, encoding="utf-8")
         print("[ok] %d 条来源已打分 → %s" % (len(result), out_file))
