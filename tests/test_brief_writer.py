@@ -176,6 +176,19 @@ class TestBriefWriter(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertTrue((proj / "out" / "report.md").is_file())
 
+    @patch("brief_writer.load_chat_gateway", return_value=("http://x/v1", "k"))
+    @patch("urllib.request.urlopen", side_effect=fake_urlopen_factory(FAKE_MD))
+    def test_main_cli_with_base_dir_flag(self, _mu, _mg):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            proj = base / "my_proj"
+            proj.mkdir()
+            (proj / "brief.json").write_text(json.dumps(BRIEF), encoding="utf-8")
+            code = main(["my_proj/brief.json", "-o", "my_proj/out/report.md", "--base-dir", str(base)])
+            self.assertEqual(code, 0)
+            self.assertTrue((proj / "out" / "report.md").is_file())
+
     def test_main_cli_file_not_found(self):
         import tempfile
         with tempfile.TemporaryDirectory() as td:

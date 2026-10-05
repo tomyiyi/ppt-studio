@@ -177,10 +177,19 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     ap.add_argument("--model", default=DEFAULT_TEXT_MODEL)
     ap.add_argument("--dry-run", action="store_true",
                     help="只打印 prompt，不调 API")
+    ap.add_argument(
+        "--base-dir",
+        default=None,
+        help="指定基础工作目录 (默认: 当前工作目录)",
+    )
     a = ap.parse_args(argv)
-    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    effective_base = (
+        Path(a.base_dir).resolve()
+        if a.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
     try:
-        res = write_brief(a.brief_json, a.output, model=a.model, dry_run=a.dry_run, base_dir=base)
+        res = write_brief(a.brief_json, a.output, model=a.model, dry_run=a.dry_run, base_dir=effective_base)
     except FileNotFoundError as err:
         print(f"[err] {err}", file=sys.stderr)
         return 1
