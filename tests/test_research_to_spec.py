@@ -146,6 +146,19 @@ class TestResearchToSpec(unittest.TestCase):
             self.assertEqual(data["topic"], "2026时尚")
             self.assertGreater(data["source_count"], 0)
 
+    @patch("scripts.research_to_spec.router_search", side_effect=_router_side_effect)
+    def test_main_cli_with_base_dir_flag(self, _):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            code = main(["2026时尚", "-o", "my_proj/out/brief.json", "--per-query", "1", "--base-dir", str(base)])
+            self.assertEqual(code, 0)
+            out_file = base / "my_proj" / "out" / "brief.json"
+            self.assertTrue(out_file.is_file())
+            data = json.loads(out_file.read_text(encoding="utf-8"))
+            self.assertEqual(data["topic"], "2026时尚")
+            self.assertGreater(data["source_count"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

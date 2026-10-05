@@ -143,7 +143,17 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
                     help="显式启用小红书后端（需有效 Cookie；默认关闭）")
     ap.add_argument("--per-query", type=int, default=5)
     ap.add_argument("-o", "--output")
+    ap.add_argument(
+        "--base-dir",
+        default=None,
+        help="指定基础工作目录 (默认: 当前工作目录)",
+    )
     a = ap.parse_args(argv)
+    effective_base = (
+        Path(a.base_dir).resolve()
+        if a.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
     if a.backends:
         backend_list = [s.strip() for s in a.backends.split(",") if s.strip()]
     else:
@@ -159,9 +169,8 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     brief = research(a.topic, backends=backend_list, per_query=a.per_query)
     out = json.dumps(brief, ensure_ascii=False, indent=2)
     if a.output:
-        base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
         out_p = Path(a.output)
-        out_file = (base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
+        out_file = (effective_base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
         out_file.parent.mkdir(parents=True, exist_ok=True)
         out_file.write_text(out, encoding="utf-8")
         print("[ok] %d 来源（后端: %s）→ %s"
