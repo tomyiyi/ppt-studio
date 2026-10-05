@@ -166,6 +166,18 @@ class TestSubdirAndVersionResolution(unittest.TestCase):
             finally:
                 os.chdir(orig_cwd)
 
+    def test_resolve_project_dir_base_dir_subfolders_and_file(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "my_proj"
+            sub = proj / "svg_output"
+            sub.mkdir(parents=True)
+            spec = proj / "spec_lock.md"
+            spec.write_text("## page_map\n- P01: role=Cover\n", encoding="utf-8")
+            self.assertEqual(resolve_project_dir(base_dir=sub), proj.resolve())
+            self.assertEqual(resolve_project_dir(base_dir=spec), proj.resolve())
+            self.assertEqual(resolve_project_dir("spec_lock.md", base_dir=proj), proj.resolve())
+
 
 """第 25 轮测试 A：check_page_map.main() 打印采用的 spec。"""
 
