@@ -42,14 +42,25 @@ except ImportError:
 from scripts import qa_layout as _ql  # noqa: E402
 
 
-def resolve_project_dir(project_arg: str | Path | None = None) -> Path:
+def resolve_project_dir(
+    project_arg: str | Path | None = None,
+    base_dir: str | Path | None = None,
+) -> Path:
     """自适应解析项目根目录（支持从子目录 svg_output*、cards 等或 spec 文件回退）。"""
     if _cpm_resolve_project_dir is not None:
-        return _cpm_resolve_project_dir(project_arg)
+        try:
+            return _cpm_resolve_project_dir(project_arg, base_dir=base_dir)
+        except TypeError:
+            return _cpm_resolve_project_dir(project_arg)
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     if project_arg is not None and str(project_arg).strip() not in ("", "."):
-        p = Path(project_arg).resolve()
+        p = Path(project_arg)
+        if not p.is_absolute():
+            p = (base / p).resolve()
+        else:
+            p = p.resolve()
     else:
-        p = Path.cwd().resolve()
+        p = base
     if p.is_file():
         p = p.parent
     if (
@@ -118,21 +129,33 @@ def load_statement_size(spec_path: Path) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def build_report(project_dir: Path | str, spec_path: Path | str | None = None) -> dict:
+def build_report(
+    project_dir: Path | str,
+    spec_path: Path | str | None = None,
+    base_dir: Path | str | None = None,
+) -> dict:
     """返回报告数据结构（JSON 可序列化）。"""
-    proj = resolve_project_dir(project_dir)
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    p_dir = Path(project_dir)
+    if not p_dir.is_absolute():
+        p_dir = (base / p_dir).resolve()
+    else:
+        p_dir = p_dir.resolve()
+
+    proj = resolve_project_dir(p_dir, base_dir=base)
     spec: Path | None = None
     if spec_path:
-        spec = Path(spec_path).resolve()
+        s_p = Path(spec_path)
+        spec = (base / s_p).resolve() if not s_p.is_absolute() else s_p.resolve()
     else:
         spec = resolve_spec(proj)
         if spec is None or not spec.is_file():
             spec = find_spec(proj)
         if (
             (spec is None or not spec.is_file())
-            and str(proj) != str(Path(project_dir).resolve())
+            and str(proj) != str(p_dir)
         ):
-            spec = find_spec(Path(project_dir).resolve())
+            spec = find_spec(p_dir)
 
     if spec is None or not spec.is_file():
         raise FileNotFoundError(f"找不到 spec_lock: {project_dir}")
@@ -145,8 +168,8 @@ def build_report(project_dir: Path | str, spec_path: Path | str | None = None) -
         ramp = []
 
     svg_dir = find_svg_dir(proj) if find_svg_dir is not None else None
-    if svg_dir is None and str(proj) != str(Path(project_dir).resolve()) and find_svg_dir is not None:
-        svg_dir = find_svg_dir(Path(project_dir).resolve())
+    if svg_dir is None and str(proj) != str(p_dir) and find_svg_dir is not None:
+        svg_dir = find_svg_dir(p_dir)
     if svg_dir is None:
         raise FileNotFoundError(f"找不到 SVG 目录: {project_dir}")
 
@@ -320,7 +343,7 @@ def render_markdown(rep: dict) -> str:
     return "\n".join(out)
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     ap = argparse.ArgumentParser(description="生成 spec 漂移对比报告（HTML 可视化 / Markdown 决策简报）")
     ap.add_argument("project_dir", nargs="?", default=".",
                     help="项目目录（缺省当前目录）")
@@ -330,14 +353,22 @@ def main(argv: list[str] | None = None) -> int:
                     help="html=可视化对比报告（默认），md=决策简报 Markdown（可直接粘贴给用户做决策）")
     a = ap.parse_args(argv)
 
-    proj = resolve_project_dir(a.project_dir)
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    proj = resolve_project_dir(a.project_dir, base_dir=base)
     try:
-        rep = build_report(proj, Path(a.spec) if a.spec else None)
+        rep = build_report(proj, Path(a.spec) if a.spec else None, base_dir=base)
     except (FileNotFoundError, ValueError) as e:
         print(f"[fail] {e}", file=sys.stderr)
         return 1
     default_name = "drift-report.html" if a.format == "html" else "drift-report.md"
-    out = Path(a.output).resolve() if a.output else proj / "output" / default_name
+    if a.output:
+        out = Path(a.output)
+        if not out.is_absolute():
+            out = (base / out).resolve()
+        else:
+            out = out.resolve()
+    else:
+        out = proj / "output" / default_name
     out.parent.mkdir(parents=True, exist_ok=True)
     body = render_html(rep) if a.format == "html" else render_markdown(rep)
     out.write_text(body, encoding="utf-8")
