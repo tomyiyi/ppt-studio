@@ -413,7 +413,7 @@ class TestResolveProjectDir(unittest.TestCase):
             assets_mock.assert_called_once_with(Path("/tmp/proj"), base_dir="/tmp/base")
             layout_mock.assert_called_once_with("l", verbose=False, base_dir="/tmp/base")
             cards_mock.assert_called_once_with("c", verbose=False, base_dir="/tmp/base")
-            long_card_mock.assert_called_once_with("d", verbose=False)
+            long_card_mock.assert_called_once_with("d", verbose=False, base_dir="/tmp/base")
 
     def test_run_project_qa_forwards_base_dir_fallback_on_typeerror(self):
         def mock_layout(*args, **kwargs):
@@ -426,12 +426,17 @@ class TestResolveProjectDir(unittest.TestCase):
                 raise TypeError("unexpected keyword argument 'base_dir'")
             return True
 
+        def mock_long_card(*args, **kwargs):
+            if "base_dir" in kwargs:
+                raise TypeError("unexpected keyword argument 'base_dir'")
+            return True
+
         with ExitStack() as stack:
             stack.enter_context(patch("scripts.qa_project.run_image_qa", return_value={"ok": True}))
             stack.enter_context(patch("scripts.qa_project.run_qa_assets", return_value={"ok": True}))
             layout_mock = stack.enter_context(patch("scripts.qa_project.run_qa_layout", side_effect=mock_layout))
             cards_mock = stack.enter_context(patch("scripts.qa_project.run_qa_cards", side_effect=mock_cards))
-            long_card_mock = stack.enter_context(patch("scripts.qa_project.run_qa_long_card", return_value=True))
+            long_card_mock = stack.enter_context(patch("scripts.qa_project.run_qa_long_card", side_effect=mock_long_card))
 
             res = run_project_qa(
                 "/tmp/proj",
@@ -444,6 +449,7 @@ class TestResolveProjectDir(unittest.TestCase):
             self.assertTrue(res["ok"])
             self.assertEqual(layout_mock.call_count, 2)
             self.assertEqual(cards_mock.call_count, 2)
+            self.assertEqual(long_card_mock.call_count, 2)
 
 
 if __name__ == "__main__":

@@ -261,13 +261,21 @@ def run_project_qa(
     if not cards_ok:
         return {"ok": False, "failed_stage": "cards", "stages": stages}
 
-    for name, runner, target in (
-        ("long_card", run_qa_long_card, long_card_target if long_card_target is not None else root),
-    ):
-        ok = bool(runner(target, verbose=verbose))
-        stages[name] = {"ok": ok}
-        if not ok:
-            return {"ok": False, "failed_stage": name, "stages": stages}
+    try:
+        long_card_ok = bool(
+            run_qa_long_card(
+                long_card_target if long_card_target is not None else root,
+                verbose=verbose,
+                base_dir=base_dir,
+            )
+            if base_dir is not None
+            else run_qa_long_card(long_card_target if long_card_target is not None else root, verbose=verbose)
+        )
+    except TypeError:
+        long_card_ok = bool(run_qa_long_card(long_card_target if long_card_target is not None else root, verbose=verbose))
+    stages["long_card"] = {"ok": long_card_ok}
+    if not long_card_ok:
+        return {"ok": False, "failed_stage": "long_card", "stages": stages}
 
     return {"ok": True, "failed_stage": None, "stages": stages}
 
