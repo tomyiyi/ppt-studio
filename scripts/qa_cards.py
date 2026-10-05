@@ -375,6 +375,7 @@ def qa_single_cards(
     render_dir: Path | str | None = None,
     spec_path: Path | str | None = None,
     verbose: bool = True,
+    base_dir: str | Path | None = None,
 ) -> bool:
     """对单个卡片 SVG 文件或卡片目录执行客观卡片质量门禁复核。"""
     def _log(msg: str = "", file=sys.stdout) -> None:
@@ -385,7 +386,12 @@ def qa_single_cards(
         _log("[!] 未提供有效的目标路径", file=sys.stderr)
         return False
 
-    target = Path(card_dir_or_file).resolve()
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    target = Path(card_dir_or_file)
+    if not target.is_absolute():
+        target = (base / target).resolve()
+    else:
+        target = target.resolve()
     if not target.exists():
         _log(f"[!] 指定的目标路径不存在: {target}", file=sys.stderr)
         return False
@@ -411,7 +417,11 @@ def qa_single_cards(
 
     # 自动探测 card_spec.md
     if spec_path:
-        spec_file = Path(spec_path).resolve()
+        spec_file = Path(spec_path)
+        if not spec_file.is_absolute():
+            spec_file = (base / spec_file).resolve()
+        else:
+            spec_file = spec_file.resolve()
         if spec_file.is_dir():
             for c in [spec_file / "card_spec.md", spec_file / "spec_lock.md"]:
                 if c.is_file():
@@ -456,7 +466,10 @@ def qa_single_cards(
                         break
 
     # 自动探测 render_cards 目录
-    render_path = Path(render_dir).resolve() if render_dir else None
+    render_path = None
+    if render_dir:
+        r_p = Path(render_dir)
+        render_path = (base / r_p).resolve() if not r_p.is_absolute() else r_p.resolve()
     if not render_path:
         for candidate in [
             card_path.parent / "render_cards",
@@ -685,29 +698,39 @@ def run_qa_cards(
     render_dir: Path | str | None = None,
     spec_path: Path | str | None = None,
     verbose: bool = True,
+    base_dir: str | Path | None = None,
 ) -> bool:
     """运行 PPT-Studio 卡片客观质量门禁。
 
     支持输入单个卡片 SVG 文件路径、卡片目录、包含 cards/ 的项目目录，或留空默认自发现。
     支持 Path、str 或 None 输入。
     """
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     if target is not None:
         t_path = Path(target)
+        if not t_path.is_absolute():
+            t_path = (base / t_path).resolve()
+        else:
+            t_path = t_path.resolve()
         if t_path.is_file() and t_path.suffix.lower() == ".svg":
-            return qa_single_cards(t_path, render_dir=render_dir, spec_path=spec_path, verbose=verbose)
+            return qa_single_cards(t_path, render_dir=render_dir, spec_path=spec_path, verbose=verbose, base_dir=base)
 
     # 如果显式传入两个目录 (target, render_dir) 且 target 存在
     if render_dir and target is not None:
-        t_path = Path(target).resolve()
+        t_path = Path(target)
+        if not t_path.is_absolute():
+            t_path = (base / t_path).resolve()
+        else:
+            t_path = t_path.resolve()
         if not t_path.exists():
             if verbose:
                 print(f"[!] 指定的目标路径不存在: {target}", file=sys.stderr)
             return False
         card_dir = (t_path / "cards").resolve() if (t_path / "cards").is_dir() else t_path
-        return qa_single_cards(card_dir, render_dir=render_dir, spec_path=spec_path, verbose=verbose)
+        return qa_single_cards(card_dir, render_dir=render_dir, spec_path=spec_path, verbose=verbose, base_dir=base)
 
     try:
-        card_dirs = resolve_card_dirs(target)
+        card_dirs = resolve_card_dirs(target, base_dir=base_dir)
     except (FileNotFoundError, ValueError) as err:
         if verbose:
             print(f"[!] {err}", file=sys.stderr)
@@ -720,7 +743,7 @@ def run_qa_cards(
 
     all_ok = True
     for i, cdir in enumerate(card_dirs):
-        ok = qa_single_cards(cdir, render_dir=render_dir, spec_path=spec_path, verbose=verbose)
+        ok = qa_single_cards(cdir, render_dir=render_dir, spec_path=spec_path, verbose=verbose, base_dir=base)
         if not ok:
             all_ok = False
         if verbose and i < len(card_dirs) - 1:
@@ -881,7 +904,7 @@ def resolve_card_dirs(
     raise FileNotFoundError("在当前目录或 projects/ 下未找到有效卡片 SVG 文件")
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     parser = argparse.ArgumentParser(description="PPT-Studio 卡片客观质量门禁（交付前必跑）")
     parser.add_argument("target", nargs="?", default=".", help="卡片目录、项目目录或目标路径（默认当前目录）")
     parser.add_argument("render_dir", nargs="?", default=None, help="可选渲染图 PNG 目录（缺省时自动查找 render_cards/ 或 render/）")
@@ -890,22 +913,33 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--quiet", "-q", action="store_true", help="静默模式（仅通过退出码返回）")
     args = parser.parse_args(argv)
 
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     verbose = not args.quiet if args.quiet else args.verbose
-    spec_path = Path(args.spec).resolve() if args.spec else None
-    render_dir = Path(args.render_dir).resolve() if args.render_dir else None
+    spec_path = None
+    if args.spec:
+        s_p = Path(args.spec)
+        spec_path = (base / s_p).resolve() if not s_p.is_absolute() else s_p.resolve()
+    render_dir = None
+    if args.render_dir:
+        r_p = Path(args.render_dir)
+        render_dir = (base / r_p).resolve() if not r_p.is_absolute() else r_p.resolve()
 
     # 如果显式传入两个目录 (target, render_dir)
     if args.render_dir:
-        t_path = Path(args.target).resolve()
+        t_path = Path(args.target)
+        if not t_path.is_absolute():
+            t_path = (base / t_path).resolve()
+        else:
+            t_path = t_path.resolve()
         if not t_path.exists():
             if verbose:
                 print(f"[!] 指定的目标路径不存在: {args.target}", file=sys.stderr)
             return 1
         card_dir = (t_path / "cards").resolve() if (t_path / "cards").is_dir() else t_path
-        success = qa_single_cards(card_dir, render_dir, spec_path, verbose=verbose)
+        success = qa_single_cards(card_dir, render_dir, spec_path, verbose=verbose, base_dir=base)
         return 0 if success else 1
 
-    ok = run_qa_cards(args.target, render_dir=render_dir, spec_path=spec_path, verbose=verbose)
+    ok = run_qa_cards(args.target, render_dir=render_dir, spec_path=spec_path, verbose=verbose, base_dir=base)
     return 0 if ok else 1
 
 if __name__ == "__main__":
