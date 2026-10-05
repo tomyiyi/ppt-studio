@@ -51,14 +51,25 @@ except ImportError:
         _cpm_resolve_project_dir = None
 
 
-def resolve_project_dir(project_arg: str | Path | None = None) -> Path:
+def resolve_project_dir(
+    project_arg: str | Path | None = None,
+    base_dir: str | Path | None = None,
+) -> Path:
     """自适应解析项目根目录（支持从子目录 images、svg_output*、cards 等或文件回退）。"""
     if _cpm_resolve_project_dir is not None:
-        return _cpm_resolve_project_dir(project_arg)
+        try:
+            return _cpm_resolve_project_dir(project_arg, base_dir=base_dir)
+        except TypeError:
+            return _cpm_resolve_project_dir(project_arg)
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     if project_arg is not None and str(project_arg).strip() not in ("", "."):
-        p = Path(project_arg).resolve()
+        p = Path(project_arg)
+        if not p.is_absolute():
+            p = (base / p).resolve()
+        else:
+            p = p.resolve()
     else:
-        p = Path.cwd().resolve()
+        p = base
     if p.is_file():
         p = p.parent
     if (
@@ -497,17 +508,25 @@ def build_pptx(
     }
 
 
-def resolve_svg_dir(src: str | Path | None) -> tuple[Path, Path]:
+def resolve_svg_dir(
+    src: str | Path | None,
+    base_dir: Path | str | None = None,
+) -> tuple[Path, Path]:
     """解析 SVG 源目录 → (svg_dir, project_dir)。"""
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     if src is not None and str(src).strip() not in ("", "-"):
-        p = Path(src).resolve()
+        p = Path(src)
+        if not p.is_absolute():
+            p = (base / p).resolve()
+        else:
+            p = p.resolve()
         if not p.exists():
             raise FileNotFoundError(f"指定的源不存在: {src}")
         if p.is_file():
             if p.suffix.lower() == ".svg":
-                proj_dir = resolve_project_dir(p.parent)
+                proj_dir = resolve_project_dir(p.parent, base_dir=base)
                 return p.parent, proj_dir
-            proj = resolve_project_dir(p)
+            proj = resolve_project_dir(p, base_dir=base)
             cand_svg = find_svg_dir(proj) if find_svg_dir else None
             if cand_svg and any(cand_svg.glob("*.svg")):
                 return cand_svg, proj
@@ -515,12 +534,12 @@ def resolve_svg_dir(src: str | Path | None) -> tuple[Path, Path]:
                 return proj, proj.parent
             raise FileNotFoundError(f"在文件关联项目 {proj} 下找不到 SVG 目录（svg_output*）")
         if p.is_dir() and any(p.glob("*.svg")):
-            proj_dir = resolve_project_dir(p)
+            proj_dir = resolve_project_dir(p, base_dir=base)
             return p, proj_dir
         cand_svg = find_svg_dir(p) if find_svg_dir else None
         if cand_svg is not None and any(cand_svg.glob("*.svg")):
             return cand_svg, p
-        proj = resolve_project_dir(p)
+        proj = resolve_project_dir(p, base_dir=base)
         if proj != p:
             cand_svg = find_svg_dir(proj) if find_svg_dir else None
             if cand_svg is not None and any(cand_svg.glob("*.svg")):
@@ -529,17 +548,17 @@ def resolve_svg_dir(src: str | Path | None) -> tuple[Path, Path]:
                 return proj, proj.parent
         raise FileNotFoundError(f"在 {p} 下找不到 SVG 目录（svg_output*）")
     # 自动发现：当前目录或 projects/ 下唯一项目（多项目 fail-closed）
-    cwd = Path.cwd().resolve()
-    cand_proj = resolve_project_dir(cwd)
+    cwd = base
+    cand_proj = resolve_project_dir(cwd, base_dir=base)
     if cand_proj != cwd:
         cand_svg = find_svg_dir(cand_proj) if find_svg_dir else None
         if cand_svg is not None and any(cand_svg.glob("*.svg")):
             return cand_svg, cand_proj
     cands: list[Path] = []
-    for base in (cwd, cwd / "projects", REPO_ROOT, REPO_ROOT / "projects"):
-        if not base.is_dir():
+    for cand_root in (cwd, cwd / "projects", REPO_ROOT, REPO_ROOT / "projects"):
+        if not cand_root.is_dir():
             continue
-        for d in base.iterdir():
+        for d in cand_root.iterdir():
             if d.is_dir() and find_svg_dir and find_svg_dir(d) is not None:
                 cands.append(d)
     uniq = sorted(set(cands))
