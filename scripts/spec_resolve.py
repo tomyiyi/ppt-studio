@@ -18,7 +18,10 @@
 """
 from __future__ import annotations
 
+import argparse
+import json
 import re
+import sys
 from pathlib import Path
 
 # 只认严格的版本化命名：spec_lock_v<纯数字>.md
@@ -107,3 +110,65 @@ def find_spec(
     if len(hits) == 1:
         return hits[0]
     return None
+
+
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="PPT-Studio spec 锁解析工具",
+    )
+    parser.add_argument(
+        "target",
+        nargs="?",
+        default=".",
+        help="目标文件或项目目录路径 (默认: 当前目录)",
+    )
+    parser.add_argument(
+        "--find",
+        action="store_true",
+        help="使用 find_spec 在周边及仓库范围查找 spec",
+    )
+    parser.add_argument(
+        "--base-dir",
+        default=None,
+        help="指定基础工作目录 (默认: 当前工作目录)",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="以 JSON 格式输出结果",
+    )
+    args = parser.parse_args(argv)
+
+    effective_base = (
+        Path(args.base_dir).resolve()
+        if args.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
+
+    raw_target = Path(args.target)
+    target = (effective_base / raw_target).resolve() if not raw_target.is_absolute() else raw_target.resolve()
+
+    if args.find or target.is_file():
+        spec = find_spec(target, base_dir=effective_base)
+    else:
+        spec = resolve_spec(target, base_dir=effective_base)
+
+    if args.json:
+        res = {
+            "target": str(target),
+            "spec": str(spec) if spec else None,
+            "found": spec is not None,
+        }
+        print(json.dumps(res, ensure_ascii=False, indent=2))
+    else:
+        if spec:
+            print(spec)
+        else:
+            print(f"[!] 未找到 spec: {args.target}", file=sys.stderr)
+
+    return 0 if spec is not None else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+

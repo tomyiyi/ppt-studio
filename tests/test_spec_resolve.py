@@ -1,11 +1,19 @@
 """tests/test_spec_resolve.py -- spec_lock 多版本治理（第 20 轮）。"""
 from __future__ import annotations
 
+import contextlib
+import io
+import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.spec_resolve import candidate_dirs, find_spec, resolve_spec
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.spec_resolve import candidate_dirs, find_spec, resolve_spec, main
 
 
 class TestResolveSpec(unittest.TestCase):
@@ -171,6 +179,71 @@ class TestSvgToPptxSoftDep(unittest.TestCase):
             sys.modules.update(saved)
             if orig_svg2pptx is not None:
                 sys.modules["scripts.svg_to_pptx"] = orig_svg2pptx
+
+
+class TestSpecResolveMain(unittest.TestCase):
+    def test_main_resolve_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            proj = base / "proj"
+            proj.mkdir()
+            (proj / "spec_lock.md").write_text("# spec\n", encoding="utf-8")
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = main([str(proj)], base_dir=base)
+            self.assertEqual(rc, 0)
+            self.assertEqual(buf.getvalue().strip(), str((proj / "spec_lock.md").resolve()))
+
+    def test_main_find_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            proj = base / "proj"
+            proj.mkdir()
+            (proj / "spec_lock.md").write_text("# spec\n", encoding="utf-8")
+            target = proj / "deck.pptx"
+            target.touch()
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = main([str(target)], base_dir=base)
+            self.assertEqual(rc, 0)
+            self.assertEqual(buf.getvalue().strip(), str((proj / "spec_lock.md").resolve()))
+
+    def test_main_with_base_dir_cli(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            proj = base / "proj"
+            proj.mkdir()
+            (proj / "spec_lock_v2.md").write_text("# v2\n", encoding="utf-8")
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = main(["proj", "--base-dir", str(base)])
+            self.assertEqual(rc, 0)
+            self.assertEqual(buf.getvalue().strip(), str((proj / "spec_lock_v2.md").resolve()))
+
+    def test_main_json_output(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            proj = base / "proj"
+            proj.mkdir()
+            (proj / "spec_lock.md").write_text("# spec\n", encoding="utf-8")
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = main(["proj", "--base-dir", str(base), "--json"])
+            self.assertEqual(rc, 0)
+            data = json.loads(buf.getvalue())
+            self.assertTrue(data["found"])
+            self.assertEqual(data["spec"], str((proj / "spec_lock.md").resolve()))
+
+    def test_main_not_found(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            empty = base / "empty"
+            empty.mkdir()
+            err_buf = io.StringIO()
+            with contextlib.redirect_stderr(err_buf):
+                rc = main([str(empty)], base_dir=base)
+            self.assertEqual(rc, 1)
+            self.assertIn("未找到 spec", err_buf.getvalue())
 
 
 if __name__ == "__main__":
