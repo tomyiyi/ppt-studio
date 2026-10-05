@@ -340,14 +340,19 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     parser.add_argument("project", nargs="?", default=".", help="项目根目录（默认当前目录）")
     parser.add_argument("--attestation", help="可选输出验收凭据 JSON 路径")
     parser.add_argument("--json", action="store_true", dest="as_json", help="以 JSON 格式输出验收结果")
+    parser.add_argument("--base-dir", default=None, help="指定基础工作目录 (默认: 当前工作目录)")
     parser.add_argument("--verbose", "-v", action="store_true", help="详细日志输出")
     args = parser.parse_args(argv)
 
-    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    effective_base = (
+        Path(args.base_dir).resolve()
+        if args.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
     try:
-        result = run_project_qa(args.project, verbose=args.verbose, base_dir=base)
+        result = run_project_qa(args.project, verbose=args.verbose, base_dir=effective_base)
         if args.attestation:
-            write_qa_attestation(result, args.attestation, base_dir=base)
+            write_qa_attestation(result, args.attestation, base_dir=effective_base)
     except (FileNotFoundError, OSError, ValueError, RuntimeError) as err:
         if args.as_json:
             print(json.dumps({"ok": False, "error": str(err)}, ensure_ascii=False))

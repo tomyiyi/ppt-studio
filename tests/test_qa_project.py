@@ -413,6 +413,22 @@ class TestResolveProjectDir(unittest.TestCase):
                 att_data = json.loads(att_file.read_text(encoding="utf-8"))
                 self.assertTrue(att_data["overall"])
 
+                buf3 = io.StringIO()
+                with redirect_stdout(buf3):
+                    rc3 = main([".", "--json", "--base-dir", str(sub_svg)])
+                self.assertEqual(rc3, 0)
+                data3 = json.loads(buf3.getvalue())
+                self.assertTrue(data3["ok"])
+
+                buf4 = io.StringIO()
+                with redirect_stdout(buf4):
+                    rc4 = main([".", "--attestation", "qa_attestation_cli.json", "--base-dir", str(proj)])
+                self.assertEqual(rc4, 0)
+                att_file_cli = proj / "qa_attestation_cli.json"
+                self.assertTrue(att_file_cli.exists())
+                att_data_cli = json.loads(att_file_cli.read_text(encoding="utf-8"))
+                self.assertTrue(att_data_cli["overall"])
+
     def test_run_project_qa_forwards_base_dir_to_sub_qas(self):
         with ExitStack() as stack:
             img_mock = stack.enter_context(patch("scripts.qa_project.run_image_qa", return_value={"ok": True}))
