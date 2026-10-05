@@ -180,13 +180,22 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     ap = argparse.ArgumentParser(description="page_map roster 完整性检查")
     ap.add_argument("project_dir", nargs="?", default=None, help="项目目录")
     ap.add_argument("--spec", help="显式指定 spec_lock.md")
+    ap.add_argument(
+        "--base-dir",
+        default=None,
+        help="指定基础工作目录 (默认: 当前工作目录)",
+    )
     a = ap.parse_args(argv)
-    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
-    proj = resolve_project_dir(a.project_dir, base_dir=base)
+    effective_base = (
+        Path(a.base_dir).resolve()
+        if a.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
+    proj = resolve_project_dir(a.project_dir, base_dir=effective_base)
     spec = None
     if a.spec:
         sp = Path(a.spec)
-        spec = (base / sp).resolve() if not sp.is_absolute() else sp.resolve()
+        spec = (effective_base / sp).resolve() if not sp.is_absolute() else sp.resolve()
     if spec is None:
         try:
             from scripts.spec_resolve import resolve_spec, find_spec
@@ -201,7 +210,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
         if (spec is None or not spec.is_file()) and find_spec is not None:
             spec = find_spec(proj)
         target_in = (
-            (base / Path(a.project_dir)).resolve()
+            (effective_base / Path(a.project_dir)).resolve()
             if a.project_dir is not None and not Path(a.project_dir).is_absolute()
             else (Path(a.project_dir).resolve() if a.project_dir is not None else None)
         )
@@ -213,7 +222,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
         ):
             spec = find_spec(target_in)
     print("[i] 采用 spec: %s" % (spec if spec else "未找到"))
-    ok, issues = check(proj, spec_path=spec, base_dir=base)
+    ok, issues = check(proj, spec_path=spec, base_dir=effective_base)
     if ok:
         print("[ok] roster 完整")
     else:

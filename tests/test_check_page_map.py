@@ -236,6 +236,25 @@ class MainSpecVisibilityTest(unittest.TestCase):
             out = buf.getvalue()
             self.assertIn("[ok] roster 完整", out)
 
+    def test_main_with_base_dir_flag(self):
+        import io
+        import tempfile
+        from contextlib import redirect_stdout
+        from scripts import check_page_map as _cpm
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "my_proj"
+            (proj / "svg_output").mkdir(parents=True)
+            (proj / "spec_lock.md").write_text(
+                "## page_map\n- P01: role=Cover, rhythm=anchor\n",
+                encoding="utf-8")
+            (proj / "svg_output" / "P01.svg").write_text("<svg/>", encoding="utf-8")
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = _cpm.main(["my_proj", "--spec", "my_proj/spec_lock.md", "--base-dir", td])
+            self.assertEqual(rc, 0)
+            out = buf.getvalue()
+            self.assertIn("[ok] roster 完整", out)
+
 
 if __name__ == "__main__":
     unittest.main()
