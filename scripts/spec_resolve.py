@@ -26,37 +26,44 @@ _VERSION_RE = re.compile(r"^spec_lock_v(\d+)\.md$", re.IGNORECASE)
 _BASE_NAME = "spec_lock.md"
 
 
-def resolve_spec(project_dir: str | Path) -> Path | None:
+def resolve_spec(project_dir: str | Path, base_dir: str | Path | None = None) -> Path | None:
     """在单个项目目录内按 版本 > 基线 规则选择 spec 文件。
 
     返回绝对路径；目录不存在或无任何 spec 文件时返回 None。
     """
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     d = Path(project_dir)
-    if not d.is_dir():
+    cand = (base / d).resolve() if not d.is_absolute() else d.resolve()
+    if not cand.is_dir():
         return None
     versioned: list[tuple[int, Path]] = []
-    for p in d.glob("spec_lock_v*.md"):
+    for p in cand.glob("spec_lock_v*.md"):
         m = _VERSION_RE.match(p.name)
         if m and p.is_file():
             versioned.append((int(m.group(1)), p))
     if versioned:
         versioned.sort(key=lambda t: t[0])
         return versioned[-1][1].resolve()
-    base = d / _BASE_NAME
-    return base.resolve() if base.is_file() else None
+    base_file = cand / _BASE_NAME
+    return base_file.resolve() if base_file.is_file() else None
 
 
-def candidate_dirs(target_path: str | Path | None = None) -> list[Path]:
+def candidate_dirs(
+    target_path: str | Path | None = None,
+    base_dir: str | Path | None = None,
+) -> list[Path]:
     """按优先级列出可能包含 spec 的目录（不做文件存在性判断）。"""
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     dirs: list[Path] = []
     if target_path:
-        tp = Path(target_path).resolve()
+        tp_raw = Path(target_path)
+        tp = (base / tp_raw).resolve() if not tp_raw.is_absolute() else tp_raw.resolve()
         if tp.is_file():
             dirs.extend([tp.parent, tp.parent.parent])
         else:
             dirs.extend([tp, tp.parent, tp.parent.parent])
     repo_root = Path(__file__).resolve().parent.parent
-    dirs.extend([Path.cwd(), repo_root])
+    dirs.extend([base, repo_root])
     # 去重保序
     seen: set[str] = set()
     uniq: list[Path] = []
@@ -68,27 +75,31 @@ def candidate_dirs(target_path: str | Path | None = None) -> list[Path]:
     return uniq
 
 
-def find_spec(target_path: str | Path | None = None) -> Path | None:
+def find_spec(
+    target_path: str | Path | None = None,
+    base_dir: str | Path | None = None,
+) -> Path | None:
     """在目标路径周边目录逐层向上查找 spec，找不到时扫描仓库 projects/*。
 
     多项目各有 spec 时（>1 个项目目录能解析出 spec）返回 None，
     避免静默选错——调用方应要求用户用 --spec 显式指定。
     """
-    for d in candidate_dirs(target_path):
-        spec = resolve_spec(d)
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    for d in candidate_dirs(target_path, base_dir=base):
+        spec = resolve_spec(d, base_dir=base)
         if spec:
             return spec
     # 兜底：动态扫描 projects/*/<spec>，避免硬编码项目名
     repo_root = Path(__file__).resolve().parent.parent
     hits: list[Path] = []
-    for cwd in (Path.cwd(), repo_root):
+    for cwd in (base, repo_root):
         proj_root = cwd / "projects"
         if not proj_root.is_dir():
             continue
         for proj_dir in sorted(proj_root.iterdir()):
             if not proj_dir.is_dir():
                 continue
-            spec = resolve_spec(proj_dir)
+            spec = resolve_spec(proj_dir, base_dir=base)
             if spec:
                 hits.append(spec)
         if hits:

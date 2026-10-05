@@ -57,6 +57,14 @@ class TestResolveSpec(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             self.assertIsNone(resolve_spec(Path(td)))
 
+    def test_resolve_spec_with_base_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            proj = base / "my_proj"
+            proj.mkdir()
+            (proj / "spec_lock.md").write_text("# base\n", encoding="utf-8")
+            self.assertEqual(resolve_spec("my_proj", base_dir=base), (proj / "spec_lock.md").resolve())
+
 
 class TestFindSpec(unittest.TestCase):
     def test_finds_from_nested_file(self):
@@ -93,6 +101,17 @@ class TestFindSpec(unittest.TestCase):
             dirs = candidate_dirs(target)
             self.assertEqual(dirs[0], proj.resolve())
             self.assertEqual(len(dirs), len({str(d) for d in dirs}))
+
+    def test_find_spec_with_base_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            proj = base / "proj"
+            proj.mkdir()
+            (proj / "spec_lock.md").write_text("# v1\n", encoding="utf-8")
+            target = proj / "output" / "deck.pptx"
+            target.parent.mkdir()
+            target.touch()
+            self.assertEqual(find_spec("proj/output/deck.pptx", base_dir=base), (proj / "spec_lock.md").resolve())
 
 
 class TestSvgToPptxSoftDep(unittest.TestCase):
