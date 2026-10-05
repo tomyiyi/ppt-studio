@@ -590,6 +590,14 @@ class TestQALongCardSubdirAndSpecResolution(unittest.TestCase):
         self.assertEqual(resolve_project_dir(self.notes_dir), self.proj.resolve())
         self.assertEqual(resolve_project_dir(self.spec_file), self.proj.resolve())
 
+    def test_resolve_project_dir_base_dir_subfolders_and_file(self):
+        self.assertEqual(resolve_project_dir(base_dir=self.cards_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(base_dir=self.render_cards_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(base_dir=self.images_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(base_dir=self.notes_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(base_dir=self.output_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(base_dir=self.spec_file), self.proj.resolve())
+
     def test_find_long_cards_from_subfolder(self):
         found_render = find_long_cards(self.render_cards_dir)
         self.assertEqual(found_render, [self.long_card_file.resolve()])

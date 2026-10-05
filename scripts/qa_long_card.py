@@ -473,14 +473,24 @@ def resolve_project_dir(
     base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     if (base / "cards").is_dir():
         return base
+    if base.is_file() and (
+        (base.parent / "cards").is_dir()
+        or any(base.parent.glob("card_spec*.md"))
+        or any(base.parent.glob("spec_lock*.md"))
+    ):
+        return base.parent.resolve()
     if (
         base.is_dir()
         and (
-            base.name in ("images", "svg_output", "render_cards", "render", "notes", "output")
+            base.name in ("images", "svg_output", "render_cards", "render", "notes", "output", "cards")
             or base.name.startswith("svg_output")
+            or base.name.startswith("render")
         )
-        and (base.parent / "cards").is_dir()
-        and list((base.parent / "cards").glob("*.svg"))
+        and (
+            (base.parent / "cards").is_dir()
+            or any(base.parent.glob("card_spec*.md"))
+            or any(base.parent.glob("spec_lock*.md"))
+        )
     ):
         return base.parent.resolve()
 
