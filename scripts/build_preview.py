@@ -620,9 +620,18 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     parser.add_argument("--cards", action="store_true", help="优先打包 cards/ 下的竖版卡片")
     parser.add_argument("--check", action="store_true", help="构建完成后执行客观质量门禁校验")
     parser.add_argument("--title-override", dest="opt_title", default=None, help="显式指定标题（覆盖位置参数）")
+    parser.add_argument(
+        "--base-dir",
+        default=None,
+        help="指定基础工作目录 (默认: 当前工作目录)",
+    )
     args = parser.parse_args(argv)
 
-    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    effective_base = (
+        Path(args.base_dir).resolve()
+        if args.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
     chosen_title = args.opt_title if args.opt_title is not None else args.title
     try:
         build_preview(
@@ -631,7 +640,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
             title=chosen_title,
             cards=args.cards,
             check=args.check,
-            base_dir=base,
+            base_dir=effective_base,
         )
     except (FileNotFoundError, ValueError, RuntimeError) as err:
         print(f"[err] {err}", file=sys.stderr)

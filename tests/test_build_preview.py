@@ -669,6 +669,13 @@ class TestBuildPreviewSubdirAndSpecResolution(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertTrue(expected_cli_out.exists())
 
+        # CLI / main with --base-dir argument
+        rel_out_cli_flag = Path("relative_cli_flag_out.html")
+        expected_cli_flag_out = (base / rel_out_cli_flag).resolve()
+        code_flag = main([str(rel_src), str(rel_out_cli_flag), "--base-dir", str(base)])
+        self.assertEqual(code_flag, 0)
+        self.assertTrue(expected_cli_flag_out.exists())
+
     @patch("scripts.build_preview.run_qa_slide_preview")
     def test_build_preview_check_forwards_base_dir(self, mock_qa):
         mock_qa.return_value = True
