@@ -16,9 +16,19 @@ from scripts.crop_panel import check_crop_panel
 from scripts.boost_ink import check_boost_ink
 
 
-def run_image_qa(targets: list[str | Path] | str | Path | None = None, *, size: tuple[int, int] | None = None, aspect: str | float = "580:385", pad: float = 1.12, crop_min_ink: float = 3.0, boost_min_ink: float = 2.0, verbose: bool = False) -> dict[str, Any]:
+def run_image_qa(
+    targets: list[str | Path] | str | Path | None = None,
+    *,
+    size: tuple[int, int] | None = None,
+    aspect: str | float = "580:385",
+    pad: float = 1.12,
+    crop_min_ink: float = 3.0,
+    boost_min_ink: float = 2.0,
+    verbose: bool = False,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
     """按 prepare -> crop -> boost 顺序检查每个图片并汇总结果。"""
-    resolved, resolution_failures = _resolve_and_dedup_targets(targets)
+    resolved, resolution_failures = _resolve_and_dedup_targets(targets, base_dir=base_dir)
     items: list[dict[str, Any]] = [{"file": f.get("file", ""), "name": f.get("name", ""), "ok": False, "stage": "prepare", "code": f.get("code", "TARGET_ERROR"), "reason": f.get("reason", "目标解析失败")} for f in resolution_failures]
     for path in resolved:
         record: dict[str, Any] = {"file": str(path), "name": path.name, "ok": False}
@@ -49,12 +59,12 @@ def run_image_qa(targets: list[str | Path] | str | Path | None = None, *, size: 
     return result
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     parser = argparse.ArgumentParser(description="运行 PPT 图片统一质量门禁")
     parser.add_argument("targets", nargs="+", help="一个或多个图片、目录或项目路径")
     parser.add_argument("--json", action="store_true", dest="as_json", help="仅输出 JSON 结果")
     args = parser.parse_args(argv)
-    result = run_image_qa(args.targets, verbose=not args.as_json)
+    result = run_image_qa(args.targets, verbose=not args.as_json, base_dir=base_dir)
     if args.as_json:
         print(json.dumps(result, ensure_ascii=False, default=str))
     else:

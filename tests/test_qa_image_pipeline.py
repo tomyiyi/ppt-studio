@@ -5,7 +5,7 @@ import subprocess
 import sys
 from unittest.mock import patch
 
-from scripts.qa_image_pipeline import run_image_qa
+from scripts.qa_image_pipeline import main, run_image_qa
 
 
 class TestImageQAPipeline(unittest.TestCase):
@@ -90,6 +90,22 @@ class TestImageQAPipeline(unittest.TestCase):
     def test_cli_without_target_is_two(self):
         completed = subprocess.run([sys.executable, str(self.SCRIPT)], capture_output=True, text=True)
         self.assertEqual(completed.returncode, 2)
+
+    def test_run_image_qa_with_base_dir(self):
+        with patch("scripts.qa_image_pipeline._resolve_and_dedup_targets", return_value=([Path("/proj/a.png")], [])) as mock_resolve, \
+             patch("scripts.qa_image_pipeline.check_images", return_value={"ok": True}) as mock_check, \
+             patch("scripts.qa_image_pipeline.check_crop_panel", return_value=(True, {"x": 1}, [])), \
+             patch("scripts.qa_image_pipeline.check_boost_ink", return_value=(True, {"x": 2}, [])):
+            result = run_image_qa("a.png", base_dir="/proj")
+        mock_resolve.assert_called_once_with("a.png", base_dir="/proj")
+        mock_check.assert_called_once_with(Path("/proj/a.png"), size=None, verbose=False)
+        self.assertTrue(result["ok"])
+
+    def test_main_with_base_dir(self):
+        with patch("scripts.qa_image_pipeline.run_image_qa", return_value={"ok": True, "total": 1, "passed": 1, "failed": 0, "items": []}) as mock_qa:
+            code = main(["a.png"], base_dir="/proj")
+        self.assertEqual(code, 0)
+        mock_qa.assert_called_once_with(["a.png"], verbose=True, base_dir="/proj")
 
 
 if __name__ == "__main__":
