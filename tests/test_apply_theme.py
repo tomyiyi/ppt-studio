@@ -121,4 +121,32 @@ class ThemeTest(unittest.TestCase):
             self.assertIn('"#111827"', spec_content)
             self.assertIn('"#4B5563"', spec_content)
 
+    def test_main_with_base_dir_flag(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            src = root / "src"
+            src.mkdir()
+            (src / "slide.svg").write_text('<svg fill="#08090C"><text fill="#8E8F9A">Hello</text></svg>', encoding="utf-8")
+            (root / "theme.json").write_text(json.dumps({
+                "name": "custom",
+                "colors": {"#08090C": "#111827", "#8E8F9A": "#4B5563"}
+            }), encoding="utf-8")
+            (root / "spec_in.json").write_text('{"bg": "#08090C", "fg": "#8e8f9a"}', encoding="utf-8")
+
+            rc = main(
+                ["src", "out", "--theme", "theme.json", "--spec-in", "spec_in.json", "--spec-out", "spec_out.json", "--base-dir", str(root)]
+            )
+            self.assertEqual(rc, 0)
+            out_svg = root / "out" / "slide.svg"
+            self.assertTrue(out_svg.is_file())
+            content = out_svg.read_text(encoding="utf-8")
+            self.assertIn('fill="#111827"', content)
+            self.assertIn('fill="#4B5563"', content)
+
+            out_spec = root / "spec_out.json"
+            self.assertTrue(out_spec.is_file())
+            spec_content = out_spec.read_text(encoding="utf-8")
+            self.assertIn('"#111827"', spec_content)
+            self.assertIn('"#4B5563"', spec_content)
+
 if __name__=='__main__': unittest.main()

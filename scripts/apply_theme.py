@@ -25,12 +25,21 @@ def main(argv=None, base_dir: str | Path | None = None) -> int:
     p.add_argument("--theme", required=True, type=Path)
     p.add_argument("--spec-in", type=Path)
     p.add_argument("--spec-out", type=Path)
+    p.add_argument(
+        "--base-dir",
+        default=None,
+        help="指定基础工作目录 (默认: 当前工作目录)",
+    )
     a = p.parse_args(argv)
 
-    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
-    source_svg = (base / a.source_svg).resolve() if not a.source_svg.is_absolute() else a.source_svg.resolve()
-    output_svg = (base / a.output_svg).resolve() if not a.output_svg.is_absolute() else a.output_svg.resolve()
-    theme_path = (base / a.theme).resolve() if not a.theme.is_absolute() else a.theme.resolve()
+    effective_base = (
+        Path(a.base_dir).resolve()
+        if a.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
+    source_svg = (effective_base / a.source_svg).resolve() if not a.source_svg.is_absolute() else a.source_svg.resolve()
+    output_svg = (effective_base / a.output_svg).resolve() if not a.output_svg.is_absolute() else a.output_svg.resolve()
+    theme_path = (effective_base / a.theme).resolve() if not a.theme.is_absolute() else a.theme.resolve()
 
     theme = json.loads(theme_path.read_text(encoding="utf-8"))
     palette = theme["colors"]
@@ -42,8 +51,8 @@ def main(argv=None, base_dir: str | Path | None = None) -> int:
         text = transform_svg(text, mapping, role_mapping)
         (output_svg / src.name).write_text(text, encoding="utf-8")
     if a.spec_in and a.spec_out:
-        spec_in = (base / a.spec_in).resolve() if not a.spec_in.is_absolute() else a.spec_in.resolve()
-        spec_out = (base / a.spec_out).resolve() if not a.spec_out.is_absolute() else a.spec_out.resolve()
+        spec_in = (effective_base / a.spec_in).resolve() if not a.spec_in.is_absolute() else a.spec_in.resolve()
+        spec_out = (effective_base / a.spec_out).resolve() if not a.spec_out.is_absolute() else a.spec_out.resolve()
         spec = spec_in.read_text(encoding="utf-8")
         for old, new in mapping.items():
             spec = spec.replace(old, new).replace(old.lower(), new)
