@@ -283,7 +283,12 @@ def crop_image(
     before = cover(a, (0, 0, w, h))
     after = cover(a, (left, top, bw, bh))
 
-    final_out = Path(out_path) if out_path else src_p.with_name(f"{src_p.stem}_panel.png")
+    if out_path:
+        out_p = Path(out_path)
+        base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+        final_out = (base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
+    else:
+        final_out = src_p.with_name(f"{src_p.stem}_panel.png")
 
     if apply:
         final_out.parent.mkdir(parents=True, exist_ok=True)
@@ -514,7 +519,7 @@ qa_single_crop_panel = check_crop_panel
 run_qa_single_crop_panel = check_crop_panel
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="按'主体包围盒'裁切配图，让主体填满面板"
     )
@@ -575,7 +580,7 @@ def main(argv: list[str] | None = None) -> int:
 
     src_args = args.src if args.src else None
     try:
-        targets = resolve_crop_targets(src_args)
+        targets = resolve_crop_targets(src_args, base_dir=base_dir)
     except (FileNotFoundError, ValueError) as e:
         if verbose:
             print(f"[!] {e}", file=sys.stderr)
@@ -601,6 +606,7 @@ def main(argv: list[str] | None = None) -> int:
                 aspect=args.aspect,
                 pad=args.pad,
                 apply=args.apply,
+                base_dir=base_dir,
             )
         except (FileNotFoundError, ValueError) as e:
             if verbose:

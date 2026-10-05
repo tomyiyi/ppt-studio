@@ -815,6 +815,14 @@ class TestCropPanelContract(unittest.TestCase):
         self.assertEqual(p_v.stderr, "")
         self.assertTrue(out_v.exists())
 
+    def test_main_cli_with_base_dir_and_relative_output(self):
+        """测试 main 在传入 base_dir 与相对路径 --out 时能正确在 base_dir 下写盘。"""
+        rel_out = Path("nested") / "cropped_rel.png"
+        code = main([str(self.good_img), "--out", str(rel_out), "--apply", "--quiet"], base_dir=self.tmp_path)
+        self.assertEqual(code, 0)
+        expected_out = self.tmp_path / rel_out
+        self.assertTrue(expected_out.is_file())
+
 
 if __name__ == "__main__":
     unittest.main()
