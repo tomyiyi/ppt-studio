@@ -379,6 +379,31 @@ class TestBuildEndToEnd(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertTrue((tdp / "cli_rel.pptx").is_file())
 
+    def test_main_cli_with_base_dir_flag(self):
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            _write_fixture(tdp)
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = main([".", "--base-dir", str(tdp), "-o", "cli_flag.pptx"])
+            self.assertEqual(code, 0)
+            self.assertTrue((tdp / "cli_flag.pptx").is_file())
+
+    def test_build_pptx_with_base_dir_and_relative_paths(self):
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            _write_fixture(tdp)
+            rel_files = ["01_page1.svg", "02_page2.svg", "03_page3.svg"]
+            stats = build_pptx(
+                rel_files,
+                "custom_out.pptx",
+                bg_dir="custom_bg",
+                base_dir=str(tdp),
+            )
+            self.assertEqual(stats["pages"], 3)
+            self.assertTrue((tdp / "custom_out.pptx").is_file())
+            self.assertTrue((tdp / "custom_bg").is_dir())
+
     def test_atomic_save_keeps_old_file_on_save_failure(self):
         """save 中途抛错：旧产物原样保留，临时文件被清理。"""
         with tempfile.TemporaryDirectory() as td:

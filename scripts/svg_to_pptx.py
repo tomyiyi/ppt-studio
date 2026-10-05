@@ -411,10 +411,11 @@ def verify_pptx(path: Path | str, expected_pages: int,
 
 
 def build_pptx(
-    svg_files: list[Path],
-    out_path: Path,
+    svg_files: list[Path | str],
+    out_path: Path | str,
     fmt: str = "ppt169",
-    bg_dir: Path | None = None,
+    bg_dir: Path | str | None = None,
+    base_dir: str | Path | None = None,
 ) -> dict:
     """核心转换：svg 文件列表 → 可编辑 pptx。返回统计。"""
     if not _PPTX_OK:  # pragma: no cover
@@ -423,6 +424,15 @@ def build_pptx(
         raise ValueError(f"未知画幅 {fmt}，可选: {sorted(FORMATS)}")
     if not svg_files:
         raise ValueError("没有可转换的 SVG 页面")
+
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    resolved_svg_files: list[Path] = []
+    for f in svg_files:
+        fp = Path(f)
+        resolved_svg_files.append((base / fp).resolve() if not fp.is_absolute() else fp.resolve())
+
+    out_p = Path(out_path)
+    out_path = (base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
 
     slide_w_in, slide_h_in = FORMATS[fmt]
     prs = Presentation()
@@ -435,12 +445,13 @@ def build_pptx(
         tmp = tempfile.TemporaryDirectory(prefix="svg2pptx_bg_")
         bg_root = Path(tmp.name)
     else:
-        bg_root = Path(bg_dir)
+        bg_p = Path(bg_dir)
+        bg_root = (base / bg_p).resolve() if not bg_p.is_absolute() else bg_p.resolve()
         bg_root.mkdir(parents=True, exist_ok=True)
 
     total_texts = 0
     try:
-        for svg_path in svg_files:
+        for svg_path in resolved_svg_files:
             vb_w, vb_h = parse_viewbox(svg_path)
             texts = extract_texts(svg_path)
 
@@ -490,16 +501,15 @@ def build_pptx(
                 _set_run_style(run, item, px_to_pt)
                 total_texts += 1
 
-        out_path = Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         _atomic_save(prs, out_path)
-        verified = verify_pptx(out_path, len(svg_files))
+        verified = verify_pptx(out_path, len(resolved_svg_files))
     finally:
         if tmp is not None:
             tmp.cleanup()
 
     return {
-        "pages": len(svg_files),
+        "pages": len(resolved_svg_files),
         "texts": total_texts,
         "format": fmt,
         "slide_size_in": (slide_w_in, slide_h_in),
@@ -585,6 +595,7 @@ def check_dependencies() -> tuple[bool, list[str]]:
 def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     ap = argparse.ArgumentParser(description="SVG 画布 → 可编辑 PPTX 导出（背景层 + 文本层）")
     ap.add_argument("src", nargs="?", help="SVG 目录或项目目录（缺省自动发现唯一项目）")
+    ap.add_argument("--base-dir", default=None, help="指定基础工作目录 (默认: 当前工作目录)")
     ap.add_argument("-o", "--output", help="输出 .pptx 路径（缺省 <项目>/output/<svg目录名>.pptx）")
     ap.add_argument("-f", "--format", default="ppt169", choices=sorted(FORMATS),
                     help="画幅（默认 ppt169 = 16:9）")
@@ -592,7 +603,11 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     ap.add_argument("--check", action="store_true", help="仅检查依赖是否就绪")
     args = ap.parse_args(argv)
 
-    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    effective_base = (
+        Path(args.base_dir).resolve()
+        if args.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
 
     if args.check:
         ok, problems = check_dependencies()
@@ -608,11 +623,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
         return 2
 
     try:
-        svg_dir, project_dir = (
-            resolve_svg_dir(args.src, base_dir=base)
-            if base_dir is not None
-            else resolve_svg_dir(args.src)
-        )
+        svg_dir, project_dir = resolve_svg_dir(args.src, base_dir=effective_base)
     except (FileNotFoundError, ValueError) as exc:
         print(f"[✗] {exc}", file=sys.stderr)
         return 2
@@ -620,13 +631,13 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     svg_files = sorted(svg_dir.glob("*.svg"))
     if args.output:
         out_p = Path(args.output)
-        out = (base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
+        out = (effective_base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
     else:
         out = (project_dir / "output" / f"{svg_dir.name}.pptx").resolve()
 
     if args.bg_dir:
         bg_p = Path(args.bg_dir)
-        bg_dir = (base / bg_p).resolve() if not bg_p.is_absolute() else bg_p.resolve()
+        bg_dir = (effective_base / bg_p).resolve() if not bg_p.is_absolute() else bg_p.resolve()
     else:
         bg_dir = None
 
@@ -634,7 +645,8 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
         stats = build_pptx(svg_files,
                            out,
                            fmt=args.format,
-                           bg_dir=bg_dir)
+                           bg_dir=bg_dir,
+                           base_dir=effective_base)
     except Exception as exc:
         print(f"[✗] 转换失败: {exc}", file=sys.stderr)
         return 1
