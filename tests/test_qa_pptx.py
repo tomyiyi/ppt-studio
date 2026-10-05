@@ -764,8 +764,17 @@ class TestQAPptxSubdirAndSpecResolution(unittest.TestCase):
             self.assertEqual(resolve_project_dir(self.images_dir), self.proj.resolve())
             self.assertEqual(resolve_project_dir(self.notes_dir), self.proj.resolve())
             self.assertEqual(resolve_project_dir(self.spec_file), self.proj.resolve())
+            self.assertEqual(resolve_project_dir(base_dir=self.svg_dir), self.proj.resolve())
+            self.assertEqual(resolve_project_dir(base_dir=self.spec_file), self.proj.resolve())
             self.assertEqual(resolve_project_dir(""), Path.cwd().resolve())
             self.assertEqual(resolve_project_dir("."), Path.cwd().resolve())
+
+    def test_resolve_project_dir_base_dir(self):
+        self.assertEqual(resolve_project_dir(base_dir=self.svg_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(base_dir=self.render_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(base_dir=self.images_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(base_dir=self.notes_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(base_dir=self.spec_file), self.proj.resolve())
 
     def test_find_pptx_files_from_subfolder(self):
         found_render = find_pptx_files(self.render_dir)
@@ -776,6 +785,13 @@ class TestQAPptxSubdirAndSpecResolution(unittest.TestCase):
 
         found_notes = find_pptx_files(self.notes_dir)
         self.assertEqual(found_notes, [self.pptx_file.resolve()])
+
+    def test_find_pptx_files_with_base_dir(self):
+        # 相对路径 + base_dir
+        found = find_pptx_files("output", base_dir=self.proj)
+        self.assertEqual(found, [self.pptx_file.resolve()])
+        found_dot = find_pptx_files(".", base_dir=self.render_dir)
+        self.assertEqual(found_dot, [self.pptx_file.resolve()])
 
     def test_find_pptx_files_from_spec_file(self):
         found_spec = find_pptx_files(self.spec_file)
@@ -793,6 +809,12 @@ class TestQAPptxSubdirAndSpecResolution(unittest.TestCase):
     def test_run_qa_pptx_from_subfolder_and_spec_file(self, mock_single):
         self.assertTrue(run_qa_pptx(self.render_dir, verbose=False))
         self.assertTrue(run_qa_pptx(self.spec_file, verbose=False))
+        self.assertEqual(mock_single.call_count, 2)
+
+    @patch("scripts.qa_pptx.qa_single_pptx", return_value=True)
+    def test_run_qa_pptx_with_base_dir(self, mock_single):
+        self.assertTrue(run_qa_pptx(".", base_dir=self.render_dir, verbose=False))
+        self.assertTrue(run_qa_pptx("spec_lock.md", base_dir=self.proj, verbose=False))
         self.assertEqual(mock_single.call_count, 2)
 
     @patch("scripts.qa_pptx.qa_single_pptx", return_value=True)

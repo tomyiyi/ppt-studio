@@ -43,14 +43,25 @@ except ImportError:
         _cpm_resolve_project_dir = None
 
 
-def resolve_project_dir(project_arg: str | Path | None = None) -> Path:
+def resolve_project_dir(
+    project_arg: str | Path | None = None,
+    base_dir: str | Path | None = None,
+) -> Path:
     """自适应解析项目根目录（支持从子目录 images、svg_output*、cards 等或文件回退）。"""
     if _cpm_resolve_project_dir is not None:
-        return _cpm_resolve_project_dir(project_arg)
+        try:
+            return _cpm_resolve_project_dir(project_arg, base_dir=base_dir)
+        except TypeError:
+            return _cpm_resolve_project_dir(project_arg)
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     if project_arg is not None and str(project_arg).strip() not in ("", "."):
-        p = Path(project_arg).resolve()
+        p = Path(project_arg)
+        if not p.is_absolute():
+            p = (base / p).resolve()
+        else:
+            p = p.resolve()
     else:
-        p = Path.cwd().resolve()
+        p = base
     if p.is_file():
         p = p.parent
     if (
@@ -499,23 +510,34 @@ def run_qa_pptx(
     expected_slides: int | None = None,
     expected_media: int | None = None,
     verbose: bool = True,
+    base_dir: Path | str | None = None,
 ) -> bool:
     """运行 PPT-Studio PPTX 客观质量门禁。
 
     支持输入单个 PPTX 文件路径、包含 *.pptx 的目录路径，或留空默认自发现。
     支持 Path、str 或 None 输入。
     """
-    if target is None:
-        target_path = Path.cwd().resolve()
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    if target is None or str(target).strip() in ("", "."):
+        target_path = base
     else:
-        target_path = Path(target).resolve()
+        target_path = Path(target)
+    if not target_path.is_absolute():
+        target_path = (base / target_path).resolve()
 
     if not target_path.exists():
         if verbose:
             print(f"  [✗] 文件或目录不存在: {target_path}")
         return False
 
-    spec_p = Path(spec_path).resolve() if spec_path else find_spec_lock(target_path)
+    if spec_path:
+        spec_p = Path(spec_path)
+        if not spec_p.is_absolute():
+            spec_p = (base / spec_p).resolve()
+        else:
+            spec_p = spec_p.resolve()
+    else:
+        spec_p = find_spec_lock(target_path)
 
     if target_path.is_file():
         if target_path.suffix.lower() == ".pptx":
@@ -527,7 +549,7 @@ def run_qa_pptx(
                 verbose=verbose,
             )
         try:
-            pptx_files = find_pptx_files(target_path)
+            pptx_files = find_pptx_files(target_path, base_dir=base)
         except (FileNotFoundError, ValueError) as err:
             if verbose:
                 print(f"  [✗] {err}")
@@ -554,7 +576,7 @@ def run_qa_pptx(
 
     if target_path.is_dir():
         try:
-            pptx_files = find_pptx_files(target_path)
+            pptx_files = find_pptx_files(target_path, base_dir=base)
         except (FileNotFoundError, ValueError) as err:
             if verbose:
                 print(f"  [✗] {err}")
@@ -601,10 +623,13 @@ def find_spec_lock(target_path: Path | str | None = None) -> Path | None:
     return find_spec(target_path)
 
 
-def find_pptx_files(target: Path | str | None = None, base_dir: Path | None = None) -> list[Path]:
+def find_pptx_files(
+    target: Path | str | None = None,
+    base_dir: Path | str | None = None,
+) -> list[Path]:
     """发现并解析待质检的 PPTX 文件列表。"""
     base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
-    target_str_or_path = "." if target is None else target
+    target_str_or_path = "." if (target is None or str(target).strip() in ("", ".")) else target
     target_path = Path(target_str_or_path)
     if not target_path.is_absolute():
         target_path = (base / target_path).resolve()
@@ -616,7 +641,7 @@ def find_pptx_files(target: Path | str | None = None, base_dir: Path | None = No
         if target_path.suffix.lower() == ".pptx":
             return [target_path]
         # 自适应从关联项目解析 PPTX 文件（如传入 spec_lock.md 等）
-        proj = resolve_project_dir(target_path)
+        proj = resolve_project_dir(target_path, base_dir=base)
         cand_files: list[Path] = []
         if (proj / "output").is_dir():
             cand_files.extend(sorted((proj / "output").glob("*.pptx")))
@@ -640,7 +665,7 @@ def find_pptx_files(target: Path | str | None = None, base_dir: Path | None = No
         found.extend(sorted((target_path / "output").glob("*.pptx")))
 
     # 3. 关联项目解析（如 target_path 为子目录 images、render、svg_output、cards 等）
-    proj = resolve_project_dir(target_path)
+    proj = resolve_project_dir(target_path, base_dir=base)
     if proj != target_path:
         if (proj / "output").is_dir():
             found.extend(sorted((proj / "output").glob("*.pptx")))
