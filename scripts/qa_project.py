@@ -229,8 +229,23 @@ def run_project_qa(
     if not assets_result["ok"]:
         return {"ok": False, "failed_stage": "assets", "stages": stages}
 
+    try:
+        layout_ok = bool(
+            run_qa_layout(
+                layout_target if layout_target is not None else root,
+                verbose=verbose,
+                base_dir=base_dir,
+            )
+            if base_dir is not None
+            else run_qa_layout(layout_target if layout_target is not None else root, verbose=verbose)
+        )
+    except TypeError:
+        layout_ok = bool(run_qa_layout(layout_target if layout_target is not None else root, verbose=verbose))
+    stages["layout"] = {"ok": layout_ok}
+    if not layout_ok:
+        return {"ok": False, "failed_stage": "layout", "stages": stages}
+
     for name, runner, target in (
-        ("layout", run_qa_layout, layout_target if layout_target is not None else root),
         ("cards", run_qa_cards, cards_target if cards_target is not None else root),
         ("long_card", run_qa_long_card, long_card_target if long_card_target is not None else root),
     ):

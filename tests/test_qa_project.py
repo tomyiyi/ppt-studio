@@ -392,7 +392,7 @@ class TestResolveProjectDir(unittest.TestCase):
                 data = json.loads(buf.getvalue())
                 self.assertTrue(data["ok"])
 
-    def test_run_project_qa_forwards_base_dir_to_image_and_assets(self):
+    def test_run_project_qa_forwards_base_dir_to_sub_qas(self):
         with ExitStack() as stack:
             img_mock = stack.enter_context(patch("scripts.qa_project.run_image_qa", return_value={"ok": True}))
             assets_mock = stack.enter_context(patch("scripts.qa_project.run_qa_assets", return_value={"ok": True}))
@@ -411,7 +411,7 @@ class TestResolveProjectDir(unittest.TestCase):
             self.assertTrue(res["ok"])
             img_mock.assert_called_once_with(["img.png"], verbose=False, base_dir="/tmp/base")
             assets_mock.assert_called_once_with(Path("/tmp/proj"), base_dir="/tmp/base")
-            layout_mock.assert_called_once_with("l", verbose=False)
+            layout_mock.assert_called_once_with("l", verbose=False, base_dir="/tmp/base")
             cards_mock.assert_called_once_with("c", verbose=False)
             long_card_mock.assert_called_once_with("d", verbose=False)
 
