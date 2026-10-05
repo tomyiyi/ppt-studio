@@ -77,11 +77,32 @@ def validate_delivered_artifact(
     elif suffix == ".pptx":
         ok = bool(run_qa_pptx(path, verbose=verbose))
     elif suffix == ".png":
-        ok = bool(run_qa_long_card(path, verbose=verbose))
+        try:
+            ok = bool(
+                run_qa_long_card(path, verbose=verbose, base_dir=base)
+                if base_dir is not None
+                else run_qa_long_card(path, verbose=verbose)
+            )
+        except TypeError:
+            ok = bool(run_qa_long_card(path, verbose=verbose))
     elif suffix in (".html", ".htm"):
-        ok = bool(run_qa_preview(path, verbose=verbose))
+        try:
+            ok = bool(
+                run_qa_preview(path, verbose=verbose, base_dir=base)
+                if base_dir is not None
+                else run_qa_preview(path, verbose=verbose)
+            )
+        except TypeError:
+            ok = bool(run_qa_preview(path, verbose=verbose))
     elif suffix == ".svg":
-        ok = bool(run_qa_layout(path, verbose=verbose))
+        try:
+            ok = bool(
+                run_qa_layout(path, verbose=verbose, base_dir=base)
+                if base_dir is not None
+                else run_qa_layout(path, verbose=verbose)
+            )
+        except TypeError:
+            ok = bool(run_qa_layout(path, verbose=verbose))
     elif suffix == ".srt":
         ok = bool(run_qa_subtitles(path, verbose=verbose))
 
@@ -185,7 +206,15 @@ def deliver_artifact_set(
             shutil.copy2(source, staging / source.name)
 
         if check:
-            if not run_qa_cards(staging, verbose=verbose):
+            try:
+                qa_ok = bool(
+                    run_qa_cards(staging, verbose=verbose, base_dir=base)
+                    if base_dir is not None
+                    else run_qa_cards(staging, verbose=verbose)
+                )
+            except TypeError:
+                qa_ok = bool(run_qa_cards(staging, verbose=verbose))
+            if not qa_ok:
                 raise RuntimeError("卡片集客观质量门禁未通过")
 
         if destination.exists():

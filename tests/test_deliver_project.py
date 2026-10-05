@@ -511,6 +511,28 @@ class TestValidateDeliveredArtifact(unittest.TestCase):
             validate_delivered_artifact("deck.pptx", base_dir=proj)
         qa_mock.assert_called_once_with(f.resolve(), verbose=False)
 
+    def test_validate_delivered_artifact_forwards_base_dir(self):
+        proj = self.root / "subproj2"
+        proj.mkdir()
+
+        png_file = proj / "long.png"
+        png_file.write_bytes(b"png")
+        with patch("scripts.deliver_project.run_qa_long_card", return_value=True) as mock_lc:
+            validate_delivered_artifact("long.png", base_dir=proj)
+            mock_lc.assert_called_once_with(png_file.resolve(), verbose=False, base_dir=proj.resolve())
+
+        html_file = proj / "preview.html"
+        html_file.write_bytes(b"html")
+        with patch("scripts.deliver_project.run_qa_preview", return_value=True) as mock_prev:
+            validate_delivered_artifact("preview.html", base_dir=proj)
+            mock_prev.assert_called_once_with(html_file.resolve(), verbose=False, base_dir=proj.resolve())
+
+        svg_file = proj / "slide.svg"
+        svg_file.write_bytes(b"<svg></svg>")
+        with patch("scripts.deliver_project.run_qa_layout", return_value=True) as mock_layout:
+            validate_delivered_artifact("slide.svg", base_dir=proj)
+            mock_layout.assert_called_once_with(svg_file.resolve(), verbose=False, base_dir=proj.resolve())
+
 
 class TestDeliverProjectBaseDir(unittest.TestCase):
     def setUp(self):
@@ -551,6 +573,24 @@ class TestDeliverProjectBaseDir(unittest.TestCase):
         target_dir = (self.proj / "cards_delivered").resolve()
         self.assertTrue((target_dir / "01.svg").is_file())
         self.assertTrue((target_dir / "02.svg").is_file())
+
+    def test_deliver_artifact_set_with_check_forwards_base_dir(self):
+        c1 = self.proj / "01.svg"
+        c2 = self.proj / "02.svg"
+        c1.write_bytes(b"<svg>card 1</svg>")
+        c2.write_bytes(b"<svg>card 2</svg>")
+        with patch("scripts.deliver_project.run_qa_cards", return_value=True) as mock_cards:
+            out = deliver_artifact_set(
+                "qa.json",
+                ["01.svg", "02.svg"],
+                "cards_checked",
+                check=True,
+                base_dir=self.proj,
+            )
+            self.assertEqual(len(out), 2)
+            mock_cards.assert_called_once()
+            _, kwargs = mock_cards.call_args
+            self.assertEqual(kwargs.get("base_dir"), self.proj.resolve())
 
     def test_main_single_delivery_with_base_dir(self):
         buf = io.StringIO()
