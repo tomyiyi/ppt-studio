@@ -132,11 +132,15 @@ def validate_spec_draft(md: str) -> dict:
             "pages": len(pm) if pm else 0}
 
 
-def draft_spec(brief_path: str, output: str | None = None,
+def draft_spec(brief_path: str | Path, output: str | Path | None = None,
                model: str = DEFAULT_TEXT_MODEL,
-               dry_run: bool = False) -> dict:
+               dry_run: bool = False,
+               base_dir: str | Path | None = None) -> dict:
     """brief.md → spec 初稿。返回 {markdown, validation, ...}。"""
-    brief_md = Path(brief_path).read_text(encoding="utf-8")
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    bp = Path(brief_path)
+    brief_file = (base / bp).resolve() if not bp.is_absolute() else bp.resolve()
+    brief_md = brief_file.read_text(encoding="utf-8")
     topic = "未命名主题"
     m = re.search(r"^#\s+(.+)$", brief_md, re.M)
     if m:
@@ -152,9 +156,12 @@ def draft_spec(brief_path: str, output: str | None = None,
         md = stripped
     check = validate_spec_draft(md)
     if output:
-        Path(output).write_text(md, encoding="utf-8")
+        out_p = Path(output)
+        out_file = (base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        out_file.write_text(md, encoding="utf-8")
         print("[ok] spec 初稿 → %s（%d 页，结构校验 %s）"
-              % (output, check["pages"], "通过" if check["ok"] else "失败"))
+              % (out_file, check["pages"], "通过" if check["ok"] else "失败"))
     if not check["ok"]:
         print("[warn] 初稿结构校验发现 %d 个问题：" % len(check["problems"]),
               file=sys.stderr)
@@ -164,15 +171,20 @@ def draft_spec(brief_path: str, output: str | None = None,
             "validation": check}
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     ap = argparse.ArgumentParser(description="简报 → spec_lock.md 初稿（Agnes 起草 + 结构硬校验）")
     ap.add_argument("brief_md", help="brief_writer 产出的简报 markdown")
     ap.add_argument("-o", "--output", help="输出 spec 初稿路径")
     ap.add_argument("--model", default=DEFAULT_TEXT_MODEL)
     ap.add_argument("--dry-run", action="store_true", help="只打印 prompt，不调 Agnes")
     a = ap.parse_args(argv)
-    result = draft_spec(a.brief_md, output=a.output, model=a.model,
-                        dry_run=a.dry_run)
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    try:
+        result = draft_spec(a.brief_md, output=a.output, model=a.model,
+                            dry_run=a.dry_run, base_dir=base)
+    except FileNotFoundError as err:
+        print(f"[err] {err}", file=sys.stderr)
+        return 1
     if not a.dry_run and not result["validation"]["ok"]:
         return 2
     return 0

@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 from scripts.brief_to_spec import (build_spec_prompt, draft_spec,
-                                     validate_spec_draft, _strip_fences)
+                                     validate_spec_draft, _strip_fences, main)
 
 GOOD_DRAFT = """# Execution Lock — 测试主题（初稿，待人工审定）
 ## canvas
@@ -136,10 +136,39 @@ class TestDraftSpecChain(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             brief = Path(td) / "brief.md"
             brief.write_text(BRIEF, encoding="utf-8")
-            with mock.patch("scripts.brief_to_spec.call_agnes") as ca:
+            with mock.patch("scripts.brief_to_spec.call_agnes", return_value="") as ca:
                 r = draft_spec(str(brief), dry_run=True)
             ca.assert_not_called()
             self.assertTrue(r["dry_run"])
+
+    def test_draft_spec_with_base_dir_and_relative_paths(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            proj = base / "my_proj"
+            proj.mkdir()
+            (proj / "brief.md").write_text(BRIEF, encoding="utf-8")
+            with mock.patch("scripts.brief_to_spec.call_agnes", return_value=GOOD_DRAFT):
+                res = draft_spec("my_proj/brief.md", output="my_proj/output/spec.md", base_dir=base)
+            self.assertTrue(res["validation"]["ok"])
+            self.assertTrue((proj / "output" / "spec.md").is_file())
+            self.assertIn("1920 1080", (proj / "output" / "spec.md").read_text(encoding="utf-8"))
+
+    def test_main_cli_with_base_dir_and_relative_paths(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            proj = base / "my_proj"
+            proj.mkdir()
+            (proj / "brief.md").write_text(BRIEF, encoding="utf-8")
+            with mock.patch("scripts.brief_to_spec.call_agnes", return_value=GOOD_DRAFT):
+                code = main(["my_proj/brief.md", "-o", "my_proj/output/spec.md"], base_dir=base)
+            self.assertEqual(code, 0)
+            self.assertTrue((proj / "output" / "spec.md").is_file())
+
+    def test_main_cli_file_not_found(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            code = main(["non_existent_brief.md"], base_dir=base)
+            self.assertEqual(code, 1)
 
 
 if __name__ == "__main__":
