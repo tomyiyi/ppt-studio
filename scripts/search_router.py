@@ -484,7 +484,7 @@ def doctor() -> dict[str, dict]:
     return results
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     ap = argparse.ArgumentParser(description="统一搜索路由（多后端 fallback）")
     ap.add_argument("query", nargs="?", help="搜索关键词")
     ap.add_argument("--backends", default="auto",
@@ -499,7 +499,7 @@ def main(argv: list[str] | None = None) -> None:
     if a.doctor:
         rep = doctor()
         print(json.dumps(rep, ensure_ascii=False, indent=2))
-        return
+        return 0
     if not a.query:
         ap.error("需要 query，或用 --doctor 自检")
 
@@ -511,12 +511,17 @@ def main(argv: list[str] | None = None) -> None:
 
     out = json.dumps(res, ensure_ascii=False, indent=2)
     if a.output:
-        Path(a.output).write_text(out, encoding="utf-8")
+        base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+        out_p = Path(a.output)
+        out_file = (base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        out_file.write_text(out, encoding="utf-8")
     else:
         print(out)
     print("[ok] 后端=%s 结果=%d 条" % (res["backend_used"], len(res["results"])),
           file=sys.stderr)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
