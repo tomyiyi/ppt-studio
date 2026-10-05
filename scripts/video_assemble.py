@@ -9,6 +9,7 @@ ensure_page_images / resolve_project_dir。
 
 from __future__ import annotations
 
+import argparse
 import os
 import re
 import subprocess
@@ -267,4 +268,80 @@ def resolve_project_dir(
         raise ValueError(
             f"发现多个有效项目 ({names})，无法安全确定，请显式指定 project 参数"
         )
+
+
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="video_assemble -- 视频分镜组装辅助与项目发现工具",
+    )
+    parser.add_argument(
+        "project",
+        nargs="?",
+        default=None,
+        help="项目路径或子目录 (自动解析或定位)",
+    )
+    parser.add_argument(
+        "--base-dir",
+        default=None,
+        help="指定基础工作目录 (默认: 当前工作目录)",
+    )
+    parser.add_argument(
+        "--probe",
+        default=None,
+        help="探测指定音视频文件时长 (秒)",
+    )
+    parser.add_argument(
+        "--find-svg-dir",
+        action="store_true",
+        help="输出项目内版本最高的 SVG 输出目录",
+    )
+    args = parser.parse_args(argv)
+
+    effective_base = (
+        Path(args.base_dir).resolve()
+        if args.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
+
+    if args.probe:
+        try:
+            dur = probe_duration(args.probe, base_dir=effective_base)
+            print(f"{dur:.3f}")
+            return 0
+        except Exception as e:
+            print(f"[!] 探测时长失败: {e}", file=sys.stderr)
+            return 1
+
+    try:
+        proj = resolve_project_dir(args.project, base_dir=effective_base)
+    except Exception as e:
+        print(f"[!] 解析项目失败: {e}", file=sys.stderr)
+        return 1
+
+    if args.find_svg_dir:
+        svg_dir = _find_svg_dir(proj, base_dir=effective_base)
+        if svg_dir:
+            print(str(svg_dir))
+            return 0
+        else:
+            print(f"[!] 未在 {proj} 找到有效 SVG 目录", file=sys.stderr)
+            return 1
+
+    print(str(proj))
+    return 0
+
+
+__all__ = [
+    "run_cmd",
+    "commit_video_pair",
+    "probe_duration",
+    "ensure_page_images",
+    "resolve_project_dir",
+    "_find_svg_dir",
+    "main",
+]
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
 

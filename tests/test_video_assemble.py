@@ -7,6 +7,8 @@ tests/test_video_assemble.py
 使用标准库 unittest 与 tempfile，不调用真实图形渲染或编解码硬件。
 """
 
+import contextlib
+import io
 import os
 import subprocess
 import sys
@@ -23,6 +25,7 @@ from scripts.video_assemble import (
     _find_svg_dir,
     commit_video_pair,
     ensure_page_images,
+    main,
     probe_duration,
     resolve_project_dir,
     run_cmd,
@@ -239,6 +242,83 @@ class TestRunCmd(unittest.TestCase):
     def test_run_cmd_failure_raises(self):
         with self.assertRaises(subprocess.CalledProcessError):
             run_cmd(["false"], check=True)
+
+
+class TestVideoAssembleMain(unittest.TestCase):
+    """测试 video_assemble CLI main 入口。"""
+
+    def test_main_resolve_project(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            proj = base / "my_project"
+            proj.mkdir()
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = main([str(proj)])
+            self.assertEqual(rc, 0)
+            self.assertIn("my_project", buf.getvalue())
+
+    def test_main_resolve_project_relative_with_base_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            proj = base / "my_project"
+            proj.mkdir()
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = main(["my_project", "--base-dir", str(base)])
+            self.assertEqual(rc, 0)
+            self.assertEqual(buf.getvalue().strip(), str(proj.resolve()))
+
+    def test_main_resolve_project_not_found(self):
+        err_buf = io.StringIO()
+        with contextlib.redirect_stderr(err_buf):
+            rc = main(["/non_existent_dir_99999"])
+        self.assertEqual(rc, 1)
+        self.assertIn("解析项目失败", err_buf.getvalue())
+
+    @patch("scripts.video_assemble.probe_duration")
+    def test_main_probe(self, mock_probe):
+        mock_probe.return_value = 45.678
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = main(["--probe", "dummy.mp4"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(buf.getvalue().strip(), "45.678")
+
+    @patch("scripts.video_assemble.probe_duration")
+    def test_main_probe_error(self, mock_probe):
+        mock_probe.side_effect = RuntimeError("probe error")
+        err_buf = io.StringIO()
+        with contextlib.redirect_stderr(err_buf):
+            rc = main(["--probe", "dummy.mp4"])
+        self.assertEqual(rc, 1)
+        self.assertIn("探测时长失败", err_buf.getvalue())
+
+    def test_main_find_svg_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            proj = base / "proj"
+            svg_dir = proj / "svg_output_v2"
+            svg_dir.mkdir(parents=True)
+            (svg_dir / "01.svg").write_text("<svg/>", encoding="utf-8")
+
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = main([str(proj), "--find-svg-dir"])
+            self.assertEqual(rc, 0)
+            self.assertEqual(buf.getvalue().strip(), str(svg_dir.resolve()))
+
+    def test_main_find_svg_dir_none(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            proj = base / "proj"
+            proj.mkdir()
+
+            err_buf = io.StringIO()
+            with contextlib.redirect_stderr(err_buf):
+                rc = main([str(proj), "--find-svg-dir"])
+            self.assertEqual(rc, 1)
+            self.assertIn("未在", err_buf.getvalue())
 
 
 if __name__ == "__main__":
