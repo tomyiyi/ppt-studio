@@ -642,6 +642,9 @@ class TestQAVideoProgrammaticAPI(unittest.TestCase):
             srt.write_text("1\n00:00:01,000 --> 00:00:03,000\n你好\n", encoding="utf-8")
             self.assertTrue(run_qa_subtitles(srt, verbose=False))
             self.assertTrue(qa_video(srt, verbose=False))
+            # 相对路径 + base_dir
+            self.assertTrue(run_qa_subtitles("test.srt", verbose=False, base_dir=tmp_dir))
+            self.assertTrue(qa_video("test.srt", verbose=False, base_dir=tmp_dir))
 
     def test_run_qa_subtitles_invalid(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -649,9 +652,12 @@ class TestQAVideoProgrammaticAPI(unittest.TestCase):
             srt.write_text("1\n00:00:05,000 --> 00:00:03,000\n倒挂\n", encoding="utf-8")
             self.assertFalse(run_qa_subtitles(srt, verbose=False))
             self.assertFalse(qa_video(srt, verbose=False))
+            self.assertFalse(run_qa_subtitles("bad.srt", verbose=False, base_dir=tmp_dir))
+            self.assertFalse(qa_video("bad.srt", verbose=False, base_dir=tmp_dir))
 
     def test_run_qa_subtitles_missing(self):
         self.assertFalse(run_qa_subtitles("/non_existent_subtitles_file.srt", verbose=False))
+        self.assertFalse(run_qa_subtitles("non_existent_subtitles_file.srt", verbose=False, base_dir="/non_existent_base_dir"))
 
 
 class TestQAVideoSubdirAndSpecResolution(unittest.TestCase):
@@ -760,6 +766,15 @@ class TestQAVideoSubdirAndSpecResolution(unittest.TestCase):
             code1 = main([str(self.render_dir)])
             self.assertEqual(code1, 0)
             code2 = main([str(self.spec_file)])
+            self.assertEqual(code2, 0)
+        self.assertEqual(mock_single.call_count, 2)
+
+    @patch("scripts.qa_video.qa_single_video", return_value=True)
+    def test_cli_with_base_dir(self, mock_single):
+        with patch("sys.stdout", new_callable=io.StringIO):
+            code1 = main(["."], base_dir=self.render_dir)
+            self.assertEqual(code1, 0)
+            code2 = main(["spec_lock.md"], base_dir=self.proj)
             self.assertEqual(code2, 0)
         self.assertEqual(mock_single.call_count, 2)
 

@@ -73,9 +73,23 @@ def validate_delivered_artifact(
     suffix = path.suffix.lower()
     ok = True
     if suffix == ".mp4":
-        ok = bool(run_qa_video(path, verbose=verbose))
+        try:
+            ok = bool(
+                run_qa_video(path, verbose=verbose, base_dir=base)
+                if base_dir is not None
+                else run_qa_video(path, verbose=verbose)
+            )
+        except TypeError:
+            ok = bool(run_qa_video(path, verbose=verbose))
     elif suffix == ".pptx":
-        ok = bool(run_qa_pptx(path, verbose=verbose))
+        try:
+            ok = bool(
+                run_qa_pptx(path, verbose=verbose, base_dir=base)
+                if base_dir is not None
+                else run_qa_pptx(path, verbose=verbose)
+            )
+        except TypeError:
+            ok = bool(run_qa_pptx(path, verbose=verbose))
     elif suffix == ".png":
         try:
             ok = bool(
@@ -104,7 +118,14 @@ def validate_delivered_artifact(
         except TypeError:
             ok = bool(run_qa_layout(path, verbose=verbose))
     elif suffix == ".srt":
-        ok = bool(run_qa_subtitles(path, verbose=verbose))
+        try:
+            ok = bool(
+                run_qa_subtitles(path, verbose=verbose, base_dir=base)
+                if base_dir is not None
+                else run_qa_subtitles(path, verbose=verbose)
+            )
+        except TypeError:
+            ok = bool(run_qa_subtitles(path, verbose=verbose))
 
     if not ok:
         raise RuntimeError(f"产物客观质量门禁未通过: {display_name}")

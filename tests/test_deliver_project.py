@@ -509,7 +509,7 @@ class TestValidateDeliveredArtifact(unittest.TestCase):
         f.write_bytes(b"pptx")
         with patch("scripts.deliver_project.run_qa_pptx", return_value=True) as qa_mock:
             validate_delivered_artifact("deck.pptx", base_dir=proj)
-        qa_mock.assert_called_once_with(f.resolve(), verbose=False)
+        qa_mock.assert_called_once_with(f.resolve(), verbose=False, base_dir=proj.resolve())
 
     def test_validate_delivered_artifact_forwards_base_dir(self):
         proj = self.root / "subproj2"
@@ -532,6 +532,18 @@ class TestValidateDeliveredArtifact(unittest.TestCase):
         with patch("scripts.deliver_project.run_qa_layout", return_value=True) as mock_layout:
             validate_delivered_artifact("slide.svg", base_dir=proj)
             mock_layout.assert_called_once_with(svg_file.resolve(), verbose=False, base_dir=proj.resolve())
+
+        mp4_file = proj / "video.mp4"
+        mp4_file.write_bytes(b"mp4")
+        with patch("scripts.deliver_project.run_qa_video", return_value=True) as mock_video:
+            validate_delivered_artifact("video.mp4", base_dir=proj)
+            mock_video.assert_called_once_with(mp4_file.resolve(), verbose=False, base_dir=proj.resolve())
+
+        srt_file = proj / "sub.srt"
+        srt_file.write_bytes(b"1\n00:00:01,000 --> 00:00:02,000\nhi\n")
+        with patch("scripts.deliver_project.run_qa_subtitles", return_value=True) as mock_srt:
+            validate_delivered_artifact("sub.srt", base_dir=proj)
+            mock_srt.assert_called_once_with(srt_file.resolve(), verbose=False, base_dir=proj.resolve())
 
 
 class TestDeliverProjectBaseDir(unittest.TestCase):
