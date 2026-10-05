@@ -702,8 +702,17 @@ class TestQAVideoSubdirAndSpecResolution(unittest.TestCase):
             self.assertEqual(resolve_project_dir(self.images_dir), self.proj.resolve())
             self.assertEqual(resolve_project_dir(self.notes_dir), self.proj.resolve())
             self.assertEqual(resolve_project_dir(self.spec_file), self.proj.resolve())
+            self.assertEqual(resolve_project_dir(base_dir=self.svg_dir), self.proj.resolve())
+            self.assertEqual(resolve_project_dir(base_dir=self.spec_file), self.proj.resolve())
             self.assertEqual(resolve_project_dir(""), Path.cwd().resolve())
             self.assertEqual(resolve_project_dir("."), Path.cwd().resolve())
+
+    def test_resolve_project_dir_base_dir(self):
+        self.assertEqual(resolve_project_dir(base_dir=self.svg_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(base_dir=self.render_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(base_dir=self.images_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(base_dir=self.notes_dir), self.proj.resolve())
+        self.assertEqual(resolve_project_dir(base_dir=self.spec_file), self.proj.resolve())
 
     def test_find_videos_from_subfolder(self):
         found_render = find_videos(self.render_dir)
@@ -714,6 +723,13 @@ class TestQAVideoSubdirAndSpecResolution(unittest.TestCase):
 
         found_notes = find_videos(self.notes_dir)
         self.assertEqual(found_notes, [self.video_file.resolve()])
+
+    def test_find_videos_with_base_dir(self):
+        # 相对路径 + base_dir
+        found = find_videos("output", base_dir=self.proj)
+        self.assertEqual(found, [self.video_file.resolve()])
+        found_dot = find_videos(".", base_dir=self.render_dir)
+        self.assertEqual(found_dot, [self.video_file.resolve()])
 
     def test_find_videos_from_spec_file(self):
         found_spec = find_videos(self.spec_file)
@@ -730,6 +746,12 @@ class TestQAVideoSubdirAndSpecResolution(unittest.TestCase):
     def test_qa_video_from_subfolder_and_spec_file(self, mock_single):
         self.assertTrue(qa_video(self.render_dir, verbose=False))
         self.assertTrue(qa_video(self.spec_file, verbose=False))
+        self.assertEqual(mock_single.call_count, 2)
+
+    @patch("scripts.qa_video.qa_single_video", return_value=True)
+    def test_qa_video_with_base_dir(self, mock_single):
+        self.assertTrue(qa_video(".", base_dir=self.render_dir, verbose=False))
+        self.assertTrue(qa_video("spec_lock.md", base_dir=self.proj, verbose=False))
         self.assertEqual(mock_single.call_count, 2)
 
     @patch("scripts.qa_video.qa_single_video", return_value=True)

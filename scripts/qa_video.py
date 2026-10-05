@@ -41,14 +41,25 @@ except ImportError:
         _cpm_resolve_project_dir = None
 
 
-def resolve_project_dir(project_arg: str | Path | None = None) -> Path:
+def resolve_project_dir(
+    project_arg: str | Path | None = None,
+    base_dir: str | Path | None = None,
+) -> Path:
     """自适应解析项目根目录（支持从子目录 images、svg_output*、cards 等或文件回退）。"""
     if _cpm_resolve_project_dir is not None:
-        return _cpm_resolve_project_dir(project_arg)
+        try:
+            return _cpm_resolve_project_dir(project_arg, base_dir=base_dir)
+        except TypeError:
+            return _cpm_resolve_project_dir(project_arg)
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     if project_arg is not None and str(project_arg).strip() not in ("", "."):
-        p = Path(project_arg).resolve()
+        p = Path(project_arg)
+        if not p.is_absolute():
+            p = (base / p).resolve()
+        else:
+            p = p.resolve()
     else:
-        p = Path.cwd().resolve()
+        p = base
     if p.is_file():
         p = p.parent
     if (
@@ -328,17 +339,25 @@ def check_bitrate_and_fps(v_stream: dict | None, format_info: dict) -> tuple[boo
     return True, f"{fps:.1f} fps · {bitrate} kbps"
 
 
-def find_videos(target: Path | str | None = None) -> list[Path]:
+def find_videos(
+    target: Path | str | None = None,
+    base_dir: Path | str | None = None,
+) -> list[Path]:
     """在目标路径或其子目录中查找 mp4 视频文件。"""
-    if target is None:
-        target_path = Path.cwd().resolve()
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    if target is None or str(target).strip() in ("", "."):
+        target_path = base
     else:
-        target_path = Path(target).resolve()
+        target_path = Path(target)
+    if not target_path.is_absolute():
+        target_path = (base / target_path).resolve()
+    if not target_path.exists():
+        return []
     if target_path.is_file():
         if target_path.suffix.lower() == ".mp4":
             return [target_path]
         # 自适应从关联项目解析 MP4 视频
-        proj = resolve_project_dir(target_path)
+        proj = resolve_project_dir(target_path, base_dir=base)
         cand_files: list[Path] = []
         if (proj / "output").is_dir():
             cand_files.extend(sorted((proj / "output").glob("*.mp4")))
@@ -348,7 +367,7 @@ def find_videos(target: Path | str | None = None) -> list[Path]:
             deduped: list[Path] = []
             for f in cand_files:
                 rf = f.resolve()
-                if rf not in seen:
+                if rf not in seen and ".venv" not in str(rf) and "site-packages" not in str(rf):
                     seen.add(rf)
                     deduped.append(rf)
             return deduped
@@ -369,7 +388,7 @@ def find_videos(target: Path | str | None = None) -> list[Path]:
             return found
 
     # 3. 关联项目解析（如 target_path 为子目录 images、render、svg_output、cards 等）
-    proj = resolve_project_dir(target_path)
+    proj = resolve_project_dir(target_path, base_dir=base)
     if proj != target_path:
         if (proj / "output").is_dir():
             found.extend(sorted((proj / "output").glob("*.mp4")))
@@ -393,12 +412,12 @@ def find_videos(target: Path | str | None = None) -> list[Path]:
     if not found and (target_path.parent / "output").is_dir():
         found = sorted((target_path.parent / "output").glob("*.mp4"))
 
-    # 去重保持顺序
+    # 去重保持顺序并排除 .venv / site-packages
     seen: set[Path] = set()
     deduped: list[Path] = []
     for f in found:
         rf = f.resolve()
-        if rf not in seen:
+        if rf not in seen and ".venv" not in str(rf) and "site-packages" not in str(rf):
             seen.add(rf)
             deduped.append(rf)
 
@@ -473,14 +492,27 @@ def qa_video(
     video_path: Path | str | None = None,
     srt_path: Path | str | None = None,
     verbose: bool = True,
+    base_dir: Path | str | None = None,
 ) -> bool:
     """运行 PPT-Studio 视频质量自动化客观门禁。
 
     支持输入单个 MP4 视频文件路径、包含 *.mp4 的目录路径，或留空默认自发现。
     支持 Path、str 或 None 输入。
     """
-    target = Path(video_path).resolve() if video_path else Path.cwd().resolve()
-    srt_p = Path(srt_path).resolve() if srt_path else None
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    if video_path is None or str(video_path).strip() in ("", "."):
+        target = base
+    else:
+        target = Path(video_path)
+    if not target.is_absolute():
+        target = (base / target).resolve()
+
+    if srt_path:
+        srt_p = Path(srt_path)
+        if not srt_p.is_absolute():
+            srt_p = (base / srt_p).resolve()
+    else:
+        srt_p = None
 
     if not target.exists():
         if verbose:
@@ -492,7 +524,7 @@ def qa_video(
             return run_qa_subtitles(target, verbose=verbose)
         if target.suffix.lower() == ".mp4":
             return qa_single_video(target, srt_p, verbose=verbose)
-        mp4s = find_videos(target)
+        mp4s = find_videos(target, base_dir=base)
         if not mp4s:
             if verbose:
                 print(f"[ERROR] 目标文件非有效 MP4 格式: {target}")
@@ -507,7 +539,7 @@ def qa_video(
         return all_passed
 
     if target.is_dir():
-        mp4s = find_videos(target)
+        mp4s = find_videos(target, base_dir=base)
         if not mp4s:
             if verbose:
                 print(f"[ERROR] 在 {target} 或 output/、projects/*/output/ 下未找到 mp4 视频")
