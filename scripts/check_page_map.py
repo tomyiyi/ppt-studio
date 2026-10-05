@@ -103,16 +103,19 @@ def resolve_project_dir(
 
 
 def check(
-    project_dir: str | Path,
+    project_dir: str | Path | None = None,
     spec_path: str | Path | None = None,
+    base_dir: str | Path | None = None,
 ) -> tuple[bool, list[str]]:
     """返回 (是否通过, 问题列表)。"""
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     issues = []
-    proj = resolve_project_dir(project_dir)
+    proj = resolve_project_dir(project_dir, base_dir=base)
 
     spec: Path | None = None
     if spec_path:
-        spec = Path(spec_path).resolve()
+        sp = Path(spec_path)
+        spec = (base / sp).resolve() if not sp.is_absolute() else sp.resolve()
     else:
         try:
             from scripts.spec_resolve import resolve_spec, find_spec
@@ -127,12 +130,18 @@ def check(
             spec = resolve_spec(proj)
         if (spec is None or not spec.is_file()) and find_spec is not None:
             spec = find_spec(proj)
+        target_in = (
+            (base / Path(project_dir)).resolve()
+            if project_dir is not None and not Path(project_dir).is_absolute()
+            else (Path(project_dir).resolve() if project_dir is not None else None)
+        )
         if (
             (spec is None or not spec.is_file())
             and find_spec is not None
-            and str(proj) != str(Path(project_dir).resolve())
+            and target_in is not None
+            and str(proj) != str(target_in)
         ):
-            spec = find_spec(Path(project_dir).resolve())
+            spec = find_spec(target_in)
 
     if spec is None or not spec.is_file():
         return False, ["找不到 spec_lock（已按 版本>基线 规则查找）: %s" % project_dir]
@@ -140,8 +149,13 @@ def check(
     if not page_map:
         return False, ["spec_lock.md 缺少 ## page_map 节（每页一行：- P01: role=Cover, rhythm=anchor）"]
     svg_dir = find_svg_dir(proj)
-    if not svg_dir and str(proj) != str(Path(project_dir).resolve()):
-        svg_dir = find_svg_dir(Path(project_dir).resolve())
+    target_in = (
+        (base / Path(project_dir)).resolve()
+        if project_dir is not None and not Path(project_dir).is_absolute()
+        else (Path(project_dir).resolve() if project_dir is not None else None)
+    )
+    if not svg_dir and target_in is not None and str(proj) != str(target_in):
+        svg_dir = find_svg_dir(target_in)
     if not svg_dir:
         return False, ["找不到 SVG 目录（svg_output* 或项目根）"]
     svg_pages = set()
@@ -162,13 +176,17 @@ def check(
     return (len(issues) == 0), issues
 
 
-def main() -> None:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     ap = argparse.ArgumentParser(description="page_map roster 完整性检查")
-    ap.add_argument("project_dir", help="项目目录")
+    ap.add_argument("project_dir", nargs="?", default=None, help="项目目录")
     ap.add_argument("--spec", help="显式指定 spec_lock.md")
-    a = ap.parse_args()
-    proj = resolve_project_dir(a.project_dir)
-    spec = Path(a.spec).resolve() if a.spec else None
+    a = ap.parse_args(argv)
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    proj = resolve_project_dir(a.project_dir, base_dir=base)
+    spec = None
+    if a.spec:
+        sp = Path(a.spec)
+        spec = (base / sp).resolve() if not sp.is_absolute() else sp.resolve()
     if spec is None:
         try:
             from scripts.spec_resolve import resolve_spec, find_spec
@@ -182,15 +200,29 @@ def main() -> None:
             spec = resolve_spec(proj)
         if (spec is None or not spec.is_file()) and find_spec is not None:
             spec = find_spec(proj)
+        target_in = (
+            (base / Path(a.project_dir)).resolve()
+            if a.project_dir is not None and not Path(a.project_dir).is_absolute()
+            else (Path(a.project_dir).resolve() if a.project_dir is not None else None)
+        )
+        if (
+            (spec is None or not spec.is_file())
+            and find_spec is not None
+            and target_in is not None
+            and str(proj) != str(target_in)
+        ):
+            spec = find_spec(target_in)
     print("[i] 采用 spec: %s" % (spec if spec else "未找到"))
-    ok, issues = check(proj, spec)
+    ok, issues = check(proj, spec_path=spec, base_dir=base)
     if ok:
         print("[ok] roster 完整")
     else:
         print("[fail] 发现 %d 个问题：" % len(issues))
         for i in issues:
             print("  -", i)
-    sys.exit(0 if ok else 1)
+    if argv is None:
+        sys.exit(0 if ok else 1)
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

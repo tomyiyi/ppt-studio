@@ -178,6 +178,17 @@ class TestSubdirAndVersionResolution(unittest.TestCase):
             self.assertEqual(resolve_project_dir(base_dir=spec), proj.resolve())
             self.assertEqual(resolve_project_dir("spec_lock.md", base_dir=proj), proj.resolve())
 
+    def test_check_with_base_dir_and_relative_paths(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "my_proj"
+            (proj / "svg_output").mkdir(parents=True)
+            (proj / "spec_lock.md").write_text("## page_map\n- P01: role=Cover\n", encoding="utf-8")
+            (proj / "svg_output" / "P01.svg").touch()
+            ok, issues = check("my_proj", spec_path="my_proj/spec_lock.md", base_dir=td)
+            self.assertTrue(ok)
+            self.assertEqual(issues, [])
+
 
 """第 25 轮测试 A：check_page_map.main() 打印采用的 spec。"""
 
@@ -205,6 +216,25 @@ class MainSpecVisibilityTest(unittest.TestCase):
             out = buf.getvalue()
             self.assertIn("[i] 采用 spec:", out)
             self.assertIn("spec_lock.md", out)
+
+    def test_main_with_argv_and_base_dir(self):
+        import io
+        import tempfile
+        from contextlib import redirect_stdout
+        from scripts import check_page_map as _cpm
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "my_proj"
+            (proj / "svg_output").mkdir(parents=True)
+            (proj / "spec_lock.md").write_text(
+                "## page_map\n- P01: role=Cover, rhythm=anchor\n",
+                encoding="utf-8")
+            (proj / "svg_output" / "P01.svg").write_text("<svg/>", encoding="utf-8")
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = _cpm.main(["my_proj", "--spec", "my_proj/spec_lock.md"], base_dir=td)
+            self.assertEqual(rc, 0)
+            out = buf.getvalue()
+            self.assertIn("[ok] roster 完整", out)
 
 
 if __name__ == "__main__":
