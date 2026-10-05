@@ -505,6 +505,26 @@ class MainCliTest(unittest.TestCase):
                 self.assertEqual(data["backend_used"], "mock")
                 self.assertEqual(len(data["results"]), 1)
 
+    def test_main_cli_with_base_dir_flag(self):
+        import json
+        import tempfile
+        fake_result = {
+            "query": "test query",
+            "backend_used": "mock",
+            "results": [{"title": "t", "url": "u"}],
+            "attempts": [{"backend": "mock", "ok": True, "n": 1, "error": ""}],
+        }
+        with patch.object(R, "search", return_value=fake_result):
+            with tempfile.TemporaryDirectory() as td:
+                base = Path(td)
+                code = R.main(["test query", "-o", "data/router_res.json", "--base-dir", str(base)])
+                self.assertEqual(code, 0)
+                out_file = base / "data" / "router_res.json"
+                self.assertTrue(out_file.is_file())
+                data = json.loads(out_file.read_text(encoding="utf-8"))
+                self.assertEqual(data["backend_used"], "mock")
+                self.assertEqual(len(data["results"]), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
