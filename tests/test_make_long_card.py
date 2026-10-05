@@ -285,6 +285,18 @@ class TestResolveProjectDir(unittest.TestCase):
             resolved = resolve_project_dir(str(sub))
             self.assertEqual(resolved, proj.resolve())
 
+    def test_explicit_file_and_other_subfolders_normalization(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "proj"
+            create_minimal_card_project(proj)
+            spec = proj / "card_spec.md"
+            spec.write_text("# spec", encoding="utf-8")
+            self.assertEqual(resolve_project_dir(str(spec)), proj.resolve())
+            for sub_name in ("images", "svg_output", "render", "render_cards", "notes", "output"):
+                sub = proj / sub_name
+                sub.mkdir(parents=True, exist_ok=True)
+                self.assertEqual(resolve_project_dir(str(sub)), proj.resolve())
+
     def test_base_subfolder_resolves_to_parent(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             proj = Path(tmp_dir) / "proj"
@@ -293,6 +305,18 @@ class TestResolveProjectDir(unittest.TestCase):
             sub.mkdir(parents=True)
             resolved = resolve_project_dir(base_dir=sub)
             self.assertEqual(resolved, proj.resolve())
+
+    def test_auto_discovery_from_file_and_other_subfolders(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "proj"
+            create_minimal_card_project(proj)
+            spec = proj / "card_spec.md"
+            spec.write_text("# spec", encoding="utf-8")
+            self.assertEqual(resolve_project_dir(base_dir=spec), proj.resolve())
+            for sub_name in ("images", "svg_output", "render", "render_cards", "notes", "output"):
+                sub = proj / sub_name
+                sub.mkdir(parents=True, exist_ok=True)
+                self.assertEqual(resolve_project_dir(base_dir=sub), proj.resolve())
 
     def test_explicit_dir_without_cards_raises(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

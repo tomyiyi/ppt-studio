@@ -415,11 +415,17 @@ def resolve_project_dir(
         if p.is_dir() and p.name == "cards" and list(p.glob("*.svg")):
             return p.parent.resolve()
 
+        if p.is_file():
+            if (p.parent / "cards").is_dir() and list((p.parent / "cards").glob("*.svg")):
+                return p.parent.resolve()
+            p = p.parent
+
         if (
             p.is_dir()
             and (
-                p.name in ("images", "svg_output", "render_cards", "render", "notes")
+                p.name in ("images", "svg_output", "render_cards", "render", "notes", "output", "cards")
                 or p.name.startswith("svg_output")
+                or p.name.startswith("render")
             )
             and (p.parent / "cards").is_dir()
             and list((p.parent / "cards").glob("*.svg"))
@@ -454,11 +460,14 @@ def resolve_project_dir(
         return base.resolve()
     if base.is_dir() and base.name == "cards" and list(base.glob("*.svg")):
         return base.parent.resolve()
+    if base.is_file() and (base.parent / "cards").is_dir() and list((base.parent / "cards").glob("*.svg")):
+        return base.parent.resolve()
     if (
         base.is_dir()
         and (
-            base.name in ("images", "svg_output", "render_cards", "render", "notes")
+            base.name in ("images", "svg_output", "render_cards", "render", "notes", "output", "cards")
             or base.name.startswith("svg_output")
+            or base.name.startswith("render")
         )
         and (base.parent / "cards").is_dir()
         and list((base.parent / "cards").glob("*.svg"))
