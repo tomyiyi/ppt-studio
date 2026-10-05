@@ -110,9 +110,11 @@ def check_html_standards(content: str) -> tuple[bool, str]:
     return True, f"HTML5 标准骨架 · UTF-8 · 响应式视口 · 标题《{title}》"
 
 
-def run_qa_slide_preview(target_file: Path | str, verbose: bool = True) -> bool:
+def run_qa_slide_preview(target_file: Path | str, verbose: bool = True, base_dir: str | Path | None = None) -> bool:
     """质检交互式单文件翻页预览 HTML。"""
-    p = Path(target_file).resolve()
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    target_p = Path(target_file)
+    p = (base / target_p).resolve() if not target_p.is_absolute() else target_p.resolve()
     if not p.exists():
         if verbose:
             print(f"  [✗] 文件不存在: {p}")
@@ -286,9 +288,11 @@ def run_qa_slide_preview(target_file: Path | str, verbose: bool = True) -> bool:
     return bad == 0
 
 
-def run_qa_showroom_portal(target_file: Path | str, verbose: bool = True) -> bool:
+def run_qa_showroom_portal(target_file: Path | str, verbose: bool = True, base_dir: str | Path | None = None) -> bool:
     """质检多形态物料在线展厅 index.html。"""
-    p = Path(target_file).resolve()
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    target_p = Path(target_file)
+    p = (base / target_p).resolve() if not target_p.is_absolute() else target_p.resolve()
     if not p.exists():
         if verbose:
             print(f"  [✗] 文件不存在: {p}")
@@ -427,9 +431,11 @@ def run_qa_showroom_portal(target_file: Path | str, verbose: bool = True) -> boo
     return bad == 0
 
 
-def run_qa_html_file(f: Path | str, verbose: bool = True) -> bool:
+def run_qa_html_file(f: Path | str, verbose: bool = True, base_dir: str | Path | None = None) -> bool:
     """根据文件特征分流至单文件翻页预览或多形态物料展厅。"""
-    p = Path(f).resolve()
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    p_raw = Path(f)
+    p = (base / p_raw).resolve() if not p_raw.is_absolute() else p_raw.resolve()
     if not p.exists():
         if verbose:
             print(f"[!] 无法读取文件 {p}: [Errno 2] No such file or directory: '{p}'")
@@ -442,9 +448,9 @@ def run_qa_html_file(f: Path | str, verbose: bool = True) -> bool:
         return False
 
     if p.name == "index.html" or "展厅" in content or "MULTI-OUTPUT PIPELINE" in content:
-        return run_qa_showroom_portal(p, verbose=verbose)
+        return run_qa_showroom_portal(p, verbose=verbose, base_dir=base)
     else:
-        return run_qa_slide_preview(p, verbose=verbose)
+        return run_qa_slide_preview(p, verbose=verbose, base_dir=base)
 
 
 def find_preview_files(target: Path | str | None = None, base_dir: Path | None = None) -> list[Path]:
@@ -535,14 +541,16 @@ def find_preview_files(target: Path | str | None = None, base_dir: Path | None =
 def run_qa_preview(
     target: Path | str | None = None,
     verbose: bool = True,
+    base_dir: str | Path | None = None,
 ) -> bool:
     """运行 PPT-Studio HTML 预览与多形态展厅客观质量门禁。
 
     支持输入单个 HTML 文件路径、包含 *.html 的目录路径，或留空默认自发现。
     支持 Path、str 或 None 输入。
     """
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     try:
-        files_to_check = find_preview_files(target)
+        files_to_check = find_preview_files(target, base_dir=base)
     except (FileNotFoundError, ValueError) as err:
         if verbose:
             print(f"[!] {err}")
@@ -556,7 +564,7 @@ def run_qa_preview(
 
     all_ok = True
     for i, f in enumerate(files_to_check):
-        ok = run_qa_html_file(f, verbose=verbose)
+        ok = run_qa_html_file(f, verbose=verbose, base_dir=base)
         if not ok:
             all_ok = False
         if verbose and i < len(files_to_check) - 1:
@@ -569,7 +577,7 @@ qa_single_preview = run_qa_html_file
 run_qa_single_preview = run_qa_html_file
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     parser = argparse.ArgumentParser(description="PPT-Studio HTML 预览与多形态展厅客观质量门禁")
     parser.add_argument("target", nargs="?", default=".", help="HTML 文件路径、output 目录或项目根目录（默认当前目录自发现）")
     parser.add_argument("--verbose", "-v", action="store_true", default=True, help="详细日志输出（默认开启）")
@@ -577,7 +585,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     verbose = not args.quiet if args.quiet else args.verbose
-    ok = run_qa_preview(args.target, verbose=verbose)
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    ok = run_qa_preview(args.target, verbose=verbose, base_dir=base)
     return 0 if ok else 1
 
 

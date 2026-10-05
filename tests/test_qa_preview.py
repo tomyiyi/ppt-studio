@@ -741,6 +741,18 @@ class TestQAPreviewSubdirAndSpecResolution(unittest.TestCase):
             code2 = main([str(self.spec_file)])
             self.assertEqual(code2, 0)
 
+    def test_run_qa_preview_and_main_with_base_dir(self):
+        base = Path(self.td.name)
+        rel_proj = self.proj.relative_to(base)
+        rel_html = self.preview_html.relative_to(base)
+
+        with patch("sys.stdout", new_callable=io.StringIO):
+            self.assertTrue(run_qa_slide_preview(rel_html, base_dir=base))
+            self.assertTrue(run_qa_html_file(rel_html, base_dir=base))
+            self.assertTrue(run_qa_preview(rel_proj, base_dir=base))
+            self.assertEqual(main([str(rel_proj)], base_dir=base), 0)
+            self.assertEqual(main([str(rel_html)], base_dir=base), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
