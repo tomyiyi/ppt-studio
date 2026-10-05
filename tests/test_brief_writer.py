@@ -19,6 +19,7 @@ from brief_writer import (
     citable_sources,
     validate_citations,
     write_brief,
+    main,
 )
 
 BRIEF = {
@@ -148,6 +149,39 @@ class TestBriefWriter(unittest.TestCase):
             bp.write_text(json.dumps(bad), encoding="utf-8")
             with self.assertRaises(RuntimeError):
                 write_brief(str(bp), None)
+
+    @patch("brief_writer.load_chat_gateway", return_value=("http://x/v1", "k"))
+    @patch("urllib.request.urlopen", side_effect=fake_urlopen_factory(FAKE_MD))
+    def test_write_brief_with_base_dir_and_relative_paths(self, _mu, _mg):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            proj = base / "my_proj"
+            proj.mkdir()
+            (proj / "brief.json").write_text(json.dumps(BRIEF), encoding="utf-8")
+            res = write_brief("my_proj/brief.json", "my_proj/out/report.md", base_dir=base)
+            self.assertTrue(res["citation_check"]["ok"])
+            self.assertTrue((proj / "out" / "report.md").is_file())
+
+    @patch("brief_writer.load_chat_gateway", return_value=("http://x/v1", "k"))
+    @patch("urllib.request.urlopen", side_effect=fake_urlopen_factory(FAKE_MD))
+    def test_main_cli_with_base_dir_and_relative_paths(self, _mu, _mg):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            proj = base / "my_proj"
+            proj.mkdir()
+            (proj / "brief.json").write_text(json.dumps(BRIEF), encoding="utf-8")
+            code = main(["my_proj/brief.json", "-o", "my_proj/out/report.md"], base_dir=base)
+            self.assertEqual(code, 0)
+            self.assertTrue((proj / "out" / "report.md").is_file())
+
+    def test_main_cli_file_not_found(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            code = main(["missing.json"], base_dir=base)
+            self.assertEqual(code, 1)
 
 
 REAL_BRIEF = {'topic': '2026秋冬时尚趋势', 'sources': [{'title': 'Pantone 官方 FW2026 色板', 'url': 'https://www.pantone.com/color-finder/19-1521', 'snippet': 'Red Mahogany 19-1521 领衔 2026 秋冬色板，深酒红调成为核心流行色。', 'trust': 0.95, 'grade': 'A'}, {'title': 'W Magazine：Celine Hiver 2026', 'url': 'https://www.wmagazine.com/celine-hiver-2026', 'snippet': 'Celine 2026 冬季系列首推爵士鞋款，成为秀场焦点单品。', 'trust': 0.88, 'grade': 'A'}, {'title': 'Coveteur：BioFluff 皮草替代品', 'url': 'https://coveteur.com/biofluff-fur-alternative', 'snippet': 'BioFluff 植物基皮草替代品受关注，fur-trim 装饰细节出现在多个品牌秋冬系列。', 'trust': 0.8, 'grade': 'B'}, {'title': 'Elle：2026 秋冬配饰趋势', 'url': 'https://www.elle.com/fashion/fw2026-accessories', 'snippet': '爵士鞋与宽肩廓形西装成为 2026 秋冬关键单品，配饰强调复古运动混搭。', 'trust': 0.78, 'grade': 'B'}, {'title': 'Grazia 街拍观察', 'url': 'https://www.grazia.com/fw2026-street-style', 'snippet': '街拍中深色系大衣出现频率上升，约占受访造型的六成。', 'trust': 0.62, 'grade': 'C'}, {'title': '某论坛爆料帖', 'url': 'https://forum.example.com/fw2026-rumor', 'snippet': '据传 2026 秋冬将流行霓虹绿，相关搜索热度暴涨 300%，多家大牌秘密备货。', 'trust': 0.25, 'grade': 'D'}, {'title': '营销号小道消息', 'url': 'https://blog.example.com/glow-down-jacket', 'snippet': '小道消息称某大牌将推出夜间会发光的羽绒服，定价或超 5 万元。', 'trust': 0.18, 'grade': 'D'}]}

@@ -129,10 +129,14 @@ def validate_citations(md: str, n_sources: int) -> dict:
             "cited_count": len(cited), "source_count": n_sources}
 
 
-def write_brief(brief_path: str, output: str | None = None,
+def write_brief(brief_path: str | Path, output: str | Path | None = None,
                 model: str = DEFAULT_TEXT_MODEL,
-                dry_run: bool = False) -> dict:
-    brief = json.loads(Path(brief_path).read_text(encoding="utf-8"))
+                dry_run: bool = False,
+                base_dir: str | Path | None = None) -> dict:
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    bp = Path(brief_path)
+    brief_file = (base / bp).resolve() if not bp.is_absolute() else bp.resolve()
+    brief = json.loads(brief_file.read_text(encoding="utf-8"))
     sources = citable_sources(brief)
     if not sources:
         raise RuntimeError("无可引用来源（A/B/C 级为空），拒绝生成")
@@ -152,9 +156,12 @@ def write_brief(brief_path: str, output: str | None = None,
               "sources_used": len(sources),
               "citation_check": check, "markdown": md}
     if output:
-        Path(output).write_text(md, encoding="utf-8")
+        out_p = Path(output)
+        out_file = (base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        out_file.write_text(md, encoding="utf-8")
         print("[ok] 简报 → %s（引用 %d/%d 来源）"
-              % (output, check["cited_count"], len(sources)))
+              % (out_file, check["cited_count"], len(sources)))
     if not check["ok"]:
         print("[warn] 引用校验发现 %d 个问题：" % len(check["problems"]),
               file=sys.stderr)
@@ -163,16 +170,27 @@ def write_brief(brief_path: str, output: str | None = None,
     return result
 
 
-def main() -> None:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     ap = argparse.ArgumentParser(description="三段式研究第 3 段：Agnes 写带 citation 简报")
     ap.add_argument("brief_json", help="research_to_spec.py 输出的 JSON")
     ap.add_argument("-o", "--output", help="输出 markdown 路径")
     ap.add_argument("--model", default=DEFAULT_TEXT_MODEL)
     ap.add_argument("--dry-run", action="store_true",
                     help="只打印 prompt，不调 API")
-    a = ap.parse_args()
-    write_brief(a.brief_json, a.output, model=a.model, dry_run=a.dry_run)
+    a = ap.parse_args(argv)
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    try:
+        res = write_brief(a.brief_json, a.output, model=a.model, dry_run=a.dry_run, base_dir=base)
+    except FileNotFoundError as err:
+        print(f"[err] {err}", file=sys.stderr)
+        return 1
+    except Exception as err:
+        print(f"[err] {err}", file=sys.stderr)
+        return 1
+    if not a.dry_run and not res["citation_check"]["ok"]:
+        return 2
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
