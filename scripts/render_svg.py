@@ -83,14 +83,25 @@ except ImportError:
         _cpm_resolve_project_dir = None
 
 
-def resolve_project_dir(project_arg: str | Path | None = None) -> Path:
+def resolve_project_dir(
+    project_arg: str | Path | None = None,
+    base_dir: str | Path | None = None,
+) -> Path:
     """自适应解析项目根目录（支持从子目录 images、svg_output*、cards 等或文件回退）。"""
     if _cpm_resolve_project_dir is not None:
-        return _cpm_resolve_project_dir(project_arg)
+        try:
+            return _cpm_resolve_project_dir(project_arg, base_dir=base_dir)
+        except TypeError:
+            return _cpm_resolve_project_dir(project_arg)
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     if project_arg is not None and str(project_arg).strip() not in ("", "."):
-        p = Path(project_arg).resolve()
+        p = Path(project_arg)
+        if not p.is_absolute():
+            p = (base / p).resolve()
+        else:
+            p = p.resolve()
     else:
-        p = Path.cwd().resolve()
+        p = base
     if p.is_file():
         p = p.parent
     if (
@@ -249,7 +260,7 @@ def resolve_targets(
                 else:
                     default_out = p.parent / "render"
             else:
-                proj = resolve_project_dir(p)
+                proj = resolve_project_dir(p, base_dir=base)
                 svg_cand = _find_svg_dir(proj)
                 if svg_cand and has_svgs(svg_cand):
                     files = sorted(svg_cand.glob("*.svg"))
@@ -281,7 +292,7 @@ def resolve_targets(
                 files = sorted((p / "cards").glob("*.svg"))
                 default_out = p / "render_cards"
             else:
-                proj = resolve_project_dir(p)
+                proj = resolve_project_dir(p, base_dir=base)
                 if proj != p:
                     svg_cand = _find_svg_dir(proj)
                     if svg_cand and has_svgs(svg_cand):
@@ -306,7 +317,7 @@ def resolve_targets(
             files = sorted(base.glob("*.svg"))
             default_out = base.parent / "render_cards"
         else:
-            cand_proj = resolve_project_dir(base)
+            cand_proj = resolve_project_dir(base, base_dir=base)
             if cand_proj != base:
                 base_svg = _find_svg_dir(cand_proj)
                 if base_svg and has_svgs(base_svg):
