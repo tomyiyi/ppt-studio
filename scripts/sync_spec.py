@@ -226,18 +226,27 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> N
     ap.add_argument("project_dir", nargs="?", default=".", help="项目目录或子目录")
     ap.add_argument("--spec", help="可选指定 spec_lock.md 路径")
     ap.add_argument("--fix", action="store_true", help="把 SVG 的 viewBox 写回 spec")
+    ap.add_argument(
+        "--base-dir",
+        default=None,
+        help="指定基础工作目录 (默认: 当前工作目录)",
+    )
     a = ap.parse_args(argv)
-    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    effective_base = (
+        Path(a.base_dir).resolve()
+        if a.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
     proj = Path(a.project_dir)
     if not proj.is_absolute():
-        proj = (base / proj).resolve()
+        proj = (effective_base / proj).resolve()
     else:
         proj = proj.resolve()
     spec_arg = None
     if a.spec:
         s_p = Path(a.spec)
-        spec_arg = (base / s_p).resolve() if not s_p.is_absolute() else s_p.resolve()
-    ok, issues, ctx = check(proj, spec_path=spec_arg, base_dir=base)
+        spec_arg = (effective_base / s_p).resolve() if not s_p.is_absolute() else s_p.resolve()
+    ok, issues, ctx = check(proj, spec_path=spec_arg, base_dir=effective_base)
     print("[i] 采用 spec: %s" % (ctx.get("spec") or "未找到"))
     if ok:
         print("[ok] spec 与 SVG 无漂移（viewBox=%s）" % ctx.get("svg_vb"))
@@ -254,7 +263,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> N
         if target_spec and fix_canvas(target_spec, ctx["svg_vb"]):
             print("[fix] spec viewBox 已更新为 %s" % ctx["svg_vb"])
         # 重新检查
-        ok2, _, _ = check(proj, spec_path=spec_arg, base_dir=base)
+        ok2, _, _ = check(proj, spec_path=spec_arg, base_dir=effective_base)
         sys.exit(0 if ok2 else 1)
     sys.exit(1)
 

@@ -202,6 +202,18 @@ class TestMultiVersionAndSubdir(unittest.TestCase):
             txt = alt_spec.read_text(encoding="utf-8")
             self.assertIn("- viewBox: 0 0 1920 1080\n", txt)
 
+    def test_main_cli_with_base_dir_flag(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            proj = _make_proj(d, {"01_a.svg": "0 0 1920 1080"}, "0 0 1280 720")
+            alt_spec = proj / "spec_alt.md"
+            alt_spec.write_text("## canvas\n- viewBox: 0 0 1280 720\n", encoding="utf-8")
+            with self.assertRaises(SystemExit) as cm:
+                main([".", "--spec", "spec_alt.md", "--fix", "--base-dir", str(proj)])
+            self.assertEqual(cm.exception.code, 0)
+            txt = alt_spec.read_text(encoding="utf-8")
+            self.assertIn("- viewBox: 0 0 1920 1080\n", txt)
+
     def test_main_cli_spec_and_fix(self):
         import tempfile
         with tempfile.TemporaryDirectory() as d:
