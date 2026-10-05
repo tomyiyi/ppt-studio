@@ -302,6 +302,22 @@ class TestMakeVideoCLI(unittest.TestCase):
                 self.assertEqual(call_kwargs["base_dir"], base.resolve())
                 self.assertTrue(call_kwargs["check"])
 
+    def test_cli_with_base_dir_flag(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir)
+            proj = base / "valid_proj"
+            create_valid_project(proj)
+
+            with patch("scripts.make_video.make_video") as mock_make:
+                code = main(["valid_proj", "--base-dir", str(base), "--out", "valid_proj/output/custom.mp4", "--check"])
+                self.assertEqual(code, 0)
+                mock_make.assert_called_once()
+                call_kwargs = mock_make.call_args.kwargs
+                self.assertEqual(call_kwargs["project_dir"], proj.resolve())
+                self.assertEqual(call_kwargs["out_video_path"], (proj / "output" / "custom.mp4").resolve())
+                self.assertEqual(call_kwargs["base_dir"], base.resolve())
+                self.assertTrue(call_kwargs["check"])
+
 
 class TestMakeVideoQualityGate(unittest.TestCase):
     """测试 make_video 的客观质量门禁联动行为。"""

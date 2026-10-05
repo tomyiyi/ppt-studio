@@ -171,7 +171,10 @@ def make_video(
             raw_vtt = tmp_dir / f"{p}.vtt"
 
             print(f"    [{idx}/{len(vo_items)}] 生成配音: {p}（{len(text)} 字）...")
-            generate_tts(text, voice_name, raw_audio, raw_vtt)
+            try:
+                generate_tts(text, voice_name, raw_audio, raw_vtt, base_dir=base)
+            except TypeError:
+                generate_tts(text, voice_name, raw_audio, raw_vtt)
             try:
                 audio_dur = probe_duration(raw_audio, base_dir=base)
             except TypeError:
@@ -191,7 +194,10 @@ def make_video(
                 slide_dur = probe_duration(final_audio)
 
             # 解析字幕时间戳
-            page_cues = parse_vtt_cues(raw_vtt, offset_sec=accumulated_time)
+            try:
+                page_cues = parse_vtt_cues(raw_vtt, offset_sec=accumulated_time, base_dir=base)
+            except TypeError:
+                page_cues = parse_vtt_cues(raw_vtt, offset_sec=accumulated_time)
             all_cues.extend(page_cues)
 
             timeline.append({
@@ -209,7 +215,10 @@ def make_video(
 
         # 生成工程统一 SRT
         srt_file = tmp_dir / "timeline.srt"
-        write_srt(all_cues, srt_file)
+        try:
+            write_srt(all_cues, srt_file, base_dir=base)
+        except TypeError:
+            write_srt(all_cues, srt_file)
 
         # 先在事务临时目录中准备字幕；正式目录只在 MP4 和 SRT 都成功后更新。
         out_srt = out_video_path.with_suffix(".srt")
@@ -351,6 +360,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
         default=None,
         help="项目根目录，例如 projects/agentflow-os-launch（默认自动发现）",
     )
+    parser.add_argument("--base-dir", default=None, help="指定基础工作目录 (默认: 当前工作目录)")
     parser.add_argument("--voice", default="zh-female", choices=list(VOICE_MAP.keys()), help="中文 TTS 发音人")
     parser.add_argument("--format", default="16:9", choices=["16:9", "9:16"], help="视频比例")
     parser.add_argument("--subtitles", default="burned", choices=["burned", "soft", "none"], help="字幕模式")
@@ -359,17 +369,21 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     parser.add_argument("--check", action="store_true", help="合成完成后执行视频质量客观门禁校验 (qa_video.py)")
     args = parser.parse_args(argv)
 
-    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    effective_base = (
+        Path(args.base_dir).resolve()
+        if args.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
 
     try:
-        proj_dir = resolve_project_dir(args.project, base_dir=base)
+        proj_dir = resolve_project_dir(args.project, base_dir=effective_base)
     except (FileNotFoundError, ValueError) as err:
         print(f"[err] {err}", file=sys.stderr)
         return 1
 
     out_p = Path(args.out) if args.out else None
     if out_p is not None and not out_p.is_absolute():
-        out_p = (base / out_p).resolve()
+        out_p = (effective_base / out_p).resolve()
 
     try:
         make_video(
@@ -380,7 +394,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
             motion=args.motion,
             out_video_path=out_p,
             check=args.check,
-            base_dir=base,
+            base_dir=effective_base,
         )
     except Exception as err:
         print(f"[err] 视频合成失败: {err}", file=sys.stderr)
