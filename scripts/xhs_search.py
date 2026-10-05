@@ -38,15 +38,16 @@ class CookieExpiredError(RuntimeError):
     pass
 
 
-def load_cookies() -> dict:
+def load_cookies(key_file: Path | str | None = None) -> dict:
     """读 Cookie 文件；权限非 600 直接拒绝。"""
-    if not KEY_FILE.exists():
-        sys.exit("[error] Cookie 文件不存在: %s" % KEY_FILE)
-    mode = stat.S_IMODE(os.stat(KEY_FILE).st_mode)
+    target_file = Path(key_file).resolve() if key_file else KEY_FILE
+    if not target_file.exists():
+        sys.exit("[error] Cookie 文件不存在: %s" % target_file)
+    mode = stat.S_IMODE(os.stat(target_file).st_mode)
     if mode != 0o600:
         sys.exit("[error] Cookie 文件权限必须为 600，当前 %s，拒绝读取" % oct(mode))
     try:
-        data = json.loads(KEY_FILE.read_text(encoding="utf-8"))
+        data = json.loads(target_file.read_text(encoding="utf-8"))
     except Exception as e:
         sys.exit("[error] Cookie 文件解析失败: %s" % e)
     cookies = data.get("cookies", {})
@@ -153,9 +154,9 @@ def parse_notes(state: dict, max_n: int) -> list:
     return out
 
 
-def search(keyword: str, max_n: int = 10, use_api: bool = False) -> list:
+def search(keyword: str, max_n: int = 10, use_api: bool = False, key_file: Path | str | None = None) -> list:
     """use_api=True 时走带 x-s/x-t 签名的真实 API，失败回退 SSR 解析。"""
-    cookies = load_cookies()
+    cookies = load_cookies(key_file=key_file)
     if use_api:
         try:
             from xhs_sign import api_search_notes
@@ -167,24 +168,30 @@ def search(keyword: str, max_n: int = 10, use_api: bool = False) -> list:
     return parse_notes(state, max_n)
 
 
-def main() -> None:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     ap = argparse.ArgumentParser(description="小红书关键词搜索")
     ap.add_argument("keyword", help="搜索关键词")
     ap.add_argument("--max", type=int, default=10, help="最大返回条数")
     ap.add_argument("-o", "--output", help="输出 JSON 文件")
     ap.add_argument("--api", action="store_true", help="签名 API 模式（需 xhshow 库）")
-    a = ap.parse_args()
+    ap.add_argument("--key-file", help="指定 Cookie 文件路径（默认 ~/.config/ppt-studio/xiaohongshu.json）")
+    a = ap.parse_args(argv)
     try:
-        results = search(a.keyword, a.max, use_api=a.api)
+        results = search(a.keyword, a.max, use_api=a.api, key_file=a.key_file)
     except CookieExpiredError as e:
         sys.exit("[error] %s" % e)
     if a.output:
-        Path(a.output).write_text(json.dumps(results, ensure_ascii=False, indent=2),
-                                  encoding="utf-8")
-        print("[ok] %d 条结果 -> %s" % (len(results), a.output))
+        base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+        out_p = Path(a.output)
+        out_file = (base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        out_file.write_text(json.dumps(results, ensure_ascii=False, indent=2),
+                            encoding="utf-8")
+        print("[ok] %d 条结果 -> %s" % (len(results), out_file))
     else:
         print(json.dumps(results, ensure_ascii=False, indent=2))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

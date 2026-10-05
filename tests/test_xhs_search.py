@@ -113,6 +113,32 @@ class TestXhsSearch(unittest.TestCase):
         finally:
             os.unlink(tmp)
 
+    def test_load_cookies_custom_key_file(self):
+        import tempfile, os
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            json.dump({"cookies": {"web_session": "test-cookie-val"}}, f)
+            tmp = f.name
+        os.chmod(tmp, 0o600)
+        try:
+            cookies = xhs_search.load_cookies(key_file=tmp)
+            self.assertEqual(cookies.get("web_session"), "test-cookie-val")
+        finally:
+            os.unlink(tmp)
+
+    def test_main_cli_with_base_dir_and_relative_output(self):
+        import tempfile
+        p1, p2 = self._patch()
+        with p1, p2:
+            with tempfile.TemporaryDirectory() as td:
+                base = Path(td)
+                code = xhs_search.main(["穿搭", "--max", "1", "-o", "data/xhs_res.json"], base_dir=base)
+                self.assertEqual(code, 0)
+                out_file = base / "data" / "xhs_res.json"
+                self.assertTrue(out_file.is_file())
+                data = json.loads(out_file.read_text(encoding="utf-8"))
+                self.assertEqual(len(data), 1)
+                self.assertEqual(data[0]["title"], "2026秋冬穿搭灵感")
+
 
 if __name__ == "__main__":
     unittest.main()
