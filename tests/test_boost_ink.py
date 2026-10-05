@@ -595,6 +595,19 @@ class TestRunQaBoostInk(unittest.TestCase):
         self.assertIs(qa_single_boost_ink, check_boost_ink)
         self.assertIs(run_qa_single_boost_ink, check_boost_ink)
 
+    def test_run_qa_boost_ink_with_base_dir(self):
+        self.assertTrue(run_qa_boost_ink("img1.png", min_ink=1.0, verbose=False, base_dir=self.tmp_path))
+        self.assertTrue(run_qa_boost_ink(["img1.png", "img2.png"], min_ink=1.0, verbose=False, base_dir=self.tmp_path))
+
+    def test_main_cli_with_base_dir_and_check(self):
+        code = main(["img1.png", "--check", "--min-ink", "1.0", "--quiet"], base_dir=self.tmp_path)
+        self.assertEqual(code, 0)
+
+    def test_boost_ink_with_base_dir(self):
+        res = boost_ink("img1.png", apply=False, base_dir=self.tmp_path)
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0]["name"], "img1.png")
+
 
 class TestBoostInkContract(unittest.TestCase):
     """收敛后的进程契约测试：聚焦 4 类关键风险与 OS 级子进程契约。
