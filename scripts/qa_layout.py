@@ -1020,9 +1020,14 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     parser.add_argument("--stage", choices=["early", "final"], default=None,
                         help="early=只查前 N 页（方法样本），error 即阻塞；final=全量，0 error 才通过；不传=传统行为")
     parser.add_argument("--early-n", type=int, default=5, help="early 阶段检查的前 N 页（默认 5）")
+    parser.add_argument("--base-dir", default=None, help="指定基础工作目录 (默认: 当前工作目录)")
     args = parser.parse_args(argv)
 
-    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    effective_base = (
+        Path(args.base_dir).resolve()
+        if args.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
     if args.canvas:
         global CANVAS_W, CANVAS_H, MARGIN, _CANVAS_OVERRIDDEN
         _CANVAS_OVERRIDDEN = True
@@ -1035,7 +1040,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
                 try:
                     s_cand = Path(args.spec)
                     if not s_cand.is_absolute():
-                        s_cand = (base / s_cand).resolve()
+                        s_cand = (effective_base / s_cand).resolve()
                     else:
                         s_cand = s_cand.resolve()
                     sm = re.search(r"margin\s*[:：]\s*(\d+)\s*px",
@@ -1053,17 +1058,17 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     spec_path = None
     if args.spec:
         s_p = Path(args.spec)
-        spec_path = (base / s_p).resolve() if not s_p.is_absolute() else s_p.resolve()
+        spec_path = (effective_base / s_p).resolve() if not s_p.is_absolute() else s_p.resolve()
     render_dir = None
     if args.render_dir:
         r_p = Path(args.render_dir)
-        render_dir = (base / r_p).resolve() if not r_p.is_absolute() else r_p.resolve()
+        render_dir = (effective_base / r_p).resolve() if not r_p.is_absolute() else r_p.resolve()
 
     # 如果显式传入两个目录 (target, render_dir)
     if args.render_dir:
         t_path = Path(args.target)
         if not t_path.is_absolute():
-            t_path = (base / t_path).resolve()
+            t_path = (effective_base / t_path).resolve()
         else:
             t_path = t_path.resolve()
         if not t_path.exists():
@@ -1073,11 +1078,11 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
         found_dir = find_svg_dir(t_path)
         svg_dir = found_dir.resolve() if found_dir else t_path
         success = qa_single_layout(svg_dir, render_dir, spec_path, verbose=verbose,
-                                   stage=args.stage, early_n=args.early_n, base_dir=base)
+                                   stage=args.stage, early_n=args.early_n, base_dir=effective_base)
         return 0 if success else 1
 
     ok = run_qa_layout(args.target, render_dir=render_dir, spec_path=spec_path,
-                       verbose=verbose, stage=args.stage, early_n=args.early_n, base_dir=base)
+                       verbose=verbose, stage=args.stage, early_n=args.early_n, base_dir=effective_base)
     return 0 if ok else 1
 
 

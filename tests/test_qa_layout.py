@@ -852,5 +852,10 @@ class TestQaLayoutSubdirAndSpecResolution(unittest.TestCase):
         self.assertEqual(main(["svg_output", "-q"], base_dir=self.proj), 0)
         self.assertEqual(main(["svg_output", "render", "--spec", "spec_lock.md", "-q"], base_dir=self.proj), 0)
 
+    def test_cli_with_base_dir_flag(self):
+        self.assertEqual(main([".", "--spec", "spec_lock.md", "--base-dir", str(self.proj), "-q"]), 0)
+        self.assertEqual(main(["svg_output", "--base-dir", str(self.proj), "-q"]), 0)
+        self.assertEqual(main(["svg_output", "render", "--spec", "spec_lock.md", "--base-dir", str(self.proj), "-q"]), 0)
+
 
 
