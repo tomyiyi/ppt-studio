@@ -57,14 +57,25 @@ except ImportError:
         _cpm_resolve_project_dir = None
 
 
-def resolve_project_dir(project_arg: str | Path | None = None) -> Path:
+def resolve_project_dir(
+    project_arg: str | Path | None = None,
+    base_dir: str | Path | None = None,
+) -> Path:
     """自适应解析项目根目录（支持从子目录 images、svg_output*、cards 等或文件回退）。"""
     if _cpm_resolve_project_dir is not None:
-        return _cpm_resolve_project_dir(project_arg)
+        try:
+            return _cpm_resolve_project_dir(project_arg, base_dir=base_dir)
+        except TypeError:
+            return _cpm_resolve_project_dir(project_arg)
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     if project_arg is not None and str(project_arg).strip() not in ("", "."):
-        p = Path(project_arg).resolve()
+        p = Path(project_arg)
+        if not p.is_absolute():
+            p = (base / p).resolve()
+        else:
+            p = p.resolve()
     else:
-        p = Path.cwd().resolve()
+        p = base
     if p.is_file():
         p = p.parent
     if (
@@ -762,7 +773,7 @@ def resolve_card_dirs(
         if p.is_file():
             if p.suffix.lower() == ".svg":
                 return [p.parent.resolve()]
-            proj = resolve_project_dir(p)
+            proj = resolve_project_dir(p, base_dir=base)
             if (proj / "cards").is_dir() and list((proj / "cards").glob("*.svg")):
                 return [(proj / "cards").resolve()]
             elif list(proj.glob("*.svg")):
@@ -787,7 +798,7 @@ def resolve_card_dirs(
         if list(p.glob("*.svg")):
             return [p.resolve()]
 
-        proj = resolve_project_dir(p)
+        proj = resolve_project_dir(p, base_dir=base)
         if proj != p:
             if (proj / "cards").is_dir() and list((proj / "cards").glob("*.svg")):
                 return [(proj / "cards").resolve()]
