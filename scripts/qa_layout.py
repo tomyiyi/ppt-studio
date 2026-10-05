@@ -584,6 +584,7 @@ def qa_single_layout(
     verbose: bool = True,
     stage: str | None = None,
     early_n: int = 5,
+    base_dir: str | Path | None = None,
 ) -> bool:
     """对单个 SVG 文件或 SVG 目录执行客观版面门禁复核。"""
     def _log(msg: str = "", file=sys.stdout) -> None:
@@ -594,7 +595,12 @@ def qa_single_layout(
         _log("[!] 未提供有效的目标路径", file=sys.stderr)
         return False
 
-    target = Path(svg_dir_or_file).resolve()
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    target = Path(svg_dir_or_file)
+    if not target.is_absolute():
+        target = (base / target).resolve()
+    else:
+        target = target.resolve()
     if not target.exists():
         _log(f"[!] 指定的目标路径不存在: {target}", file=sys.stderr)
         return False
@@ -604,7 +610,7 @@ def qa_single_layout(
             svg_files = [target]
             svg_dir = target.parent
         else:
-            proj = resolve_project_dir(target)
+            proj = resolve_project_dir(target, base_dir=base)
             found_dir = find_svg_dir(proj) if find_svg_dir is not None else None
             if found_dir:
                 svg_dir = found_dir.resolve()
@@ -619,7 +625,7 @@ def qa_single_layout(
             if found_dir and found_dir != target:
                 svg_dir = found_dir.resolve()
             else:
-                proj = resolve_project_dir(target)
+                proj = resolve_project_dir(target, base_dir=base)
                 if proj != target:
                     found_dir2 = find_svg_dir(proj) if find_svg_dir is not None else None
                     if found_dir2:
@@ -647,7 +653,11 @@ def qa_single_layout(
 
     # 查找 spec（版本感知：同目录 spec_lock_vN.md 优先于 spec_lock.md，见 spec_resolve）
     if spec_path:
-        spec = Path(spec_path).resolve()
+        spec = Path(spec_path)
+        if not spec.is_absolute():
+            spec = (base / spec).resolve()
+        else:
+            spec = spec.resolve()
         if spec.is_dir():
             spec = (resolve_spec(spec) if resolve_spec is not None else None) or (find_spec(spec) if find_spec is not None else None)
         if spec and not spec.exists():
@@ -683,7 +693,11 @@ def qa_single_layout(
 
     # 自动查找 render_dir (若未提供)
     if render_dir:
-        resolved_render = Path(render_dir).resolve()
+        resolved_render = Path(render_dir)
+        if not resolved_render.is_absolute():
+            resolved_render = (base / resolved_render).resolve()
+        else:
+            resolved_render = resolved_render.resolve()
     else:
         resolved_render = None
         candidates = []
@@ -841,6 +855,7 @@ def run_qa_layout(
     verbose: bool = True,
     stage: str | None = None,
     early_n: int = 5,
+    base_dir: str | Path | None = None,
 ) -> bool:
     """运行 PPT-Studio SVG 版面客观质量门禁。
 
@@ -848,7 +863,7 @@ def run_qa_layout(
     支持 Path、str 或 None 输入。
     """
     try:
-        targets = resolve_layout_dirs(target)
+        targets = resolve_layout_dirs(target, base_dir=base_dir)
     except (FileNotFoundError, ValueError) as err:
         if verbose:
             print(f"[!] {err}", file=sys.stderr)
@@ -862,7 +877,8 @@ def run_qa_layout(
     all_ok = True
     for i, t in enumerate(targets):
         ok = qa_single_layout(t, render_dir=render_dir, spec_path=spec_path,
-                              verbose=verbose, stage=stage, early_n=early_n)
+                              verbose=verbose, stage=stage, early_n=early_n,
+                              base_dir=base_dir)
         if not ok:
             all_ok = False
         if verbose and i < len(targets) - 1:
@@ -914,7 +930,7 @@ def resolve_layout_dirs(
         if p.is_file():
             if p.suffix.lower() == ".svg":
                 return [p]
-            proj = resolve_project_dir(p)
+            proj = resolve_project_dir(p, base_dir=base)
             found = find_svg_dir(proj) if find_svg_dir is not None else None
             if found:
                 return [found.resolve()]
@@ -922,7 +938,7 @@ def resolve_layout_dirs(
 
         found = find_svg_dir(p) if find_svg_dir is not None else None
         if not found:
-            proj = resolve_project_dir(p)
+            proj = resolve_project_dir(p, base_dir=base)
             if proj != p and find_svg_dir is not None:
                 found = find_svg_dir(proj)
         if found:
@@ -993,7 +1009,7 @@ def resolve_layout_dirs(
     raise FileNotFoundError("在当前目录或 projects/ 下未找到有效 SVG 文件")
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     parser = argparse.ArgumentParser(description="PPT-Studio SVG 版面客观复核与质量门禁")
     parser.add_argument("target", nargs="?", default=".", help="SVG 目录、项目目录或单文件路径（默认当前目录）")
     parser.add_argument("render_dir", nargs="?", default=None, help="可选渲染图 PNG 目录（缺省时自动查找 render/ 或 qa_render/）")
@@ -1006,6 +1022,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--early-n", type=int, default=5, help="early 阶段检查的前 N 页（默认 5）")
     args = parser.parse_args(argv)
 
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     if args.canvas:
         global CANVAS_W, CANVAS_H, MARGIN, _CANVAS_OVERRIDDEN
         _CANVAS_OVERRIDDEN = True
@@ -1016,8 +1033,13 @@ def main(argv: list[str] | None = None) -> int:
             spec_margin = None
             if args.spec:
                 try:
+                    s_cand = Path(args.spec)
+                    if not s_cand.is_absolute():
+                        s_cand = (base / s_cand).resolve()
+                    else:
+                        s_cand = s_cand.resolve()
                     sm = re.search(r"margin\s*[:：]\s*(\d+)\s*px",
-                                   Path(args.spec).read_text(encoding="utf-8"))
+                                   s_cand.read_text(encoding="utf-8"))
                     if sm:
                         spec_margin = int(sm.group(1))
                 except Exception:
@@ -1028,12 +1050,22 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[warn] --canvas 格式错误 ({args.canvas})，沿用默认 1280x720", file=sys.stderr)
 
     verbose = not args.quiet if args.quiet else args.verbose
-    spec_path = Path(args.spec).resolve() if args.spec else None
-    render_dir = Path(args.render_dir).resolve() if args.render_dir else None
+    spec_path = None
+    if args.spec:
+        s_p = Path(args.spec)
+        spec_path = (base / s_p).resolve() if not s_p.is_absolute() else s_p.resolve()
+    render_dir = None
+    if args.render_dir:
+        r_p = Path(args.render_dir)
+        render_dir = (base / r_p).resolve() if not r_p.is_absolute() else r_p.resolve()
 
     # 如果显式传入两个目录 (target, render_dir)
     if args.render_dir:
-        t_path = Path(args.target).resolve()
+        t_path = Path(args.target)
+        if not t_path.is_absolute():
+            t_path = (base / t_path).resolve()
+        else:
+            t_path = t_path.resolve()
         if not t_path.exists():
             if verbose:
                 print(f"[!] 指定的目标路径不存在: {args.target}", file=sys.stderr)
@@ -1041,11 +1073,11 @@ def main(argv: list[str] | None = None) -> int:
         found_dir = find_svg_dir(t_path)
         svg_dir = found_dir.resolve() if found_dir else t_path
         success = qa_single_layout(svg_dir, render_dir, spec_path, verbose=verbose,
-                                   stage=args.stage, early_n=args.early_n)
+                                   stage=args.stage, early_n=args.early_n, base_dir=base)
         return 0 if success else 1
 
     ok = run_qa_layout(args.target, render_dir=render_dir, spec_path=spec_path,
-                       verbose=verbose, stage=args.stage, early_n=args.early_n)
+                       verbose=verbose, stage=args.stage, early_n=args.early_n, base_dir=base)
     return 0 if ok else 1
 
 

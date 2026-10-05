@@ -835,4 +835,22 @@ class TestQaLayoutSubdirAndSpecResolution(unittest.TestCase):
         self.assertEqual(resolve_project_dir(base_dir=self.images_dir), self.proj.resolve())
         self.assertEqual(resolve_project_dir(base_dir=self.spec_file), self.proj.resolve())
 
+    def test_qa_layout_with_base_dir(self):
+        ok_single = qa_single_layout("svg_output", render_dir="render", spec_path="spec_lock.md", verbose=False, base_dir=self.proj)
+        self.assertTrue(ok_single)
+
+        ok_file = qa_single_layout("svg_output/01_cover.svg", spec_path="spec_lock.md", verbose=False, base_dir=self.proj)
+        self.assertTrue(ok_file)
+
+        ok_run = run_qa_layout(".", verbose=False, base_dir=self.proj)
+        self.assertTrue(ok_run)
+
+        ok_sub = run_qa_layout("svg_output", verbose=False, base_dir=self.proj)
+        self.assertTrue(ok_sub)
+
+        self.assertEqual(main([".", "--spec", "spec_lock.md", "-q"], base_dir=self.proj), 0)
+        self.assertEqual(main(["svg_output", "-q"], base_dir=self.proj), 0)
+        self.assertEqual(main(["svg_output", "render", "--spec", "spec_lock.md", "-q"], base_dir=self.proj), 0)
+
+
 
