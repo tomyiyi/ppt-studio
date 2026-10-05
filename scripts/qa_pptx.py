@@ -702,7 +702,7 @@ def find_pptx_files(
     return deduped
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     parser = argparse.ArgumentParser(description="PPT-Studio PPTX 导出物客观回读质检")
     parser.add_argument("target", nargs="?", default=".", help="PPTX 文件路径，或包含 *.pptx / output/*.pptx 的目录（默认当前目录）")
     parser.add_argument("--spec", help="可选指定 spec_lock.md 路径")
@@ -712,10 +712,33 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--quiet", "-q", action="store_true", help="静默模式（仅通过退出码返回）")
     args = parser.parse_args(argv)
 
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     verbose = not args.quiet if args.quiet else args.verbose
 
+    if args.target is None or str(args.target).strip() in ("", "."):
+        target_path = base
+    else:
+        target_path = Path(args.target)
+        if not target_path.is_absolute():
+            target_path = (base / target_path).resolve()
+        else:
+            target_path = target_path.resolve()
+
+    if args.spec:
+        spec_p = Path(args.spec)
+        if not spec_p.is_absolute():
+            spec_path = (base / spec_p).resolve()
+        else:
+            spec_path = spec_p.resolve()
+    else:
+        spec_path = find_spec_lock(target_path)
+
     try:
-        pptx_files = find_pptx_files(args.target)
+        pptx_files = (
+            find_pptx_files(target_path, base_dir=base)
+            if base_dir is not None
+            else find_pptx_files(target_path)
+        )
     except (FileNotFoundError, ValueError) as e:
         if verbose:
             print(f"[!] {e}", file=sys.stderr)
@@ -723,15 +746,30 @@ def main(argv: list[str] | None = None) -> int:
 
     if not pptx_files:
         if verbose:
-            print(f"[!] 目录 {args.target} 及其子目录下未找到 .pptx 文件", file=sys.stderr)
+            print(f"[!] 目录 {target_path} 及其子目录下未找到 .pptx 文件", file=sys.stderr)
         return 1
-
-    target_resolved = Path(args.target).resolve() if args.target else None
-    spec_path = Path(args.spec).resolve() if args.spec else find_spec_lock(target_resolved)
 
     all_ok = True
     for i, p in enumerate(pptx_files):
-        ok = run_qa_pptx(p, spec_path, args.expected_slides, args.expected_media, verbose=verbose)
+        p_spec = spec_path or find_spec_lock(p)
+        ok = (
+            run_qa_pptx(
+                p,
+                spec_path=p_spec,
+                expected_slides=args.expected_slides,
+                expected_media=args.expected_media,
+                verbose=verbose,
+                base_dir=base,
+            )
+            if base_dir is not None
+            else run_qa_pptx(
+                p,
+                spec_path=p_spec,
+                expected_slides=args.expected_slides,
+                expected_media=args.expected_media,
+                verbose=verbose,
+            )
+        )
         if not ok:
             all_ok = False
         if verbose and i < len(pptx_files) - 1:
