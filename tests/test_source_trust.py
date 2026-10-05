@@ -16,6 +16,7 @@ from scripts.source_trust import (
     corroboration_bonus,
     score_sources,
     load_domain_trust,
+    main,
 )
 
 
@@ -102,6 +103,38 @@ class TestScoreSources(unittest.TestCase):
         table = load_domain_trust()
         self.assertIn("pantone.com", table)
         self.assertGreater(table["pantone.com"], 90)
+
+    def test_load_domain_trust_custom_table(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            custom_file = Path(td) / "custom_trust.json"
+            custom_file.write_text(json.dumps({"mycustomdomain.com": 88}), encoding="utf-8")
+            table = load_domain_trust(custom_file)
+            self.assertEqual(table.get("mycustomdomain.com"), 88)
+
+    def test_main_cli_with_base_dir_and_relative_paths(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            in_file = base / "inputs" / "sources.json"
+            in_file.parent.mkdir(parents=True, exist_ok=True)
+            in_file.write_text(
+                json.dumps([
+                    {"url": "https://www.pantone.com/article", "title": "Pantone 2026 Trend", "published_at": "2026-09-01"}
+                ]),
+                encoding="utf-8"
+            )
+            code = main(
+                ["-i", "inputs/sources.json", "-o", "outputs/scored.json"],
+                base_dir=base
+            )
+            self.assertEqual(code, 0)
+            out_file = base / "outputs" / "scored.json"
+            self.assertTrue(out_file.is_file())
+            scored = json.loads(out_file.read_text(encoding="utf-8"))
+            self.assertEqual(len(scored), 1)
+            self.assertEqual(scored[0]["grade"], "A")
+            self.assertGreaterEqual(scored[0]["trust"], 80)
 
 
 if __name__ == "__main__":

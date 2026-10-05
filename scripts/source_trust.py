@@ -35,9 +35,10 @@ DEFAULT_PRIOR = 40
 NEUTRAL = 40
 
 
-def load_domain_trust() -> dict:
+def load_domain_trust(table_path: str | Path | None = None) -> dict:
+    p = Path(table_path).resolve() if table_path else DOMAIN_TRUST_FILE
     try:
-        return json.loads(DOMAIN_TRUST_FILE.read_text(encoding="utf-8"))
+        return json.loads(p.read_text(encoding="utf-8"))
     except OSError:
         return {}
 
@@ -107,8 +108,9 @@ def corroboration_bonus(sources: list) -> dict:
     return res
 
 
-def score_sources(sources: list) -> list:
-    table = load_domain_trust()
+def score_sources(sources: list, table: dict | None = None) -> list:
+    if table is None:
+        table = load_domain_trust()
     cor = corroboration_bonus(sources)
     out = []
     for i, s in enumerate(sources):
@@ -133,23 +135,33 @@ def score_sources(sources: list) -> list:
     return out
 
 
-def main() -> None:
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
     ap = argparse.ArgumentParser(description="来源可信度打分 → A/B/C/D")
     ap.add_argument("-i", "--input", help="输入 JSON 文件（缺省读 stdin）")
     ap.add_argument("-o", "--output", help="输出 JSON 文件（缺省 stdout）")
-    a = ap.parse_args()
-    raw = Path(a.input).read_text(encoding="utf-8") if a.input else sys.stdin.read()
+    a = ap.parse_args(argv)
+    base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
+    if a.input:
+        inp_p = Path(a.input)
+        inp_file = (base / inp_p).resolve() if not inp_p.is_absolute() else inp_p.resolve()
+        raw = inp_file.read_text(encoding="utf-8")
+    else:
+        raw = sys.stdin.read()
     sources = json.loads(raw)
     if isinstance(sources, dict):
         sources = [sources]
     result = score_sources(sources)
     text = json.dumps(result, ensure_ascii=False, indent=2)
     if a.output:
-        Path(a.output).write_text(text, encoding="utf-8")
-        print("[ok] %d 条来源已打分 → %s" % (len(result), a.output))
+        out_p = Path(a.output)
+        out_file = (base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        out_file.write_text(text, encoding="utf-8")
+        print("[ok] %d 条来源已打分 → %s" % (len(result), out_file))
     else:
         print(text)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
