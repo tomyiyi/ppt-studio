@@ -32,8 +32,7 @@
 
   <g id="tension-scene">
     <line x1="80" y1="356" x2="200" y2="356" stroke="#23242E" stroke-width="1" />
-    <text x="80" y="404" font-size="20" fill="#8E8F9A">凌晨两点，第三次跑批失败。日志里没有报错，</text>
-    <text x="80" y="440" font-size="20" fill="#8E8F9A">只有一个没人预料到的字段格式。</text>
+    <text x="80" y="404" font-size="20" fill="#8E8F9A">凌晨两点，第三次跑批失败。日志里没有报错，<tspan x="80" dy="36">只有一个没人预料到的字段格式。</tspan></text>
   </g>
 
   <g id="tension-facts">

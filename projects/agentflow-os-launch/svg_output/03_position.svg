@@ -32,8 +32,7 @@
 
   <g id="position-qualifier">
     <line x1="80" y1="400" x2="200" y2="400" stroke="#23242E" stroke-width="1" />
-    <text x="80" y="448" font-size="20" fill="#8E8F9A">智流 OS 接手的是最后那 3%：没见过的分支、没人写过的异常处理、</text>
-    <text x="80" y="484" font-size="20" fill="#8E8F9A">以及所有「按理说不该出错但就是出了」的时刻。</text>
+    <text x="80" y="448" font-size="20" fill="#8E8F9A">智流 OS 接手的是最后那 3%：没见过的分支、没人写过的异常处理、<tspan x="80" dy="36">以及所有「按理说不该出错但就是出了」的时刻。</tspan></text>
   </g>
 
   <g id="footer">
