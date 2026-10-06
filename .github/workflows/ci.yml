@@ -34,10 +34,10 @@ jobs:
           python scripts/run_auto_poc.py --help
 
   render-smoke:
-    # 可选渲染烟雾：需要下载 Chromium；跑不通不阻塞（continue-on-error）
-    name: render smoke (optional)
+    # 渲染烟雾：Chromium 下载是网络相关步骤，失败时跳过不阻塞；
+    # 一旦装好，渲染失败必须报错（能抓到真实 bug）
+    name: render smoke
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -49,10 +49,14 @@ jobs:
         run: python -m pip install -r requirements.txt
 
       - name: Install Chromium for Playwright
+        id: chromium
+        continue-on-error: true
         run: python -m playwright install --with-deps chromium
 
       - name: Render one sample page
+        if: steps.chromium.outcome == 'success'
         run: python scripts/render_svg.py projects/agentflow-os-launch/svg_output /tmp/ci_render --only 01
 
       - name: Check PNG produced
+        if: steps.chromium.outcome == 'success'
         run: test -s /tmp/ci_render/01_cover.png
