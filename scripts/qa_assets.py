@@ -18,6 +18,7 @@ CLI：python3 scripts/qa_assets.py projects/fw2026-trends [--min-scale 0.5]
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -35,6 +36,24 @@ except ImportError:
     except ImportError:
         find_svg_dir = None  # type: ignore
         _cpm_resolve_project_dir = None  # type: ignore
+
+
+def _find_svg_dir(p: Path) -> Path | None:
+    if find_svg_dir is not None:
+        return find_svg_dir(p)
+    # fallback: 优先按数字版本最高 (svg_output_v4 > svg_output_v3 > svg_output)
+    cands = sorted(
+        [d for d in p.glob("svg_output*") if d.is_dir() and any(d.glob("*.svg"))],
+        key=lambda d: (
+            int(m.group(1)) if (m := re.match(r"^svg_output_v(\d+)$", d.name, re.I)) else (0 if d.name == "svg_output" else -1)
+        ),
+        reverse=True,
+    )
+    if cands:
+        return cands[0]
+    if any(p.glob("*.svg")):
+        return p
+    return None
 
 
 def resolve_project_dir(
@@ -80,6 +99,7 @@ try:
 
     _PIL_OK = True
 except ImportError:  # pragma: no cover
+    _PILImage = None  # type: ignore
     _PIL_OK = False
 
 
@@ -121,9 +141,9 @@ def run_qa_assets(
     is_single_svg = raw_p.is_file() and raw_p.suffix.lower() == ".svg"
 
     proj = resolve_project_dir(raw_p, base_dir=base)
-    svg_dir = find_svg_dir(proj) if find_svg_dir is not None else None
-    if svg_dir is None and str(proj) != str(raw_p) and find_svg_dir is not None:
-        svg_dir = find_svg_dir(raw_p)
+    svg_dir = _find_svg_dir(proj)
+    if svg_dir is None and str(proj) != str(raw_p):
+        svg_dir = _find_svg_dir(raw_p)
     if svg_dir is None and is_single_svg:
         svg_dir = raw_p.parent
 

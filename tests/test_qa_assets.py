@@ -1,18 +1,24 @@
 """tests/test_qa_assets.py -- SVG 引用图片资产门禁（第 29 轮）。"""
 from __future__ import annotations
 
+import struct
 import sys
 import tempfile
 import unittest
+import zlib
 from pathlib import Path
+from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from PIL import Image
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
 
-from scripts.qa_assets import main, resolve_project_dir, run_qa_assets
+from scripts.qa_assets import _find_svg_dir, main, resolve_project_dir, run_qa_assets
 
 SVG_TMPL = """<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1920 1080">
 {images}
@@ -21,11 +27,54 @@ SVG_TMPL = """<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3
 IMG_TMPL = '<image xlink:href="{href}" x="0" y="0" width="{w}" height="{h}"/>'
 
 
+class _MockImage:
+    def __init__(self, size: tuple[int, int]):
+        self.size = size
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+
+
+class _MockPIL:
+    @staticmethod
+    def open(fp: str | Path):
+        data = Path(fp).read_bytes()
+        if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise ValueError("cannot identify image file")
+        w, h = struct.unpack(">II", data[16:24])
+        return _MockImage((w, h))
+
+
 def _make_png(path: Path, w: int, h: int) -> None:
-    Image.new("RGB", (w, h), (128, 128, 128)).save(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if Image is not None:
+        Image.new("RGB", (w, h), (128, 128, 128)).save(path)
+        return
+    raw = b"".join(b"\x00" + b"\x80\x80\x80" * w for _ in range(h))
+    compressed = zlib.compress(raw)
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data))
+
+    ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+    png_bytes = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", compressed) + chunk(b"IEND", b"")
+    path.write_bytes(png_bytes)
 
 
 class QaAssetsTestBase(unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        if Image is None:
+            self._patch_pil_ok = patch("scripts.qa_assets._PIL_OK", True)
+            self._patch_pil_img = patch("scripts.qa_assets._PILImage", _MockPIL)
+            self._patch_pil_ok.start()
+            self._patch_pil_img.start()
+            self.addCleanup(self._patch_pil_ok.stop)
+            self.addCleanup(self._patch_pil_img.stop)
+
     def make_project(self, td: str, images: str) -> Path:
         proj = Path(td) / "proj"
         svg_dir = proj / "svg_output"
@@ -219,6 +268,31 @@ class TestQaAssetsSubdirAndSingleSvgResolution(QaAssetsTestBase):
             _make_png(proj / "images" / "good.png", 800, 600)
             self.assertEqual(main([str(proj / "svg_output")]), 0)
             self.assertEqual(main([str(proj / "svg_output" / "p1.svg")]), 0)
+
+    def test_missing_pillow_warns(self):
+        with patch("scripts.qa_assets._PIL_OK", False):
+            with tempfile.TemporaryDirectory() as td:
+                proj = self.make_project(
+                    td, IMG_TMPL.format(href="../images/good.png", w=400, h=300))
+                _make_png(proj / "images" / "good.png", 800, 600)
+                rep = run_qa_assets(proj)
+                self.assertTrue(rep["ok"])
+                self.assertTrue(any("缺 Pillow" in w for w in rep["warnings"]))
+
+    def test_find_svg_dir_fallback(self):
+        with tempfile.TemporaryDirectory() as td:
+            proj = Path(td) / "my_proj"
+            proj.mkdir()
+            (proj / "images").mkdir()
+            v3 = proj / "svg_output_v3"
+            v3.mkdir()
+            (v3 / "slide.svg").write_text("<svg></svg>", encoding="utf-8")
+            with patch("scripts.qa_assets.find_svg_dir", None):
+                found = _find_svg_dir(proj)
+                self.assertEqual(found, v3)
+                rep = run_qa_assets(proj)
+                self.assertTrue(rep["ok"])
+                self.assertEqual(rep["svg_dir"], str(v3))
 
 
 if __name__ == "__main__":
