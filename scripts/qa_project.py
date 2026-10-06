@@ -16,11 +16,45 @@ if __package__ in (None, ""):
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
 
-from scripts.qa_image_pipeline import run_image_qa
-from scripts.qa_assets import run_qa_assets
-from scripts.qa_layout import run_qa_layout
-from scripts.qa_cards import run_qa_cards
-from scripts.qa_long_card import run_qa_long_card
+try:
+    from scripts.qa_image_pipeline import run_image_qa
+except ImportError:
+    try:
+        from qa_image_pipeline import run_image_qa
+    except ImportError:
+        run_image_qa = None  # type: ignore
+
+try:
+    from scripts.qa_assets import run_qa_assets
+except ImportError:
+    try:
+        from qa_assets import run_qa_assets
+    except ImportError:
+        run_qa_assets = None  # type: ignore
+
+try:
+    from scripts.qa_layout import run_qa_layout
+except ImportError:
+    try:
+        from qa_layout import run_qa_layout
+    except ImportError:
+        run_qa_layout = None  # type: ignore
+
+try:
+    from scripts.qa_cards import run_qa_cards
+except ImportError:
+    try:
+        from qa_cards import run_qa_cards
+    except ImportError:
+        run_qa_cards = None  # type: ignore
+
+try:
+    from scripts.qa_long_card import run_qa_long_card
+except ImportError:
+    try:
+        from qa_long_card import run_qa_long_card
+    except ImportError:
+        run_qa_long_card = None  # type: ignore
 
 try:
     from scripts.check_page_map import find_svg_dir, resolve_project_dir as _cpm_resolve_project_dir
@@ -206,6 +240,17 @@ def run_project_qa(
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """按 image -> assets -> layout -> cards -> long_card 顺序执行项目验收。"""
+    if run_image_qa is None:
+        raise RuntimeError("无法加载 qa_image_pipeline 模块")
+    if run_qa_assets is None:
+        raise RuntimeError("无法加载 qa_assets 模块")
+    if run_qa_layout is None:
+        raise RuntimeError("无法加载 qa_layout 模块")
+    if run_qa_cards is None:
+        raise RuntimeError("无法加载 qa_cards 模块")
+    if run_qa_long_card is None:
+        raise RuntimeError("无法加载 qa_long_card 模块")
+
     root = resolve_project_dir(project, base_dir=base_dir)
     image_input = image_targets if image_targets is not None else root / "images"
     stages: dict[str, Any] = {}

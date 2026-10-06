@@ -4,7 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import ExitStack, redirect_stdout
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -491,6 +491,48 @@ class TestResolveProjectDir(unittest.TestCase):
             self.assertEqual(layout_mock.call_count, 2)
             self.assertEqual(cards_mock.call_count, 2)
             self.assertEqual(long_card_mock.call_count, 2)
+
+    def test_run_project_qa_missing_module_raises(self):
+        with patch("scripts.qa_project.run_image_qa", None):
+            with self.assertRaises(RuntimeError) as cm:
+                run_project_qa("/tmp/proj")
+            self.assertIn("qa_image_pipeline", str(cm.exception))
+
+        with patch("scripts.qa_project.run_qa_assets", None):
+            with self.assertRaises(RuntimeError) as cm:
+                run_project_qa("/tmp/proj")
+            self.assertIn("qa_assets", str(cm.exception))
+
+        with patch("scripts.qa_project.run_qa_layout", None):
+            with self.assertRaises(RuntimeError) as cm:
+                run_project_qa("/tmp/proj")
+            self.assertIn("qa_layout", str(cm.exception))
+
+        with patch("scripts.qa_project.run_qa_cards", None):
+            with self.assertRaises(RuntimeError) as cm:
+                run_project_qa("/tmp/proj")
+            self.assertIn("qa_cards", str(cm.exception))
+
+        with patch("scripts.qa_project.run_qa_long_card", None):
+            with self.assertRaises(RuntimeError) as cm:
+                run_project_qa("/tmp/proj")
+            self.assertIn("qa_long_card", str(cm.exception))
+
+    def test_main_handles_runtime_error(self):
+        with patch("scripts.qa_project.run_project_qa", side_effect=RuntimeError("模块加载失败")):
+            buf_err = io.StringIO()
+            with redirect_stderr(buf_err):
+                code = main(["/tmp/proj"])
+            self.assertEqual(code, 1)
+            self.assertIn("模块加载失败", buf_err.getvalue())
+
+        with patch("scripts.qa_project.run_project_qa", side_effect=RuntimeError("模块加载失败")), \
+             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
+            code_json = main(["/tmp/proj", "--json"])
+            self.assertEqual(code_json, 1)
+            payload = json.loads(mock_stdout.getvalue())
+            self.assertFalse(payload["ok"])
+            self.assertIn("模块加载失败", payload["error"])
 
 
 if __name__ == "__main__":
