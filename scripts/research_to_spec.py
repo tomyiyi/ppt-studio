@@ -31,9 +31,18 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from source_trust import score_sources
-from search_router import search as router_search, resolve_backends, BACKENDS
+try:
+    from scripts.source_trust import score_sources
+    from scripts.search_router import search as router_search, resolve_backends, BACKENDS
+except ImportError:
+    try:
+        from source_trust import score_sources
+        from search_router import search as router_search, resolve_backends, BACKENDS
+    except ImportError:
+        score_sources = None  # type: ignore
+        router_search = None  # type: ignore
+        resolve_backends = None  # type: ignore
+        BACKENDS = []  # type: ignore
 
 # 子查询模板（What/Why/How/数据/案例五维）
 SUBQUERY_TEMPLATES = [
@@ -132,7 +141,7 @@ def research(topic: str, backends: tuple[str, ...] | list[str] = DEFAULT_BACKEND
 
 
 def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
-    backend_names = ", ".join(b.name for b in BACKENDS)
+    backend_names = ", ".join(b.name for b in BACKENDS) if BACKENDS else ""
     ap = argparse.ArgumentParser(description="三段式研究→spec（1+2段，走 search_router 统一路由）")
     ap.add_argument("topic")
     ap.add_argument("--backends", default=None,
