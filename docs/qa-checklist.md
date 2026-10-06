@@ -74,9 +74,11 @@ python3 scripts/qa_cards.py projects/xxx/cards qa_cards_render
 ## 三、导出物（回读，不能只看导出命令）
 
 ```bash
-python3 scripts/svg_to_pptx.py projects/xxx -o output/xxx.pptx
+/opt/homebrew/bin/python3 /Volumes/3TB_DATA/05-开发项目/ppt/tools/ppt-master/skills/ppt-master/scripts/svg_to_pptx.py projects/xxx -o output/xxx.pptx
 unzip -q output/xxx.pptx -d /tmp/chk
 ```
+
+> ⚠️ `svg_to_pptx.py` 不在本仓库内：它是兄弟目录 `ppt/tools/ppt-master` 的外部依赖（vendoring / submodule 待用户拍板，暂不引入）。
 
 - [ ] 门禁 blocking = 0
 - [ ] `ppt/media/` 文件数 = 预期图片数
