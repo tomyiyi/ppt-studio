@@ -1,10 +1,15 @@
 """tests/test_brief_to_spec.py -- brief -> spec 初稿管线（第 22 轮，全 mock 不调 Agnes）。"""
 from __future__ import annotations
 
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.brief_to_spec import (build_spec_prompt, draft_spec,
                                      validate_spec_draft, _strip_fences, main)

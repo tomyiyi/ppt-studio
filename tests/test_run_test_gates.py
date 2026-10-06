@@ -7,6 +7,8 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 SCRIPT = ROOT / "scripts" / "run_test_gates.py"
 
 from scripts.run_test_gates import PROCESS_MODULES, discovered_modules, main, run_gate
