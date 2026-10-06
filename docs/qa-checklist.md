@@ -26,8 +26,8 @@ python3 scripts/analyze_image.py projects/xxx/images/*.png
 ## 二、版面（每页）
 
 ```bash
-/opt/homebrew/bin/python3 scripts/render_svg.py projects/xxx/svg_output qa_render
-/opt/homebrew/bin/python3 scripts/qa_layout.py projects/xxx/svg_output qa_render
+python3 scripts/render_svg.py projects/xxx/svg_output qa_render
+python3 scripts/qa_layout.py projects/xxx/svg_output qa_render
 ```
 
 七项，全部 OK 才输出 `ALL CLEAR`：
@@ -74,7 +74,7 @@ python3 scripts/qa_cards.py projects/xxx/cards qa_cards_render
 ## 三、导出物（回读，不能只看导出命令）
 
 ```bash
-/opt/homebrew/bin/python3 /Volumes/3TB_DATA/05-开发项目/ppt/tools/ppt-master/skills/ppt-master/scripts/svg_to_pptx.py projects/xxx -o output/xxx.pptx
+python3 /Volumes/3TB_DATA/05-开发项目/ppt/tools/ppt-master/skills/ppt-master/scripts/svg_to_pptx.py projects/xxx -o output/xxx.pptx
 unzip -q output/xxx.pptx -d /tmp/chk
 ```
 

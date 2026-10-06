@@ -50,7 +50,7 @@ python3 scripts/crop_panel.py heal_bg.png --aspect 580:385 --pad 1.15 --apply
 python3 scripts/qa_layout.py <project>/svg_output <render_dir>
 
 # 3) 渲染 —— macOS 需系统 python3（playwright 装在那里）
-/opt/homebrew/bin/python3 scripts/render_svg.py <project>/svg_output <out_dir> --scale 1
+python3 scripts/render_svg.py <project>/svg_output <out_dir> --scale 1
 ```
 
 ## 标准流程
@@ -339,10 +339,10 @@ spec_lock 里写 `body: 16 / caption: 13` 不够，必须写死哪个角色用�
 
 ```bash
 # 1) 渲染
-/opt/homebrew/bin/python3 render_svg.py <proj>/svg_output qa_render
+python3 render_svg.py <proj>/svg_output qa_render
 
 # 2) 版面总检：字号 / 溢出 / 压行 / 底图 / 重影 / 面板墨量 / WCAG
-/opt/homebrew/bin/python3 qa_layout.py <proj>/svg_output qa_render
+python3 qa_layout.py <proj>/svg_output qa_render
 #    七项必须全部 OK，输出 ALL CLEAR 才算过
 
 # 3) 门禁

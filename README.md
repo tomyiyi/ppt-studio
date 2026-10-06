@@ -112,7 +112,7 @@ python3 ../../scripts/qa_layout.py svg_output/ render/
 
 # 3b. 出卡片（可选，同一份 SVG 的第三个出口）
 python3 ../../scripts/make_cards.py .            # → cards/
-/opt/homebrew/bin/python3 ../../scripts/render_svg.py cards/ render_cards/
+python3 ../../scripts/render_svg.py cards/ render_cards/
 python3 ../../scripts/qa_cards.py cards/ render_cards/
 ```
 

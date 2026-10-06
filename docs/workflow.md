@@ -10,8 +10,8 @@
 # 图像分析依赖（任意 python3.11+ 均可）
 python3 -m venv .venv && .venv/bin/pip install pillow numpy
 
-# SVG 渲染需要 Playwright（macOS 上 brew python 才有）
-/opt/homebrew/bin/python3 -m pip install playwright cairosvg
+# SVG 渲染需要 Playwright（见 requirements.txt）
+python3 -m pip install -r requirements.txt
 ```
 
 ⚠️ **两个 python 不要混用**：渲染要 Playwright，图像分析要 Pillow/numpy，装在不同解释器里。用错解释器会 `ModuleNotFoundError`。
@@ -133,8 +133,8 @@ python3 scripts/analyze_image.py projects/xxx/images/*.png
 ## 6. 质检（必跑）
 
 ```bash
-/opt/homebrew/bin/python3 scripts/render_svg.py projects/xxx/svg_output qa_render
-/opt/homebrew/bin/python3 scripts/qa_layout.py projects/xxx/svg_output qa_render
+python3 scripts/render_svg.py projects/xxx/svg_output qa_render
+python3 scripts/qa_layout.py projects/xxx/svg_output qa_render
 ```
 
 七项检查，全部 OK 才是 `ALL CLEAR`：
@@ -161,7 +161,7 @@ python3 scripts/analyze_image.py projects/xxx/images/*.png
 
 ```bash
 python3 scripts/make_cards.py projects/xxx            # → cards/
-/opt/homebrew/bin/python3 scripts/render_svg.py projects/xxx/cards qa_cards_render
+python3 scripts/render_svg.py projects/xxx/cards qa_cards_render
 python3 scripts/qa_cards.py projects/xxx/cards qa_cards_render
 ```
 
