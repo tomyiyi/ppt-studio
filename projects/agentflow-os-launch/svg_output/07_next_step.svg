@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif">
+<svg data-pptx-page-role="content" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif">
   <defs>
     <linearGradient id="next-scrim-x" x1="0" y1="0" x2="1" y2="0">
       <stop offset="0" stop-color="#08090C" stop-opacity="0.95" />
@@ -13,34 +13,34 @@
     </linearGradient>
   </defs>
 
-  <g id="background">
+  <g id="background" data-pptx-bounds="0 0 1280 720" data-pptx-role="background">
     <rect width="1280" height="720" fill="#08090C" />
     <image href="../images/next_bg.png" x="0" y="0" width="1280" height="720" preserveAspectRatio="xMidYMid slice" />
     <rect x="0" y="0" width="1280" height="720" fill="url(#next-scrim-x)" />
     <rect x="0" y="0" width="1280" height="720" fill="url(#next-scrim-y)" />
   </g>
 
-  <g id="page-kicker">
+  <g id="page-kicker" data-pptx-bounds="78 87 154.8 18.3">
     <text x="80" y="100" font-size="11" fill="#8E8F9A" letter-spacing="4">NEXT STEP · 07</text>
   </g>
 
-  <g id="closing-claim" font-weight="bold" font-size="56">
+  <g id="closing-claim" font-weight="bold" font-size="56" data-pptx-bounds="78 206 835 154.8">
     <text x="80" y="264" fill="#F7F7F9">挑一个你最不想再手工做的流程</text>
     <text x="80" y="342" fill="#6E7BFF">交给它跑两周</text>
   </g>
 
-  <g id="closing-detail">
+  <g id="closing-detail" data-pptx-bounds="77.5 387.5 428.5 94.5">
     <line x1="80" y1="390" x2="200" y2="390" stroke="#23242E" stroke-width="1" />
     <text x="80" y="438" font-size="20" fill="#8E8F9A">不需要先改造系统，不需要先写规范文档。</text>
     <text x="80" y="474" font-size="20" fill="#8E8F9A">接进来，给它权限边界，然后看它怎么收尾。</text>
   </g>
 
-  <g id="closing-action">
+  <g id="closing-action" data-pptx-bounds="78 518 424 70">
     <rect x="80" y="520" width="420" height="66" rx="8" fill="#6E7BFF" />
     <text x="290" y="562" text-anchor="middle" font-size="20" font-weight="bold" fill="#08090C">申请试点接入</text>
   </g>
 
-  <g id="footer">
+  <g id="footer" data-pptx-bounds="77.5 605.5 1125 48.4">
     <line x1="80" y1="608" x2="1200" y2="608" stroke="#23242E" stroke-width="1" />
     <text x="80" y="648" font-size="13" fill="#8E8F9A">智流 OS · AgentFlow OS — 2026 战略发布</text>
     <text x="1200" y="648" text-anchor="end" font-size="13" fill="#7F8090">07 / 07</text>
