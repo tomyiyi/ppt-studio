@@ -1,142 +1,155 @@
 # ppt-studio
 
-把一份「会说话的内容」变成**一套可传播的多形态物料**：先美化成有设计感的 PPT，再导出 HTML / PPTX / 卡片图，未来接上视频与配音。
+**内容 → 多形态物料的可验证流水线。** 一份内容笔记，先变成 1280×720 的 SVG 画布（唯一真源），再经质检闸门分出三条出口：原生 PPTX、单文件 HTML、1080×1350 传播卡片。每一步都有脚本、有指标、有闸门——不凭"跑通了"交付。
 
-不是模板库，也不是又一个 PPT 生成器。它是一条**可验证的流水线**：内容 → 版式规格 → 配图 → SVG 画布 → PPTX / HTML → 质检。每一步都有脚本、有指标、有闸门，而不是「生成完就交」。
-
----
-
-## 目标（这条线要走到哪）
-
-> 我想 PPT 可以美化好，可以 HTML、PPT、精美的、视觉的，之后又可以变成卡片式方便传播，计划未来可以转换成视频 + 有配音的内容。
-
-拆成四个形态，一条链路喂全部：
-
-| 形态 | 用途 | 状态 |
-|---|---|---|
-| **PPTX** | 线下汇报 / 发布会大屏 / 交付存档 | ✅ 已通 |
-| **HTML** | 网页翻页、嵌进文章、分享链接 | ✅ 已通 |
-| **卡片图** | 微信 / 小红书 / 社群传播，1080×1350 竖版 | ✅ 已通 |
-| **视频 + 配音** | 抖音 / B 站 / 视频号 | 🔜 规划中 |
-
-四个形态共用同一份 **SVG 画布**作为唯一真源 —— 画布是 1280×720 的矢量底稿，往后切卡片、切视频分镜都是同一份源的不同裁切，不需要重做设计。
+[![CI](https://github.com/tomyiyi/ppt-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/tomyiyi/ppt-studio/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.12–3.14](https://img.shields.io/badge/Python-3.12%E2%80%933.14-3776AB?logo=python&logoColor=white)](scripts/)
 
 ---
 
-## 现在能跑通什么
-
-以 `projects/agentflow-os-launch`（智流 OS 发布会，7 页）为完整样例：
+## 架构
 
 ```
 内容笔记 (notes/*.md)
-    ↓
-spec_lock.md        ← 横版版式契约：字号阶梯 / 色板，全项目唯一真源
-    ↓
-SVG 画布 (svg_output/*.svg)   ← 1280×720，图做满幅底图，文字压在暗面上
-    ↓
-Agnes 配图 (images/*.png)     ← 生图只走 Agnes，gemini 不参与生图
-    ↓
-├→ PPTX    原生 DrawingML（不是贴图，文字可编辑、图形可改）
-├→ HTML    单文件预览，含全部内嵌资源
-└→ 卡片    1080×1350 竖版重排（不是拉伸裁切，见下）
-    ↓
-qa_layout.py   ← 横版 7 项质检
-qa_cards.py    ← 卡片 7 项质检
+        │
+        ▼
+版式契约 spec_lock.md ── 字号阶梯 / 色板 / 栅格，全项目唯一真源
+        │
+        ▼
+SVG 画布 (svg_output/*.svg)   ◄── 1280×720，唯一真源
+        │                        配图只走 Agnes（见"配图铁律"）
+        ├─► render_svg.py ──► PNG 预览
+        │         │
+        │         ▼
+        │   qa_layout.py ── 7 项质检闸门 ──► ALL CLEAR ✅
+        │
+        ├─► make_cards.py ──► cards/*.svg（1080×1350 重排，非裁切）
+        │         │
+        │         ▼
+        │   qa_cards.py ── 7 项卡片质检 ──► ALL CLEAR ✅
+        │
+        ├─► build_preview.py ──► 单文件 HTML 翻页预览
+        │
+        └─► PPTX 出口（外部依赖，见下）
+              ① svg_quality_checker.py（外部）门禁 blocking=0
+              ② svg_to_pptx.py（外部）──► 原生 DrawingML，可编辑
 ```
 
-### 卡片不是「把横版裁一裁」
+## 样例项目
 
-16:9 直接 slice 成 3:4 会横向砍掉 55% 的画面，横版的字号在手机上也会小到读不清。
-所以 `make_cards.py` 做的是**重排**：从 SVG 抽取内容要素（主句 / 副句 / 指标 / 徽章），
-换一套竖版字号阶梯（28→132，比横版大得多），重新排版。
+`projects/agentflow-os-launch/`（产品发布会物料）是完整可跑的样例：7 页内容笔记、7 张 SVG 画布、11 张配图。
 
-三个关键设计：
+## QuickStart（已在干净 venv 实测）
 
-- **自适应图片带**（40%–62%）。内容少 → 图涨到 62%，不留下半屏空白；内容多 → 图让位到 40%。固定比例会让「只有一句主句」的卡片空一半（实测面板墨量 2.96%）。
-- **装不下就按优先级砍**。卡片只装得下一个主张：先砍副句，再减指标。02 页因此保留了三个数字、丢了场景描写——数字比正文更适合卡片。
-- **主句左侧 6px 强调竖线**是所有卡片统一的签名元素。
+```bash
+git clone https://github.com/tomyiyi/ppt-studio.git
+cd ppt-studio
 
-最后一步不是可选项。交付前必须跑质检 —— 这条是本项目的工作纪律，不是建议。
+python3 -m venv .venv && . .venv/bin/activate
+python3 -m pip install -r requirements.txt
+# SVG 渲染用 Playwright 驱动系统 Chrome；若本机装了 Google Chrome，
+# render_svg.py 会直接用它，无需 python -m playwright install chromium
 
----
+cd projects/agentflow-os-launch
+
+# 1. 渲染 SVG → PNG（供质检读像素）
+python3 ../../scripts/render_svg.py svg_output/ qa_render/
+# 2. 横版质检闸门（必跑）
+python3 ../../scripts/qa_layout.py svg_output/ qa_render/
+# 3. 竖版卡片（同一份 SVG 的第二个出口）
+python3 ../../scripts/make_cards.py .
+python3 ../../scripts/render_svg.py cards/ qa_cards_render/
+python3 ../../scripts/qa_cards.py cards/ qa_cards_render/
+# 4. 单文件 HTML 预览（可选）
+python3 ../../scripts/build_preview.py svg_output/ preview.html "发布会预览"
+```
+
+两道闸门都输出 `ALL CLEAR ✅` 才能往下走；任一告警先改 SVG 再交付。
+（实测：Python 3.14.6，macOS，干净 venv 按上装依赖；render_svg 渲染 7 页约 13 秒，make_cards 生成 7 张 1080×1350 卡片，qa_layout 与 qa_cards 均为 `ALL CLEAR ✅`。注：qa_layout 含像素级对比分析，7 页约 2–3 分钟，属正常。）
+
+> 配图生成（`agnes_ppt_bridge.py`）只在缺图时跑：读 `images/image_prompts.json` 批量调 Agnes 生图，已有图自动跳过。需要本机 New API（`http://127.0.0.1:3000/v1`）。
+
+## PPTX 出口（诚实说明）
+
+PPTX 转换**不在本仓库**：`svg_to_pptx.py` 是兄弟目录 `ppt/tools/ppt-master` 的外部依赖（vendoring / submodule 待定，本仓库不复制）。导出是两步，不是"一键直达"：
+
+```bash
+PPT_MASTER=/Volumes/3TB_DATA/05-开发项目/ppt/tools/ppt-master   # 按你的实际路径改
+# 1. 质量门禁：blocking 必须为 0，否则不许转
+python3 $PPT_MASTER/skills/ppt-master/scripts/svg_quality_checker.py \
+    projects/agentflow-os-launch --canonical-authoring --stage final --json
+# 2. 转换（原生 DrawingML：文字可编辑、图形可改，不是贴图）
+python3 $PPT_MASTER/skills/ppt-master/scripts/svg_to_pptx.py \
+    projects/agentflow-os-launch -o output/deck.pptx
+# 3. 回读验证：unzip -q output/deck.pptx -d /tmp/chk，核对 ppt/media/ 文件数与每页 <p:pic> 数量
+```
+
+SVG 画布约定：`viewBox="0 0 1280 720"`，边距 60px。
+
+## 脚本（11 个，全部在本仓库）
+
+| 脚本 | 干什么 |
+|---|---|
+| `agnes_ppt_bridge.py` | 读 `image_prompts.json` 批量调 Agnes 生图；内置模型黑名单，硬性拦截 gemini / dall-e / gpt-image / flux / seedream |
+| `prepare_agnes_image.py` | 生图后处理：等比放大居中裁到精确 16:9、消除拼缝、压暗归一 |
+| `analyze_image.py` | 配图客观验收：锐度（拉普拉斯方差）、主体 3×3 位置分布、墨量、接缝检测 |
+| `crop_panel.py` | 按主体包围盒裁切，让主体撑满面板而非缩在中间 |
+| `boost_ink.py` | 暗底线性图提亮：黑点保持 + 高光增益，背景不被抬灰 |
+| `render_svg.py` | SVG → PNG（Playwright 驱动系统 Chrome；`<image href>` 自动内联 base64） |
+| `build_preview.py` | 若干 SVG → 单文件 HTML 翻页预览（图片内联 data URI） |
+| `make_cards.py` | 横版画布 → 1080×1350 竖版卡片：内容要素重排（自适应图片带 40%–62%，装不下按优先级砍） |
+| `qa_layout.py` | 横版质检闸门：溢出 / 字号阶梯 / 底图 / 重复图片 / 面板墨量 / 压行 / 对比度，7 项 |
+| `qa_cards.py` | 卡片质检闸门：字号 / 安全区 / 溢出 / 压行 / 对比度 / 底图 / 留白，7 项 |
+| `run_auto_poc.py` | auto_poc 双画幅（16:9 + 4:3）SVG 生成管线，POC 验证用；模板目录从外部 ppt-master 推导（`--tpl-169-dir` / `--tpl-43-dir` 可覆盖） |
+
+## 配图铁律
+
+**生图只走 Agnes。** 本机 `gemini-*` 是反代文本通道，没有可靠的图像生成能力；`agnes_ppt_bridge.py` 的 `BLOCKED_IMAGE_MODELS` 会硬性拦截 `gemini / dall-e / gpt-image / flux / seedream`，命中即跳过并告警。可用模型：`agnes-image-2.5-flash`（优先）、`agnes-image-2.1-flash`，经本机 New API（`http://127.0.0.1:3000/v1`）。
+
+## Troubleshooting
+
+| 现象 | 真因 | 修法 |
+|---|---|---|
+| `ModuleNotFoundError: PIL / playwright` | 用的解释器和装依赖的不是同一个 | 全程用同一个：`.venv/bin/python`，或 `python3 -m pip install -r requirements.txt` 装到当前 `python3` |
+| `render_svg.py` 打印 `[warn] 缺图 ../images/x.png` | SVG 引了不存在的图片 | 补图或先跑 `agnes_ppt_bridge.py`；注意路径是相对 SVG 文件的 |
+| `qa_cards.py` 打印 `[warn] 缺 numpy/Pillow，跳过像素级检查` | 像素级检查被静默跳过，闸门变弱 | `python3 -m pip install -r requirements.txt` 装齐再跑 |
+| `make_cards.py` 打印 `[skip] xx.svg 无可提取内容` | 该页抽不到主句/指标 | 检查 SVG 文本层；纯装饰页可接受 skip |
+| 质检报 `[溢出]` / `[压行]` | 文本超出安全区或行框重叠 | 改 SVG（缩字号/删副句），不要调质检阈值 |
+| 卡片下半屏空白 | 图片带高度写死 | `make_cards.py` 已按内容量自适应 40%–62%；若还空，说明该页内容要素太少，补指标或副句 |
+| 小字对比度不足 | `tertiary_text` 颜色太浅 | 改 `#7F8090`（4.75:1）起步，WCAG ≥ 4.5:1 |
 
 ## 目录
 
 ```
 ppt-studio/
-├── scripts/                      8 个流水线脚本（见下表）
-├── skills/agnes-ppt-imagery/     配图 Skill：提示词写法 + 14 条避坑 + 验收流程
+├── scripts/                  11 个流水线脚本（见上表）
+├── skills/agnes-ppt-imagery/ 配图 Skill：提示词写法、避坑、验收流程
 ├── projects/
-│   └── agentflow-os-launch/      完整样例项目
-│       ├── spec_lock.md          版式契约（字号阶梯 / 色彩 / 栅格）
-│       ├── notes/                7 页内容笔记
-│       ├── images/               10 张成品图 + image_prompts.json
-│       └── svg_output/           7 页 SVG 画布
+│   ├── agentflow-os-launch/  完整样例（7 页）
+│   ├── auto_poc/             双画幅 POC 产物
+│   └── workflow_poc/
 ├── docs/
-│   ├── workflow.md               完整工作流与踩坑记录
-│   └── qa-checklist.md           交付前质检清单
-├── output/                       已产出的 PPTX / HTML
-└── ROADMAP.md                    四形态演进计划
+│   ├── workflow.md           完整工作流与踩坑记录
+│   └── qa-checklist.md       交付前质检清单（含 PPTX 回读步骤）
+├── output/                   已产出的 PPTX / HTML
+├── requirements.txt          pillow / numpy / playwright
+├── ROADMAP.md                四形态演进计划（视频 + 配音在路上）
+└── LICENSE                   MIT
 ```
 
----
+## 延伸阅读
 
-## 脚本
-
-| 脚本 | 干什么 |
-|---|---|
-| `agnes_ppt_bridge.py` | 读 `image_prompts.json` 批量调 Agnes 生图；内置模型黑名单，**拦截 gemini / gpt-image / flux 等** |
-| `prepare_agnes_image.py` | 生图后处理：裁到 16:9、自动检测并消除拼缝、亮度归一 |
-| `analyze_image.py` | 客观量化一张图：锐度、主体位置 3×3 分布、墨量、接缝检测 |
-| `crop_panel.py` | 按主体包围盒裁切，让主体撑满面板而不是缩在中间 |
-| `boost_ink.py` | 保黑点的增益（背景不被抬灰），救偏暗的图 |
-| `render_svg.py` | SVG → PNG 渲染，供质检和预览用 |
-| `build_preview.py` | 把若干 SVG 打包成单文件 HTML 翻页预览 |
-| `make_cards.py` | 横版画布 → 1080×1350 竖版卡片（重排，非裁切） |
-| `qa_layout.py` | **横版质检闸门**：7 项检查，字号阶梯直接从 `spec_lock.md` 读 |
-| `qa_cards.py` | **卡片质检闸门**：7 项检查，阶梯从 `card_spec.md` 读 |
-
-### 跑一遍样例
-
-```bash
-cd projects/agentflow-os-launch
-
-# 1. 配图（只在缺图时跑，已有图会跳过）
-python3 ../../scripts/agnes_ppt_bridge.py --manifest images/image_prompts.json
-
-# 2. 渲染成 PNG，供质检读取像素
-python3 ../../scripts/render_svg.py svg_output/ render/
-
-# 3. 质检（必跑）
-python3 ../../scripts/qa_layout.py svg_output/ render/
-
-# 3b. 出卡片（可选，同一份 SVG 的第三个出口）
-python3 ../../scripts/make_cards.py .            # → cards/
-python3 ../../scripts/render_svg.py cards/ render_cards/
-python3 ../../scripts/qa_cards.py cards/ render_cards/
-```
-
-质检全绿会打印 `ALL CLEAR`。任何一项有告警，先改 SVG 再交付。
+- `docs/workflow.md` —— 从内容笔记到交付的完整工作流，含"常见翻车档案"
+- `docs/qa-checklist.md` —— 交付前逐项核对清单
+- `skills/agnes-ppt-imagery/SKILL.md` —— 配图提示词写法与 14 条避坑
 
 ---
 
-## 两条铁律
+## 🌐 English Summary
 
-**1. 生图模型只用 Agnes。** 语言模型（gemini 反代）负责文案与规划，生图一律走 Agnes Studio / New API（`http://127.0.0.1:3000/v1`）。`agnes_ppt_bridge.py` 内置黑名单会硬性拦截 `gemini-*-image` 之类的模型名 —— 不是性能问题，是明确的约束。可用模型：`agnes-image-2.5-flash`（主）、`agnes-image-2.1-flash`。
-
-**2. 做完要验证，不能凭 "跑通了" 就交付。** 返回码成功 ≠ 结果正确。本项目踩过的坑里，有一半是脚本本身在骗人（比如质检脚本没解析父节点继承的 `font-size`，把 56px 大标题读成 16px，整张审计表都是错的）。所以：写完改完，跑 `qa_layout.py`，读它的输出，再说"好了"。
-
----
-
-## 环境
-
-- Python 3.13 + `Pillow` / `numpy`（图像分析）
-- `cairosvg` 或 Playwright/Chrome（SVG 渲染）
-- ppt-master 的 SVG→PPTX 转换器（SVG 画布 `viewBox="0 0 1280 720"`，边距 60px）
-- Agnes Studio / New API 本地端点（生图）
-
----
+**ppt-studio** is a verifiable content → multi-format publishing pipeline. A content brief becomes a 1280×720 SVG canvas (single source of truth), then passes QA gates (`qa_layout.py` / `qa_cards.py`, 7 checks each, both must print `ALL CLEAR`) into three outputs: native editable PPTX, single-file HTML slide preview, and 1080×1350 social cards (reflowed for vertical, not cropped). Image generation goes exclusively through Agnes (other model families are hard-blocked). The PPTX converter (`svg_to_pptx.py`) lives in the sibling `ppt/tools/ppt-master` repo and is an explicit external dependency with a quality gate (`svg_quality_checker.py`, blocking=0) before conversion. Video + narration is on the roadmap.
 
 ## License
 
-MIT
+MIT · 欢迎提 Issue 和 PR。
