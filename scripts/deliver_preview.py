@@ -8,13 +8,18 @@ import sys
 from pathlib import Path
 from typing import Any
 
-try:
-    from scripts.build_preview import build_preview
-except ModuleNotFoundError:
+if __package__ in (None, ""):
     repo_root = Path(__file__).resolve().parent.parent
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
+
+try:
     from scripts.build_preview import build_preview
+except ImportError:
+    try:
+        from build_preview import build_preview
+    except ImportError:
+        build_preview = None  # type: ignore
 
 
 _STAGES = ("image", "layout", "cards", "long_card")
@@ -37,7 +42,14 @@ def validate_attestation_for_preview(
     stages = data.get("stages")
     if data.get("overall") is not True or not isinstance(stages, dict):
         raise ValueError("QA_NOT_PASSED")
-    if any(stages.get(name, {}).get("ok") is not True for name in _STAGES):
+    if any(
+        name not in stages
+        or not isinstance(stages.get(name), dict)
+        or stages[name].get("ok") is not True
+        for name in _STAGES
+    ):
+        raise ValueError("QA_NOT_PASSED")
+    if any(not isinstance(v, dict) or v.get("ok") is not True for v in stages.values()):
         raise ValueError("QA_NOT_PASSED")
     return data
 
@@ -62,6 +74,8 @@ def deliver_preview(
         out = (base / out).resolve()
     if out.is_dir():
         raise IsADirectoryError(f"交付目标不能是已存在目录: {out}")
+    if build_preview is None:
+        raise RuntimeError("无法加载 build_preview 模块")
 
     resolved_src = src
     if base_dir is not None:

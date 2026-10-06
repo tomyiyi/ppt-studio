@@ -80,6 +80,39 @@ class TestDeliverPreview(unittest.TestCase):
         builder.assert_not_called()
         self.assertEqual(self.output.read_text(encoding="utf-8"), "existing-preview")
 
+    def test_additional_failed_stage_blocks_delivery(self):
+        data = valid_attestation()
+        data["stages"]["assets"] = {"ok": False}
+        self.attestation.write_text(json.dumps(data), encoding="utf-8")
+        with patch("scripts.deliver_preview.build_preview") as builder:
+            with self.assertRaises(ValueError):
+                deliver_preview(self.attestation, "svg_output", self.output)
+        builder.assert_not_called()
+
+    def test_additional_passed_stage_allows_delivery(self):
+        data = valid_attestation()
+        data["stages"]["assets"] = {"ok": True}
+        self.attestation.write_text(json.dumps(data), encoding="utf-8")
+        with patch("scripts.deliver_preview.build_preview", return_value=self.output) as builder:
+            result = deliver_preview(self.attestation, "svg_output", self.output)
+        self.assertEqual(result, self.output)
+        builder.assert_called_once_with(src="svg_output", out=self.output, title=None, cards=False, check=False)
+
+    def test_non_dict_stage_value_blocks_delivery(self):
+        data = valid_attestation()
+        data["stages"]["image"] = False
+        self.attestation.write_text(json.dumps(data), encoding="utf-8")
+        with patch("scripts.deliver_preview.build_preview") as builder:
+            with self.assertRaises(ValueError):
+                deliver_preview(self.attestation, "svg_output", self.output)
+        builder.assert_not_called()
+
+    def test_missing_build_preview_module_raises_runtime_error(self):
+        with patch("scripts.deliver_preview.build_preview", None):
+            with self.assertRaises(RuntimeError) as cm:
+                deliver_preview(self.attestation, "svg_output", self.output)
+            self.assertIn("build_preview", str(cm.exception))
+
     def test_validator_requires_all_four_stages(self):
         data = valid_attestation()
         del data["stages"]["long_card"]
@@ -210,6 +243,17 @@ class TestDeliverPreviewCLI(unittest.TestCase):
                 ])
         self.assertEqual(code, 0)
         builder.assert_called_once_with(src=None, out=str(self.output), title=None, cards=False, check=True)
+
+    def test_cli_missing_build_preview_module(self):
+        err_buf = io.StringIO()
+        with patch("scripts.deliver_preview.build_preview", None):
+            with redirect_stderr(err_buf):
+                code = main([
+                    "--attestation", str(self.attestation),
+                    "--output", str(self.output),
+                ])
+        self.assertEqual(code, 1)
+        self.assertIn("[err] 无法加载 build_preview 模块", err_buf.getvalue())
 
     def test_cli_check_failure(self):
         err_buf = io.StringIO()
