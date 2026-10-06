@@ -25,7 +25,7 @@
   </g>
 
   <g id="capability-icon">
-    <g transform="translate(80, 150) scale(1.7)" fill="none" stroke="#6E7BFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <g transform="translate(80 150) scale(1.7)" fill="none" stroke="#6E7BFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M13 3l0 7l6 0l-8 11l0 -7l-6 0l8 -11" />
     </g>
   </g>
