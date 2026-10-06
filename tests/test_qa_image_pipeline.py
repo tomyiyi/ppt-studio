@@ -1,3 +1,4 @@
+import io
 import unittest
 import json
 from pathlib import Path
@@ -115,6 +116,35 @@ class TestImageQAPipeline(unittest.TestCase):
             code2 = main(["a.png", "--base-dir", "/proj2"])
         self.assertEqual(code2, 0)
         mock_qa2.assert_called_once_with(["a.png"], verbose=True, base_dir=Path("/proj2").resolve())
+
+    def test_run_image_qa_missing_module_raises(self):
+        with patch("scripts.qa_image_pipeline._resolve_and_dedup_targets", None):
+            with self.assertRaises(RuntimeError) as cm:
+                run_image_qa("a.png")
+            self.assertIn("prepare_agnes_image", str(cm.exception))
+
+        with patch("scripts.qa_image_pipeline.check_crop_panel", None):
+            with self.assertRaises(RuntimeError) as cm:
+                run_image_qa("a.png")
+            self.assertIn("crop_panel", str(cm.exception))
+
+        with patch("scripts.qa_image_pipeline.check_boost_ink", None):
+            with self.assertRaises(RuntimeError) as cm:
+                run_image_qa("a.png")
+            self.assertIn("boost_ink", str(cm.exception))
+
+    def test_main_handles_runtime_error(self):
+        with patch("scripts.qa_image_pipeline.run_image_qa", side_effect=RuntimeError("模块加载失败")):
+            code = main(["a.png"])
+            self.assertEqual(code, 1)
+
+        with patch("scripts.qa_image_pipeline.run_image_qa", side_effect=RuntimeError("模块加载失败")), \
+             patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
+            code_json = main(["a.png", "--json"])
+            self.assertEqual(code_json, 1)
+            payload = json.loads(mock_stdout.getvalue())
+            self.assertFalse(payload["ok"])
+            self.assertIn("模块加载失败", payload["error"])
 
 
 if __name__ == "__main__":

@@ -9,11 +9,24 @@ import sys
 from typing import Any
 
 if __package__ in (None, ""):
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    repo_root = Path(__file__).resolve().parent.parent
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
 
-from scripts.prepare_agnes_image import _resolve_and_dedup_targets, check_images
-from scripts.crop_panel import check_crop_panel
-from scripts.boost_ink import check_boost_ink
+try:
+    from scripts.prepare_agnes_image import _resolve_and_dedup_targets, check_images
+    from scripts.crop_panel import check_crop_panel
+    from scripts.boost_ink import check_boost_ink
+except ImportError:
+    try:
+        from prepare_agnes_image import _resolve_and_dedup_targets, check_images
+        from crop_panel import check_crop_panel
+        from boost_ink import check_boost_ink
+    except ImportError:
+        _resolve_and_dedup_targets = None  # type: ignore
+        check_images = None  # type: ignore
+        check_crop_panel = None  # type: ignore
+        check_boost_ink = None  # type: ignore
 
 
 def run_image_qa(
@@ -28,6 +41,12 @@ def run_image_qa(
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """按 prepare -> crop -> boost 顺序检查每个图片并汇总结果。"""
+    if _resolve_and_dedup_targets is None or check_images is None:
+        raise RuntimeError("无法加载 prepare_agnes_image 模块")
+    if check_crop_panel is None:
+        raise RuntimeError("无法加载 crop_panel 模块")
+    if check_boost_ink is None:
+        raise RuntimeError("无法加载 boost_ink 模块")
     resolved, resolution_failures = _resolve_and_dedup_targets(targets, base_dir=base_dir)
     items: list[dict[str, Any]] = [{"file": f.get("file", ""), "name": f.get("name", ""), "ok": False, "stage": "prepare", "code": f.get("code", "TARGET_ERROR"), "reason": f.get("reason", "目标解析失败")} for f in resolution_failures]
     for path in resolved:
@@ -70,7 +89,14 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
         if args.base_dir
         else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
     )
-    result = run_image_qa(args.targets, verbose=not args.as_json, base_dir=effective_base)
+    try:
+        result = run_image_qa(args.targets, verbose=not args.as_json, base_dir=effective_base)
+    except (FileNotFoundError, OSError, ValueError, RuntimeError) as err:
+        if args.as_json:
+            print(json.dumps({"ok": False, "error": str(err)}, ensure_ascii=False))
+        else:
+            print(f"[err] {err}", file=sys.stderr)
+        return 1
     if args.as_json:
         print(json.dumps(result, ensure_ascii=False, default=str))
     else:
