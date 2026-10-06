@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """tests/test_text_measure.py"""
+import contextlib
+import io
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -9,7 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.text_measure import FontCache, measure, pil_available, _resolve_font
+from scripts.text_measure import FontCache, _resolve_font, main, measure, pil_available
 
 
 class TestTextMeasure(unittest.TestCase):
@@ -62,6 +66,63 @@ class TestTextWidthIntegration(unittest.TestCase):
         from scripts import qa_layout
         w = qa_layout.text_width("ABC", 10)
         self.assertGreater(w, 0)
+
+
+class TestTextMeasureMain(unittest.TestCase):
+    """测试 text_measure CLI main 与 base-dir 解析。"""
+
+    def test_resolve_font_with_base_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            dummy_font = base / "fonts" / "custom.ttf"
+            dummy_font.parent.mkdir(parents=True)
+            dummy_font.touch()
+
+            resolved = _resolve_font("fonts/custom.ttf", base_dir=base)
+            self.assertEqual(resolved, str(dummy_font.resolve()))
+
+    def test_main_measure_text(self):
+        buf = io.StringIO()
+        err_buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err_buf):
+            rc = main(["Hello World", "--size", "24"])
+        if rc == 0:
+            val = float(buf.getvalue().strip())
+            self.assertGreater(val, 0)
+        else:
+            self.skipTest("无可用字体/PIL")
+
+    def test_main_measure_json(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = main(["Hello World", "--size", "24", "--json"])
+        self.assertEqual(rc, 0)
+        data = json.loads(buf.getvalue())
+        self.assertEqual(data["text"], "Hello World")
+        self.assertEqual(data["size"], 24)
+
+    def test_main_resolve_font_flag(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = main(["--resolve-font"])
+        # 若系统有字体则返回 0，无则返回 1
+        if rc == 0:
+            self.assertTrue(len(buf.getvalue().strip()) > 0)
+
+    def test_main_resolve_font_json(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = main(["--resolve-font", "--json"])
+        self.assertEqual(rc, 0)
+        data = json.loads(buf.getvalue())
+        self.assertIn("resolved_font", data)
+        self.assertIn("pil_available", data)
+
+    def test_main_no_text_returns_2(self):
+        err_buf = io.StringIO()
+        with contextlib.redirect_stderr(err_buf):
+            rc = main([])
+        self.assertEqual(rc, 2)
 
 
 if __name__ == "__main__":
