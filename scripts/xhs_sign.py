@@ -17,6 +17,7 @@ x-s / x-s-common / x-t / x-b3-traceid / x-rap-param 等请求头。
 """
 from __future__ import annotations
 
+import argparse
 import sys
 import time
 import urllib.parse
@@ -31,7 +32,15 @@ from xhs_search import load_cookies  # noqa: E402
 try:
     from xhshow import Xhshow
 except ImportError:
-    sys.exit("[error] 缺少 xhshow 库：/home/tom/Work/ppt-studio/.venv/bin/pip install xhshow")
+    # 尝试从本地 .venv site-packages 加载
+    _repo_root = Path(__file__).resolve().parent.parent
+    _venv_site = list((_repo_root / ".venv" / "lib").glob("python*/site-packages"))
+    if _venv_site and str(_venv_site[0]) not in sys.path:
+        sys.path.insert(0, str(_venv_site[0]))
+    try:
+        from xhshow import Xhshow
+    except ImportError:
+        sys.exit("[error] 缺少 xhshow 库：/home/tom/Work/ppt-studio/.venv/bin/pip install xhshow")
 
 # 搜索 API endpoint（2026-09-30 实测确认）
 # edith.xiaohongshu.com/api/sns/web/v1/search/notes 仅支持 POST；
@@ -101,9 +110,10 @@ def build_search_params(keyword: str, page: int = 1, page_size: int = 20) -> dic
 
 
 def api_search_notes(keyword: str, max_n: int = 10,
-                     cookies: dict | None = None) -> list:
+                     cookies: dict | None = None,
+                     key_file: Path | str | None = None) -> list:
     """调真实搜索 API（带签名），返回笔记列表。只发 1 个请求。"""
-    cookies = cookies or load_cookies()
+    cookies = cookies or load_cookies(key_file=key_file)
     payload = build_search_params(keyword, page_size=min(max_n, 20))
     headers = signed_post_headers(SEARCH_API, payload, cookies, x_rap=True)
 
@@ -133,3 +143,46 @@ def api_search_notes(keyword: str, max_n: int = 10,
                     if note_id else ""),
         })
     return out
+
+
+def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> int:
+    ap = argparse.ArgumentParser(description="小红书 API 签名搜索")
+    ap.add_argument("keyword", nargs="?", default="", help="搜索关键词")
+    ap.add_argument("--max", type=int, default=10, help="最大返回条数")
+    ap.add_argument("-o", "--output", help="输出 JSON 文件")
+    ap.add_argument("--key-file", help="指定 Cookie 文件路径（默认 ~/.config/ppt-studio/xiaohongshu.json）")
+    ap.add_argument(
+        "--base-dir",
+        default=None,
+        help="指定基础工作目录 (默认: 当前工作目录)",
+    )
+    a = ap.parse_args(argv)
+    if not a.keyword:
+        ap.print_help()
+        return 0
+    effective_base = (
+        Path(a.base_dir).resolve()
+        if a.base_dir
+        else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
+    )
+    key_file = None
+    if a.key_file:
+        kf_p = Path(a.key_file)
+        key_file = (effective_base / kf_p).resolve() if not kf_p.is_absolute() else kf_p.resolve()
+    try:
+        results = api_search_notes(a.keyword, a.max, key_file=key_file)
+    except Exception as e:
+        sys.exit("[error] %s" % e)
+    if a.output:
+        out_p = Path(a.output)
+        out_file = (effective_base / out_p).resolve() if not out_p.is_absolute() else out_p.resolve()
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        out_file.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+        print("[ok] %d 条结果 -> %s" % (len(results), out_file))
+    else:
+        print(json.dumps(results, ensure_ascii=False, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

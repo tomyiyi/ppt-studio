@@ -137,5 +137,63 @@ class TestApiSearchNotes(unittest.TestCase):
                 "x", 5, {"a1": "A" * 52, "web_session": "s"})
 
 
+class TestMainCLI(unittest.TestCase):
+    def test_main_empty_keyword_prints_help(self):
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            ret = xhs_sign.main([])
+        self.assertEqual(ret, 0)
+        self.assertIn("小红书 API 签名搜索", buf.getvalue())
+
+    @patch("xhs_sign.api_search_notes")
+    def test_main_output_file_and_base_dir(self, mock_search):
+        import tempfile
+        import json as _json
+
+        mock_search.return_value = [{"title": "t1", "author": "a1", "liked": "10", "url": "http://x"}]
+        with tempfile.TemporaryDirectory() as td:
+            base_dir = Path(td)
+            ret = xhs_sign.main(
+                ["测试关键词", "--max", "3", "-o", "data/out.json", "--base-dir", str(base_dir)]
+            )
+            self.assertEqual(ret, 0)
+            mock_search.assert_called_once_with("测试关键词", 3, key_file=None)
+            out_file = base_dir / "data" / "out.json"
+            self.assertTrue(out_file.exists())
+            data = _json.loads(out_file.read_text(encoding="utf-8"))
+            self.assertEqual(len(data), 1)
+            self.assertEqual(data[0]["title"], "t1")
+
+    @patch("xhs_sign.api_search_notes")
+    def test_main_key_file_relative_to_base_dir(self, mock_search):
+        import tempfile
+
+        mock_search.return_value = []
+        with tempfile.TemporaryDirectory() as td:
+            base_dir = Path(td)
+            ret = xhs_sign.main(
+                ["测试", "--key-file", "conf/cookie.json"],
+                base_dir=base_dir,
+            )
+            self.assertEqual(ret, 0)
+            mock_search.assert_called_once_with(
+                "测试", 10, key_file=(base_dir / "conf" / "cookie.json").resolve()
+            )
+
+    @patch("xhs_sign.api_search_notes")
+    def test_main_stdout_json(self, mock_search):
+        import io
+        from contextlib import redirect_stdout
+
+        mock_search.return_value = [{"title": "item1"}]
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            ret = xhs_sign.main(["关键词"])
+        self.assertEqual(ret, 0)
+        self.assertIn("item1", buf.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
