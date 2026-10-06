@@ -39,7 +39,13 @@ except ImportError:
     except ImportError:
         find_svg_dir = None  # type: ignore
         _cpm_resolve_project_dir = None  # type: ignore
-from scripts import qa_layout as _ql  # noqa: E402
+try:
+    from scripts import qa_layout as _ql  # noqa: E402
+except ImportError:
+    try:
+        import qa_layout as _ql  # noqa: E402
+    except ImportError:
+        _ql = None  # type: ignore
 
 
 def resolve_project_dir(
@@ -82,6 +88,68 @@ NS = "{http://www.w3.org/2000/svg}"
 MIN_STATEMENT_PX = 40
 
 
+def _iter_with_parents(root):
+    if _ql is not None and hasattr(_ql, "_iter_with_parents"):
+        yield from _ql._iter_with_parents(root)
+        return
+    stack = [(root, [])]
+    while stack:
+        e, anc = stack.pop()
+        yield e, anc
+        kids = list(e)
+        for k in reversed(kids):
+            stack.append((k, anc + [e]))
+
+
+def _inherited_font_size(t, anc, default=16.0):
+    if _ql is not None and hasattr(_ql, "inherited_font_size"):
+        return _ql.inherited_font_size(t, anc, default=default)
+    v = t.get("font-size")
+    if v:
+        try:
+            val = float(str(v).removesuffix("px").strip())
+            if val > 0:
+                return val
+        except ValueError:
+            pass
+    for a in reversed(anc):
+        v = a.get("font-size")
+        if v:
+            try:
+                val = float(str(v).removesuffix("px").strip())
+                if val > 0:
+                    return val
+            except ValueError:
+                pass
+    return float(default)
+
+
+def _load_ramp(spec_lock_path):
+    if _ql is not None and hasattr(_ql, "load_ramp"):
+        return _ql.load_ramp(spec_lock_path)
+    try:
+        txt = Path(spec_lock_path).read_text(encoding="utf-8")
+    except OSError:
+        return set()
+    out = set()
+    m_sizes = re.search(r"-\s*sizes:\s*\[([0-9,\s]+)\]", txt)
+    if m_sizes:
+        for x in m_sizes.group(1).split(","):
+            s = x.strip()
+            if s.isdigit():
+                out.add(int(s))
+    m = re.search(r"^##\s+typography\s*$(.*?)(?=^##\s|\Z)", txt, re.S | re.M)
+    if m:
+        for line in m.group(1).splitlines():
+            line = line.split("#")[0].strip()
+            if not line:
+                continue
+            mm = re.match(r"^-\s*\w+\s*:\s*(\d+)\s*$", line)
+            if mm:
+                out.add(int(mm.group(1)))
+    return out
+
+
 def _is_cover(stem: str) -> bool:
     return stem.startswith("01") or "cover" in stem.lower()
 
@@ -89,7 +157,7 @@ def _is_cover(stem: str) -> bool:
 def page_statement(root: ET.Element) -> tuple[int, str] | None:
     """返回 (字号px, 文本)，无主句页返回 None。口径同 qa_layout。"""
     sizes: list[tuple[int, str]] = []
-    for t, anc in _ql._iter_with_parents(root):
+    for t, anc in _iter_with_parents(root):
         if t.tag != NS + "text":
             continue
         if t.get("data-decorative") == "true":
@@ -97,7 +165,7 @@ def page_statement(root: ET.Element) -> tuple[int, str] | None:
         txt = "".join(t.itertext()).strip()
         if not txt:
             continue
-        s = int(round(_ql.inherited_font_size(t, anc)))
+        s = int(round(_inherited_font_size(t, anc)))
         sizes.append((s, txt))
     large = [(s, txt) for s, txt in sizes if s >= MIN_STATEMENT_PX]
     if not large:
@@ -110,7 +178,7 @@ def page_statement(root: ET.Element) -> tuple[int, str] | None:
 def page_sizes(root: ET.Element) -> set[int]:
     """该页所有非装饰文本字号集合（用于字阶覆盖面展示）。"""
     out: set[int] = set()
-    for t, anc in _ql._iter_with_parents(root):
+    for t, anc in _iter_with_parents(root):
         if t.tag != NS + "text":
             continue
         if t.get("data-decorative") == "true":
@@ -118,7 +186,7 @@ def page_sizes(root: ET.Element) -> set[int]:
         txt = "".join(t.itertext()).strip()
         if not txt:
             continue
-        out.add(int(round(_ql.inherited_font_size(t, anc))))
+        out.add(int(round(_inherited_font_size(t, anc))))
     return out
 
 
@@ -163,7 +231,7 @@ def build_report(
     if expected is None:
         raise ValueError(f"spec 缺少 statement 字段: {spec}")
     try:
-        ramp = _ql.load_ramp(str(spec))
+        ramp = _load_ramp(str(spec))
     except Exception:
         ramp = []
 

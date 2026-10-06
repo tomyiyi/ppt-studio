@@ -322,6 +322,23 @@ class TestDriftReportSubdirAndVersionResolution(DriftReportTestBase):
             content = expected_out.read_text(encoding="utf-8")
             self.assertIn("spec statement 字号：24px", content)
 
+    def test_fallback_without_qa_layout_module(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            proj = self.make_project(td)
+            with patch("scripts.drift_report._ql", None):
+                root = ET.fromstring(SVG_TMPL.format(texts=_text(100, 500, 56, "对齐的主句")))
+                stmt = page_statement(root)
+                self.assertEqual(stmt, (56, "对齐的主句"))
+
+                rep = build_report(proj)
+                self.assertEqual(rep["spec_file"], "spec_lock.md")
+                self.assertEqual(rep["expected_statement"], 56)
+                self.assertEqual(rep["n_drift"], 1)
+                self.assertEqual(rep["drift_pages"], ["03_drift"])
+                self.assertIn(56, rep["ramp"])
+                self.assertIn(72, rep["off_ramp_sizes"])
+
 
 if __name__ == "__main__":
     unittest.main()
