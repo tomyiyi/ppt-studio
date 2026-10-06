@@ -24,11 +24,9 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
-def parse_page_map(spec_path: Path | str) -> dict:
-    """解析 ## page_map 节，返回 {页码: {role, rhythm}}。页码如 P01。"""
-    try:
-        txt = Path(spec_path).read_text(encoding="utf-8")
-    except OSError:
+def parse_page_map_text(txt: str) -> dict:
+    """从 markdown 文本中解析 ## page_map 节，返回 {页码: {role, rhythm}}。页码如 P01。"""
+    if not txt:
         return {}
     m = re.search(r"^##\s+page_map\s*$(.*?)(?=^##\s|\Z)", txt, re.S | re.M)
     if not m:
@@ -46,6 +44,15 @@ def parse_page_map(spec_path: Path | str) -> dict:
         kv = dict(re.findall(r"(\w+)\s*=\s*([^,}]+)", rest))
         out[page] = {k: v.strip() for k, v in kv.items()}
     return out
+
+
+def parse_page_map(spec_path: Path | str) -> dict:
+    """解析 ## page_map 节，返回 {页码: {role, rhythm}}。页码如 P01。"""
+    try:
+        txt = Path(spec_path).read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    return parse_page_map_text(txt)
 
 
 def _svg_dir_version_key(d: Path) -> tuple[int, str]:

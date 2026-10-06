@@ -9,7 +9,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.check_page_map import parse_page_map, check, resolve_project_dir, find_svg_dir
+from scripts.check_page_map import (
+    parse_page_map,
+    parse_page_map_text,
+    check,
+    resolve_project_dir,
+    find_svg_dir,
+)
 
 
 class TestParsePageMap(unittest.TestCase):
@@ -25,6 +31,14 @@ class TestParsePageMap(unittest.TestCase):
             m = parse_page_map(p)
             self.assertEqual(m["P01"], {"role": "Cover", "rhythm": "anchor"})
             self.assertEqual(m["P02"]["rhythm"], "dense")
+
+    def test_parse_page_map_text(self):
+        txt = "## page_map\n- P01: role=Cover, rhythm=anchor\n- P02: role=Closing, rhythm=anchor\n"
+        m = parse_page_map_text(txt)
+        self.assertEqual(m["P01"], {"role": "Cover", "rhythm": "anchor"})
+        self.assertEqual(m["P02"], {"role": "Closing", "rhythm": "anchor"})
+        self.assertEqual(parse_page_map_text(""), {})
+        self.assertEqual(parse_page_map_text("no section"), {})
 
     def test_missing_section(self):
         import tempfile

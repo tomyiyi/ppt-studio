@@ -186,6 +186,19 @@ class TestDraftSpecChain(unittest.TestCase):
             code = main(["non_existent_brief.md"], base_dir=base)
             self.assertEqual(code, 1)
 
+    def test_validate_spec_draft_fallback_without_parse_page_map_text(self):
+        with mock.patch("scripts.brief_to_spec.parse_page_map_text", None):
+            res = validate_spec_draft(GOOD_DRAFT)
+            self.assertTrue(res["ok"], res["problems"])
+            self.assertEqual(res["pages"], 6)
+
+    def test_validate_spec_draft_fallback_without_check_page_map_module(self):
+        with mock.patch("scripts.brief_to_spec.parse_page_map_text", None), \
+             mock.patch("scripts.brief_to_spec.parse_page_map", None):
+            res = validate_spec_draft(GOOD_DRAFT)
+            self.assertTrue(res["ok"], res["problems"])
+            self.assertEqual(res["pages"], 6)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -24,8 +24,23 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.brief_writer import call_agnes, DEFAULT_TEXT_MODEL # noqa: E402
-from scripts.check_page_map import parse_page_map # noqa: E402
+try:
+    from scripts.brief_writer import call_agnes, DEFAULT_TEXT_MODEL  # noqa: E402
+except ImportError:
+    try:
+        from brief_writer import call_agnes, DEFAULT_TEXT_MODEL  # noqa: E402
+    except ImportError:
+        call_agnes = None
+        DEFAULT_TEXT_MODEL = "gemini-2.5-flash"
+
+try:
+    from scripts.check_page_map import parse_page_map, parse_page_map_text  # noqa: E402
+except ImportError:
+    try:
+        from check_page_map import parse_page_map, parse_page_map_text  # noqa: E402
+    except ImportError:
+        parse_page_map = None
+        parse_page_map_text = None
 
 # 字阶锁死：初稿不许 Agnes 自创字号（与 fw2026 v4 锁一致）
 CANON_RAMP = [20, 26, 36, 42, 72, 84, 180, 225]
@@ -93,15 +108,32 @@ def validate_spec_draft(md: str) -> dict:
         problems.append("typography 字阶被改动（必须逐字保留）")
     if "- statement: %d" % CANON_STATEMENT not in md:
         problems.append("typography statement 被改动（必须逐字保留）")
-    # 4. page_map：复用 check_page_map.parse_page_map（写临时文件）
-    with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False,
-                                     encoding="utf-8") as f:
-        f.write(md)
-        tmp = Path(f.name)
-    try:
-        pm = parse_page_map(tmp)
-    finally:
-        tmp.unlink(missing_ok=True)
+    # 4. page_map：优先内存解析，失败时回退临时文件或内建正则
+    if parse_page_map_text is not None:
+        pm = parse_page_map_text(md)
+    elif parse_page_map is not None:
+        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False,
+                                         encoding="utf-8") as f:
+            f.write(md)
+            tmp = Path(f.name)
+        try:
+            pm = parse_page_map(tmp)
+        finally:
+            tmp.unlink(missing_ok=True)
+    else:
+        m = re.search(r"^##\s+page_map\s*$(.*?)(?=^##\s|\Z)", md, re.S | re.M)
+        pm = {}
+        if m:
+            for line in m.group(1).splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                mm = re.match(r"^[-*]\s*(P\d+)\s*:\s*(.+)$", line)
+                if not mm:
+                    continue
+                page, rest = mm.group(1), mm.group(2)
+                kv = dict(re.findall(r"(\w+)\s*=\s*([^,}]+)", rest))
+                pm[page] = {k: v.strip() for k, v in kv.items()}
     if not pm:
         problems.append("page_map 解析为空（格式须为 `- P01: role=X, rhythm=Y`）")
     else:
