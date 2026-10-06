@@ -1,0 +1,9 @@
+# ppt-studio 运行依赖
+# 版本对齐 2026-10-07 黑苹果实测可用版本（Python 3.14，python3 -m pip show 确认）
+pillow>=12.3.0
+numpy>=2.4.4
+playwright>=1.62.0
+# 注：playwright 实际做 SVG 渲染（scripts/render_svg.py）还需另行执行
+#   python3 -m playwright install chromium
+# 注：cairosvg（2.9.0）虽已安装，但全仓库无任何脚本实际 import（仅 README/docs 提及），
+# 故诚实起见不列入；未来若有脚本真正依赖再补。
