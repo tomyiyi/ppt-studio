@@ -19,14 +19,16 @@ import sys
 import tempfile
 from pathlib import Path
 
-try:
-    from scripts.qa_preview import run_qa_slide_preview, run_qa_preview, qa_preview
-except ImportError:
+if __package__ in (None, ""):
     repo_root = Path(__file__).resolve().parent.parent
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
+
+try:
+    from scripts.qa_preview import run_qa_slide_preview, run_qa_preview, qa_preview
+except ImportError:
     try:
-        from scripts.qa_preview import run_qa_slide_preview, run_qa_preview, qa_preview
+        from qa_preview import run_qa_slide_preview, run_qa_preview, qa_preview
     except ImportError:
         run_qa_slide_preview = None
         run_qa_preview = None
@@ -582,19 +584,20 @@ window.addEventListener('keydown',e=>{{if(e.key==='ArrowRight'||e.key===' '){{e.
     print(f"prepared: {out_path} {staged_path.stat().st_size} bytes, {n} slides")
 
     if check:
-        if run_qa_slide_preview is not None:
+        qa_checker = run_qa_slide_preview or run_qa_preview or qa_preview
+        if qa_checker is not None:
             try:
                 ok = (
-                    run_qa_slide_preview(staged_path, base_dir=base)
+                    qa_checker(staged_path, base_dir=base)
                     if base_dir is not None
-                    else run_qa_slide_preview(staged_path)
+                    else qa_checker(staged_path)
                 )
             except TypeError:
-                ok = run_qa_slide_preview(staged_path)
+                ok = qa_checker(staged_path)
             if not ok:
                 staged_path.unlink(missing_ok=True)
                 raise RuntimeError(f"翻页预览客观质量门禁未通过: {out_path}")
-            print(f"  [门禁] ✓ 翻页预览客观质量门禁通过")
+            print("  [门禁] ✓ 翻页预览客观质量门禁通过")
         else:
             print("  [warn] 未导入 run_qa_slide_preview，跳过门禁检查")
 

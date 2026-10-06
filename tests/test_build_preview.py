@@ -701,6 +701,37 @@ class TestBuildPreviewSubdirAndSpecResolution(unittest.TestCase):
         out_path = build_preview(src=rel_src, out=rel_out, check=True, base_dir=base)
         self.assertTrue(out_path.exists())
 
+    def test_build_preview_check_fallback_to_run_qa_preview(self):
+        base = Path(self.td.name)
+        rel_src = self.svg_dir.relative_to(base)
+        rel_out = Path("fallback_qa_preview_out.html")
+        with patch("scripts.build_preview.run_qa_slide_preview", None):
+            with patch("scripts.build_preview.run_qa_preview", return_value=True) as mock_qa:
+                out_path = build_preview(src=rel_src, out=rel_out, check=True, base_dir=base)
+                self.assertTrue(out_path.exists())
+                mock_qa.assert_called_once()
+
+    def test_build_preview_check_fallback_to_qa_preview(self):
+        base = Path(self.td.name)
+        rel_src = self.svg_dir.relative_to(base)
+        rel_out = Path("fallback_qa_preview_alias_out.html")
+        with patch("scripts.build_preview.run_qa_slide_preview", None):
+            with patch("scripts.build_preview.run_qa_preview", None):
+                with patch("scripts.build_preview.qa_preview", return_value=True) as mock_qa:
+                    out_path = build_preview(src=rel_src, out=rel_out, check=True, base_dir=base)
+                    self.assertTrue(out_path.exists())
+                    mock_qa.assert_called_once()
+
+    def test_build_preview_check_all_checkers_none_skips_check(self):
+        base = Path(self.td.name)
+        rel_src = self.svg_dir.relative_to(base)
+        rel_out = Path("no_checker_out.html")
+        with patch("scripts.build_preview.run_qa_slide_preview", None):
+            with patch("scripts.build_preview.run_qa_preview", None):
+                with patch("scripts.build_preview.qa_preview", None):
+                    out_path = build_preview(src=rel_src, out=rel_out, check=True, base_dir=base)
+                    self.assertTrue(out_path.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
