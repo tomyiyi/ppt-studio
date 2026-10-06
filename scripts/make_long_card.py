@@ -37,16 +37,19 @@ except ImportError:
             sys.path.insert(0, str(site_pkg))
     from PIL import Image, ImageDraw, ImageFont
 
-try:
-    from scripts.qa_long_card import run_qa_long_card
-except ImportError:
+if __package__ in (None, ""):
     repo_root = Path(__file__).resolve().parent.parent
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
+
+try:
+    from scripts.qa_long_card import run_qa_long_card, qa_long_card
+except ImportError:
     try:
-        from scripts.qa_long_card import run_qa_long_card
+        from qa_long_card import run_qa_long_card, qa_long_card
     except ImportError:
         run_qa_long_card = None
+        qa_long_card = None
 
 try:
     from scripts.spec_resolve import resolve_spec, find_spec
@@ -602,9 +605,10 @@ def make_long_card(
     print(f"[i] 建议质检: python3 scripts/qa_long_card.py {out_path}")
 
     if check:
-        if run_qa_long_card is not None:
+        qa_checker = run_qa_long_card or qa_long_card
+        if qa_checker is not None:
             try:
-                ok = run_qa_long_card(
+                ok = qa_checker(
                     staged_path,
                     project_dir=project_dir,
                     require_header=include_header,
@@ -612,7 +616,7 @@ def make_long_card(
                     base_dir=base,
                 )
             except TypeError:
-                ok = run_qa_long_card(
+                ok = qa_checker(
                     staged_path,
                     project_dir=project_dir,
                     require_header=include_header,

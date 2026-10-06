@@ -528,6 +528,29 @@ class TestMainCLI(unittest.TestCase):
             self.assertTrue((base / "output/cli_flag_long.png").exists())
             self.assertEqual(mock_qa.call_args[1]["base_dir"], base.resolve())
 
+    def test_make_long_card_check_fallback_to_qa_long_card(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "deck"
+            create_minimal_card_project(proj, count=2, card_size=(200, 300))
+            out_img = proj / "output" / "long_fallback.png"
+            with patch("scripts.make_long_card.run_qa_long_card", None):
+                with patch("scripts.make_long_card.qa_long_card", return_value=True) as mock_qa:
+                    res = make_long_card(project_dir=proj, out_path=out_img, check=True)
+                    self.assertEqual(res, out_img.resolve())
+                    self.assertTrue(out_img.exists())
+                    mock_qa.assert_called_once()
+
+    def test_make_long_card_check_all_checkers_none_skips_check(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            proj = Path(tmp_dir) / "deck"
+            create_minimal_card_project(proj, count=2, card_size=(200, 300))
+            out_img = proj / "output" / "long_no_checker.png"
+            with patch("scripts.make_long_card.run_qa_long_card", None):
+                with patch("scripts.make_long_card.qa_long_card", None):
+                    res = make_long_card(project_dir=proj, out_path=out_img, check=True)
+                    self.assertEqual(res, out_img.resolve())
+                    self.assertTrue(out_img.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
