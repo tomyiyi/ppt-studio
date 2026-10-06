@@ -56,6 +56,22 @@ class TestDeliverProject(unittest.TestCase):
             deliver_project(self.attestation, self.source, self.destination)
         self.assertFalse(self.destination.exists())
 
+    def test_additional_failed_stage_blocks_delivery(self):
+        data = valid_attestation()
+        data["stages"]["assets"] = {"ok": False}
+        self.write_attestation(data)
+        with self.assertRaises(ValueError) as ctx:
+            deliver_project(self.attestation, self.source, self.destination)
+        self.assertIn("QA attestation 存在未通过阶段", str(ctx.exception))
+        self.assertFalse(self.destination.exists())
+
+    def test_additional_passed_stage_allows_delivery(self):
+        data = valid_attestation()
+        data["stages"]["assets"] = {"ok": True}
+        self.write_attestation(data)
+        self.assertEqual(deliver_project(self.attestation, self.source, self.destination), self.destination)
+        self.assertEqual(self.destination.read_bytes(), b"artifact")
+
     def test_failed_stage_blocks_without_destination(self):
         data = valid_attestation()
         data["stages"]["cards"]["ok"] = False
@@ -683,6 +699,69 @@ class TestDeliverProjectBaseDir(unittest.TestCase):
         target_dir = self.proj / "cards_flag_out"
         self.assertTrue((target_dir / "c1.svg").is_file())
         self.assertTrue((target_dir / "c2.svg").is_file())
+
+
+class TestDeliverProjectModuleFaultTolerance(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_validate_delivered_artifact_missing_modules_raise(self):
+        mp4_file = self.root / "sample.mp4"
+        mp4_file.write_bytes(b"video")
+        with patch("scripts.deliver_project.run_qa_video", None):
+            with self.assertRaises(RuntimeError) as cm:
+                validate_delivered_artifact(mp4_file)
+            self.assertIn("qa_video", str(cm.exception))
+
+        pptx_file = self.root / "sample.pptx"
+        pptx_file.write_bytes(b"pptx")
+        with patch("scripts.deliver_project.run_qa_pptx", None):
+            with self.assertRaises(RuntimeError) as cm:
+                validate_delivered_artifact(pptx_file)
+            self.assertIn("qa_pptx", str(cm.exception))
+
+        png_file = self.root / "sample.png"
+        png_file.write_bytes(b"png")
+        with patch("scripts.deliver_project.run_qa_long_card", None):
+            with self.assertRaises(RuntimeError) as cm:
+                validate_delivered_artifact(png_file)
+            self.assertIn("qa_long_card", str(cm.exception))
+
+        html_file = self.root / "sample.html"
+        html_file.write_bytes(b"html")
+        with patch("scripts.deliver_project.run_qa_preview", None):
+            with self.assertRaises(RuntimeError) as cm:
+                validate_delivered_artifact(html_file)
+            self.assertIn("qa_preview", str(cm.exception))
+
+        svg_file = self.root / "sample.svg"
+        svg_file.write_bytes(b"<svg></svg>")
+        with patch("scripts.deliver_project.run_qa_layout", None):
+            with self.assertRaises(RuntimeError) as cm:
+                validate_delivered_artifact(svg_file)
+            self.assertIn("qa_layout", str(cm.exception))
+
+        srt_file = self.root / "sample.srt"
+        srt_file.write_bytes(b"1\n00:00:01,000 --> 00:00:02,000\nhi\n")
+        with patch("scripts.deliver_project.run_qa_subtitles", None):
+            with self.assertRaises(RuntimeError) as cm:
+                validate_delivered_artifact(srt_file)
+            self.assertIn("qa_video", str(cm.exception))
+
+    def test_deliver_artifact_set_check_missing_cards_module_raises(self):
+        attestation = self.root / "qa.json"
+        attestation.write_text(json.dumps(valid_attestation()), encoding="utf-8")
+        c1 = self.root / "c1.svg"
+        c1.write_bytes(b"<svg></svg>")
+        dest = self.root / "cards"
+        with patch("scripts.deliver_project.run_qa_cards", None):
+            with self.assertRaises(RuntimeError) as cm:
+                deliver_artifact_set(attestation, [c1], dest, check=True)
+            self.assertIn("qa_cards", str(cm.exception))
 
 
 if __name__ == "__main__":

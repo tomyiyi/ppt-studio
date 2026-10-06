@@ -11,23 +11,59 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-try:
-    from scripts.qa_cards import run_qa_cards
-    from scripts.qa_layout import run_qa_layout
-    from scripts.qa_long_card import run_qa_long_card
-    from scripts.qa_pptx import run_qa_pptx
-    from scripts.qa_preview import run_qa_preview
-    from scripts.qa_video import run_qa_subtitles, run_qa_video
-except ModuleNotFoundError:
+if __package__ in (None, ""):
     repo_root = Path(__file__).resolve().parent.parent
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
+
+try:
     from scripts.qa_cards import run_qa_cards
+except ImportError:
+    try:
+        from qa_cards import run_qa_cards
+    except ImportError:
+        run_qa_cards = None  # type: ignore
+
+try:
     from scripts.qa_layout import run_qa_layout
+except ImportError:
+    try:
+        from qa_layout import run_qa_layout
+    except ImportError:
+        run_qa_layout = None  # type: ignore
+
+try:
     from scripts.qa_long_card import run_qa_long_card
+except ImportError:
+    try:
+        from qa_long_card import run_qa_long_card
+    except ImportError:
+        run_qa_long_card = None  # type: ignore
+
+try:
     from scripts.qa_pptx import run_qa_pptx
+except ImportError:
+    try:
+        from qa_pptx import run_qa_pptx
+    except ImportError:
+        run_qa_pptx = None  # type: ignore
+
+try:
     from scripts.qa_preview import run_qa_preview
+except ImportError:
+    try:
+        from qa_preview import run_qa_preview
+    except ImportError:
+        run_qa_preview = None  # type: ignore
+
+try:
     from scripts.qa_video import run_qa_subtitles, run_qa_video
+except ImportError:
+    try:
+        from qa_video import run_qa_subtitles, run_qa_video
+    except ImportError:
+        run_qa_subtitles = None  # type: ignore
+        run_qa_video = None  # type: ignore
 
 
 _STAGES = ("image", "layout", "cards", "long_card")
@@ -49,6 +85,8 @@ def load_valid_attestation(path: str | Path, base_dir: str | Path | None = None)
     if data.get("overall") is not True or not isinstance(stages, dict):
         raise ValueError("QA attestation overall 未通过")
     if any(stages.get(name, {}).get("ok") is not True for name in _STAGES):
+        raise ValueError("QA attestation 存在未通过阶段")
+    if any(isinstance(v, dict) and v.get("ok") is not True for v in stages.values()):
         raise ValueError("QA attestation 存在未通过阶段")
     return data
 
@@ -73,6 +111,8 @@ def validate_delivered_artifact(
     suffix = path.suffix.lower()
     ok = True
     if suffix == ".mp4":
+        if run_qa_video is None:
+            raise RuntimeError("无法加载 qa_video 模块")
         try:
             ok = bool(
                 run_qa_video(path, verbose=verbose, base_dir=base)
@@ -82,6 +122,8 @@ def validate_delivered_artifact(
         except TypeError:
             ok = bool(run_qa_video(path, verbose=verbose))
     elif suffix == ".pptx":
+        if run_qa_pptx is None:
+            raise RuntimeError("无法加载 qa_pptx 模块")
         try:
             ok = bool(
                 run_qa_pptx(path, verbose=verbose, base_dir=base)
@@ -91,6 +133,8 @@ def validate_delivered_artifact(
         except TypeError:
             ok = bool(run_qa_pptx(path, verbose=verbose))
     elif suffix == ".png":
+        if run_qa_long_card is None:
+            raise RuntimeError("无法加载 qa_long_card 模块")
         try:
             ok = bool(
                 run_qa_long_card(path, verbose=verbose, base_dir=base)
@@ -100,6 +144,8 @@ def validate_delivered_artifact(
         except TypeError:
             ok = bool(run_qa_long_card(path, verbose=verbose))
     elif suffix in (".html", ".htm"):
+        if run_qa_preview is None:
+            raise RuntimeError("无法加载 qa_preview 模块")
         try:
             ok = bool(
                 run_qa_preview(path, verbose=verbose, base_dir=base)
@@ -109,6 +155,8 @@ def validate_delivered_artifact(
         except TypeError:
             ok = bool(run_qa_preview(path, verbose=verbose))
     elif suffix == ".svg":
+        if run_qa_layout is None:
+            raise RuntimeError("无法加载 qa_layout 模块")
         try:
             ok = bool(
                 run_qa_layout(path, verbose=verbose, base_dir=base)
@@ -118,6 +166,8 @@ def validate_delivered_artifact(
         except TypeError:
             ok = bool(run_qa_layout(path, verbose=verbose))
     elif suffix == ".srt":
+        if run_qa_subtitles is None:
+            raise RuntimeError("无法加载 qa_video 模块")
         try:
             ok = bool(
                 run_qa_subtitles(path, verbose=verbose, base_dir=base)
@@ -227,6 +277,8 @@ def deliver_artifact_set(
             shutil.copy2(source, staging / source.name)
 
         if check:
+            if run_qa_cards is None:
+                raise RuntimeError("无法加载 qa_cards 模块")
             try:
                 qa_ok = bool(
                     run_qa_cards(staging, verbose=verbose, base_dir=base)
