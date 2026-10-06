@@ -170,6 +170,38 @@ class TestMakeCardsAtomicOutput(unittest.TestCase):
             ret = main([str(self.root), "--check", "--base-dir", str(self.root)])
             self.assertEqual(ret, 0)
 
+    def test_make_cards_check_fallback_to_qa_cards(self):
+        qa_called = []
+
+        def mock_qa(target, spec_path=None, base_dir=None):
+            qa_called.append((target, spec_path, base_dir))
+            return True
+
+        with ExitStack() as stack:
+            stack.enter_context(patch("scripts.make_cards.parse_page", return_value=([], None, None)))
+            stack.enter_context(patch("scripts.make_cards.pick", return_value={
+                "primary": {"text": "主句"}, "kind": "statement", "metrics": [],
+            }))
+            stack.enter_context(patch("scripts.make_cards.card_svg", side_effect=lambda *args, **kwargs: f"<svg>{args[0]}</svg>"))
+            stack.enter_context(patch("scripts.make_cards.run_qa_cards", None))
+            stack.enter_context(patch("scripts.make_cards.qa_cards", side_effect=mock_qa))
+            result = make_cards(self.root, check=True, base_dir=self.root)
+            self.assertEqual(len(result), 2)
+            self.assertEqual(len(qa_called), 1)
+            self.assertEqual(qa_called[0][2], self.root.resolve())
+
+    def test_make_cards_check_all_checkers_none_skips_check(self):
+        with ExitStack() as stack:
+            stack.enter_context(patch("scripts.make_cards.parse_page", return_value=([], None, None)))
+            stack.enter_context(patch("scripts.make_cards.pick", return_value={
+                "primary": {"text": "主句"}, "kind": "statement", "metrics": [],
+            }))
+            stack.enter_context(patch("scripts.make_cards.card_svg", side_effect=lambda *args, **kwargs: f"<svg>{args[0]}</svg>"))
+            stack.enter_context(patch("scripts.make_cards.run_qa_cards", None))
+            stack.enter_context(patch("scripts.make_cards.qa_cards", None))
+            result = make_cards(self.root, check=True, base_dir=self.root)
+            self.assertEqual(len(result), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

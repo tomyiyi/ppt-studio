@@ -34,14 +34,16 @@ import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-try:
-    from scripts.qa_cards import run_qa_cards, qa_cards
-except ImportError:
+if __package__ in (None, ""):
     repo_root = Path(__file__).resolve().parent.parent
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
+
+try:
+    from scripts.qa_cards import run_qa_cards, qa_cards
+except ImportError:
     try:
-        from scripts.qa_cards import run_qa_cards, qa_cards
+        from qa_cards import run_qa_cards, qa_cards
     except ImportError:
         run_qa_cards = None
         qa_cards = None
@@ -1057,11 +1059,12 @@ def make_cards(
             generated.append(dst)
 
         print(f"完成 {len(generated)}/{len(files)}  ({W}×{H}, 图片带 {band_h}px)")
-        if check and run_qa_cards is not None:
+        qa_checker = run_qa_cards or qa_cards
+        if check and qa_checker is not None:
             try:
-                cards_ok = bool(run_qa_cards(staging_dir, spec_path=spec_path, base_dir=base))
+                cards_ok = bool(qa_checker(staging_dir, spec_path=spec_path, base_dir=base))
             except TypeError:
-                cards_ok = bool(run_qa_cards(staging_dir, spec_path=spec_path))
+                cards_ok = bool(qa_checker(staging_dir, spec_path=spec_path))
             if not cards_ok:
                 raise RuntimeError(f"卡片客观质量门禁未通过: {out_dir}")
             print("  [门禁] ✓ 卡片客观质量门禁通过")
