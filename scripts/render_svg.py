@@ -590,11 +590,12 @@ def render_svg(
 
         if is_cards:
             target_cards_dir = files[0].parent
-            if run_qa_cards is not None:
+            qa_cards_checker = run_qa_cards or qa_cards
+            if qa_cards_checker is not None:
                 passed = (
-                    run_qa_cards(target_cards_dir, render_dir=target_render_dir, spec_path=resolved_spec, base_dir=base)
+                    qa_cards_checker(target_cards_dir, render_dir=target_render_dir, spec_path=resolved_spec, base_dir=base)
                     if base_dir is not None
-                    else run_qa_cards(target_cards_dir, render_dir=target_render_dir, spec_path=resolved_spec)
+                    else qa_cards_checker(target_cards_dir, render_dir=target_render_dir, spec_path=resolved_spec)
                 )
                 if not passed:
                     raise RuntimeError(f"卡片客观质量门禁未通过: {target_cards_dir}")
@@ -603,11 +604,12 @@ def render_svg(
                 print("  [warn] 未导入 run_qa_cards，跳过卡片门禁检查")
         else:
             target_layout = files[0] if len(files) == 1 else files[0].parent
-            if run_qa_layout is not None:
+            qa_layout_checker = run_qa_layout or qa_layout
+            if qa_layout_checker is not None:
                 passed = (
-                    run_qa_layout(target_layout, render_dir=target_render_dir, spec_path=resolved_spec, base_dir=base)
+                    qa_layout_checker(target_layout, render_dir=target_render_dir, spec_path=resolved_spec, base_dir=base)
                     if base_dir is not None
-                    else run_qa_layout(target_layout, render_dir=target_render_dir, spec_path=resolved_spec)
+                    else qa_layout_checker(target_layout, render_dir=target_render_dir, spec_path=resolved_spec)
                 )
                 if not passed:
                     raise RuntimeError(f"SVG 版面客观质量门禁未通过: {target_layout}")

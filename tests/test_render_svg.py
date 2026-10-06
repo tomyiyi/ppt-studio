@@ -850,5 +850,71 @@ class TestRenderSvgSubdirAndSpecResolution(unittest.TestCase):
         self.assertEqual(kwargs.get("base_dir"), proj_cards.resolve())
         self.assertEqual(kwargs.get("spec_path"), str(spec_file.resolve()))
 
+    @patch("scripts.render_svg._render_page", return_value=True)
+    @patch("scripts.render_svg.run_qa_layout", None)
+    @patch("scripts.render_svg.qa_layout", return_value=True)
+    def test_render_svg_check_fallback_to_qa_layout(self, mock_qa_layout, mock_render):
+        rendered = render_svg(
+            src=self.svg_file,
+            out=self.render_dir,
+            check=True,
+            spec_path="spec_lock.md",
+            base_dir=self.proj,
+        )
+        self.assertEqual(len(rendered), 1)
+        mock_qa_layout.assert_called_once()
+
+    @patch("scripts.render_svg._render_page", return_value=True)
+    @patch("scripts.render_svg.run_qa_layout", None)
+    @patch("scripts.render_svg.qa_layout", None)
+    def test_render_svg_check_all_layout_checkers_none_skips_check(self, mock_render):
+        rendered = render_svg(
+            src=self.svg_file,
+            out=self.render_dir,
+            check=True,
+            spec_path="spec_lock.md",
+            base_dir=self.proj,
+        )
+        self.assertEqual(len(rendered), 1)
+
+    @patch("scripts.render_svg._render_page", return_value=True)
+    @patch("scripts.render_svg.run_qa_cards", None)
+    @patch("scripts.render_svg.qa_cards", return_value=True)
+    def test_render_svg_check_cards_fallback_to_qa_cards(self, mock_qa_cards, mock_render):
+        proj_cards = Path(self.td.name) / "cards_proj_fallback"
+        cards_dir = proj_cards / "cards"
+        render_cards_dir = proj_cards / "render_cards"
+        cards_dir.mkdir(parents=True)
+        render_cards_dir.mkdir(parents=True)
+        card_file = cards_dir / "01_card.svg"
+        create_minimal_svg(card_file)
+        rendered = render_svg(
+            src=card_file,
+            out=render_cards_dir,
+            check=True,
+            base_dir=proj_cards,
+        )
+        self.assertEqual(len(rendered), 1)
+        mock_qa_cards.assert_called_once()
+
+    @patch("scripts.render_svg._render_page", return_value=True)
+    @patch("scripts.render_svg.run_qa_cards", None)
+    @patch("scripts.render_svg.qa_cards", None)
+    def test_render_svg_check_all_cards_checkers_none_skips_check(self, mock_render):
+        proj_cards = Path(self.td.name) / "cards_proj_none"
+        cards_dir = proj_cards / "cards"
+        render_cards_dir = proj_cards / "render_cards"
+        cards_dir.mkdir(parents=True)
+        render_cards_dir.mkdir(parents=True)
+        card_file = cards_dir / "01_card.svg"
+        create_minimal_svg(card_file)
+        rendered = render_svg(
+            src=card_file,
+            out=render_cards_dir,
+            check=True,
+            base_dir=proj_cards,
+        )
+        self.assertEqual(len(rendered), 1)
+
 
 
