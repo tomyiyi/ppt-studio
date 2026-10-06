@@ -7,20 +7,24 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 # ---- 在 import xhs_sign 之前 stub 掉 xhs_search.load_cookies（避免读真实 Cookie 文件）----
 fake_search = types.ModuleType("xhs_search")
 
 
-def _fake_load_cookies():
+def _fake_load_cookies(key_file=None, *args, **kwargs):
     return {"web_session": "FAKE_SESSION", "a1": "A" * 52}
 
 
 fake_search.load_cookies = _fake_load_cookies
 sys.modules["xhs_search"] = fake_search
+sys.modules["scripts.xhs_search"] = fake_search
 
-import xhs_sign  # noqa: E402
+from scripts import xhs_sign  # noqa: E402
+sys.modules["xhs_sign"] = xhs_sign
 
 
 class TestEnsureDeviceCookies(unittest.TestCase):

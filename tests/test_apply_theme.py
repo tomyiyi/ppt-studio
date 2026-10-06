@@ -1,7 +1,11 @@
 import hashlib, json, re, tempfile, unittest
 from pathlib import Path
 import sys
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from scripts.apply_theme import main
 
 class ThemeTest(unittest.TestCase):
@@ -18,7 +22,7 @@ class ThemeTest(unittest.TestCase):
 
     def test_only_allowed_roles_are_used_in_core_slice(self):
         allowed={'on-image','on-dark-surface','on-accent','image-scrim'}
-        text=(Path(__file__).resolve().parents[1]/'projects/agentflow-os-launch/svg_output/04_capability_selfheal.svg').read_text()
+        text=(REPO_ROOT/'projects/agentflow-os-launch/svg_output/04_capability_selfheal.svg').read_text()
         roles=set(re.findall(r'data-theme-role="([^"]+)"', text))
         self.assertTrue(roles <= allowed)
         self.assertEqual(roles, {'on-image','on-dark-surface','on-accent','image-scrim'})
@@ -27,7 +31,7 @@ class ThemeTest(unittest.TestCase):
         import subprocess
         import re
         baseline=subprocess.check_output(['git','show','7b50234:projects/agentflow-os-launch/svg_output/04_capability_selfheal.svg'], text=True)
-        current=(Path(__file__).resolve().parents[1]/'projects/agentflow-os-launch/svg_output/04_capability_selfheal.svg').read_text()
+        current=(REPO_ROOT/'projects/agentflow-os-launch/svg_output/04_capability_selfheal.svg').read_text()
         strip=lambda s: re.sub(r'\sdata-theme-role="[^"]+"','',s)
         self.assertEqual(strip(baseline), strip(current))
     def test_only_declared_colors_change(self):

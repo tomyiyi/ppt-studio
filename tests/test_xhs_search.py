@@ -7,8 +7,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-import xhs_search
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts import xhs_search
 
 
 def make_html(state_obj: dict, final_url: str = "http://www.xiaohongshu.com/search_result/?keyword=x"):
