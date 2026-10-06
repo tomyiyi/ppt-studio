@@ -32,7 +32,23 @@ if str(REPO_ROOT) not in sys.path:
 from collections import Counter
 import xml.etree.ElementTree as ET
 
-from scripts.check_page_map import find_svg_dir, resolve_project_dir as _cpm_resolve_project_dir
+try:
+    from scripts.check_page_map import (
+        find_svg_dir,
+        resolve_project_dir as _cpm_resolve_project_dir,
+        parse_page_map,
+    )
+except ImportError:
+    try:
+        from check_page_map import (
+            find_svg_dir,
+            resolve_project_dir as _cpm_resolve_project_dir,
+            parse_page_map,
+        )
+    except ImportError:
+        find_svg_dir = None
+        _cpm_resolve_project_dir = None
+        parse_page_map = None
 
 try:
     from scripts.spec_resolve import find_spec, resolve_spec
@@ -142,7 +158,10 @@ def char_w(ch, mono=False):
 def text_width(s, size, mono=False, ls=0.0, family=None):
     """文本宽度：优先 PIL 实测（text_measure），失败回退字符启发式。"""
     try:
-        from text_measure import measure as _pil_measure
+        try:
+            from scripts.text_measure import measure as _pil_measure
+        except ImportError:
+            from text_measure import measure as _pil_measure
         w = _pil_measure(s, int(round(size)), family)
         if w is not None:
             return w + ls * max(0, len(s) - 1)
@@ -685,11 +704,21 @@ def qa_single_layout(
     # page_map 加载（role 纪律检查用）
     page_map = {}
     if spec:
-        try:
-            from check_page_map import parse_page_map
-            page_map = parse_page_map(Path(str(spec)))
-        except Exception:
-            page_map = {}
+        if parse_page_map is not None:
+            try:
+                page_map = parse_page_map(Path(str(spec)))
+            except Exception:
+                page_map = {}
+        else:
+            try:
+                from scripts.check_page_map import parse_page_map as _ppm
+                page_map = _ppm(Path(str(spec)))
+            except Exception:
+                try:
+                    from check_page_map import parse_page_map as _ppm
+                    page_map = _ppm(Path(str(spec)))
+                except Exception:
+                    page_map = {}
 
     # 自动查找 render_dir (若未提供)
     if render_dir:

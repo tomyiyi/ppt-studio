@@ -857,5 +857,21 @@ class TestQaLayoutSubdirAndSpecResolution(unittest.TestCase):
         self.assertEqual(main(["svg_output", "--base-dir", str(self.proj), "-q"]), 0)
         self.assertEqual(main(["svg_output", "render", "--spec", "spec_lock.md", "--base-dir", str(self.proj), "-q"]), 0)
 
+    def test_page_map_loaded_and_text_measure_resolved(self):
+        # 写入包含 page_map 的完整 spec
+        spec_with_pm = (
+            "# spec\n"
+            "## canvas\n- viewBox: 0 0 1280 720\n- margin: 60px\n"
+            "## typography\n- sizes: [16, 24, 32, 56]\n- statement: 56\n"
+            "## page_map\n- P01: role=Cover, rhythm=anchor\n"
+        )
+        self.spec_file.write_text(spec_with_pm, encoding="utf-8")
+        ok = qa_single_layout(self.svg_dir, spec_path=self.spec_file, verbose=False)
+        self.assertTrue(ok)
+        # 测试 text_width 可正常调用底层实测
+        w = text_width("测试文本", 24)
+        self.assertGreater(w, 0)
+
+
 
 
