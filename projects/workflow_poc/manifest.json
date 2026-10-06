@@ -1,0 +1,33 @@
+{
+  "project_id": "auto_pitch_v1",
+  "theme": "theme08",
+  "topic": "自动驾驶新纪元",
+  "pages": [
+    {
+      "universal_role": "cover",
+      "style": "hero_full",
+      "prompts": {
+        "image": "Deep dark conceptual background, glowing network lines on obsidian road, minimal, cinematic lighting"
+      },
+      "slots": {
+        "TITLE": "无人驾驶时代",
+        "SUBTITLE": "重新定义空间与移动"
+      }
+    },
+    {
+      "universal_role": "kpi_grid",
+      "style": "kpi_dashboard",
+      "prompts": {
+        "image": "Abstract dark data matrix, glowing green numbers floating in void, luxury tech aesthetic"
+      },
+      "slots": {
+        "PAGE_TITLE": "接管率突破极限",
+        "KPI_1": "99.8%",
+        "KPI_2": "+152%",
+        "KPI_3": "0.1s",
+        "KPI_4": "L4级",
+        "CONTENT_AREA": "算法闭环打通，测试里程突破千万级，极端场景干预频率大幅下降。"
+      }
+    }
+  ]
+}
