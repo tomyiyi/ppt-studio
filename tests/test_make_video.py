@@ -453,6 +453,40 @@ class TestMakeVideoQualityGate(unittest.TestCase):
         call_args, call_kwargs = mock_qa.call_args
         self.assertEqual(call_kwargs.get("base_dir"), Path(self.tmp_dir.name).resolve())
 
+    @patch("scripts.make_video.run_cmd")
+    @patch("scripts.make_video.probe_duration")
+    @patch("scripts.make_video.generate_tts")
+    @patch("scripts.make_video.ensure_page_images")
+    @patch("scripts.make_video.qa_video")
+    @patch("scripts.make_video.run_qa_video", None)
+    def test_make_video_check_fallback_to_qa_video(self, mock_qa, mock_ensure_img, mock_tts, mock_probe, mock_cmd):
+        self._setup_pipeline_mocks(mock_ensure_img, mock_tts, mock_probe, mock_cmd)
+        mock_qa.return_value = True
+
+        out = make_video(
+            self.proj_dir,
+            out_video_path=self.out_video,
+            check=True,
+        )
+        self.assertEqual(out, self.out_video.resolve())
+        mock_qa.assert_called_once()
+
+    @patch("scripts.make_video.run_cmd")
+    @patch("scripts.make_video.probe_duration")
+    @patch("scripts.make_video.generate_tts")
+    @patch("scripts.make_video.ensure_page_images")
+    @patch("scripts.make_video.qa_video", None)
+    @patch("scripts.make_video.run_qa_video", None)
+    def test_make_video_check_all_checkers_none_skips_check(self, mock_ensure_img, mock_tts, mock_probe, mock_cmd):
+        self._setup_pipeline_mocks(mock_ensure_img, mock_tts, mock_probe, mock_cmd)
+
+        out = make_video(
+            self.proj_dir,
+            out_video_path=self.out_video,
+            check=True,
+        )
+        self.assertEqual(out, self.out_video.resolve())
+
 
 class TestEnsurePageImages(unittest.TestCase):
     """测试 ensure_page_images 的版本目录优先级选择。"""

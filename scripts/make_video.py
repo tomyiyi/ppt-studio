@@ -38,13 +38,19 @@ import sys
 import tempfile
 from pathlib import Path
 
+if __package__ in (None, ""):
+    repo_root = Path(__file__).resolve().parent.parent
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+
 try:
-    from scripts.qa_video import run_qa_video
+    from scripts.qa_video import run_qa_video, qa_video
 except ImportError:
     try:
-        from qa_video import run_qa_video
+        from qa_video import run_qa_video, qa_video
     except ImportError:
         run_qa_video = None
+        qa_video = None
 
 try:
     from scripts.video_tts import VOICE_MAP, generate_tts, load_voiceover
@@ -90,6 +96,7 @@ __all__ = [
     "main",
     "parse_vtt_cues",
     "probe_duration",
+    "qa_video",
     "resolve_project_dir",
     "run_cmd",
     "run_qa_video",
@@ -329,12 +336,13 @@ def make_video(
         print(f"==================================================")
 
         if check:
-            if run_qa_video is not None:
+            qa_checker = run_qa_video or qa_video
+            if qa_checker is not None:
                 srt_arg = staged_srt if subtitles_mode != "none" else None
                 try:
-                    ok = run_qa_video(staged_video, srt_path=srt_arg, base_dir=base)
+                    ok = qa_checker(staged_video, srt_path=srt_arg, base_dir=base)
                 except TypeError:
-                    ok = run_qa_video(staged_video, srt_path=srt_arg)
+                    ok = qa_checker(staged_video, srt_path=srt_arg)
                 if not ok:
                     raise RuntimeError(f"视频客观质量门禁未通过: {out_video_path}")
                 print("  [门禁] ✓ 视频客观质量门禁通过")
