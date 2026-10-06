@@ -12,10 +12,12 @@
 
 用法：
   python3 analyze_image.py <img> [<img> ...]
+  python3 analyze_image.py --help   # 完整说明
 """
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -94,14 +96,25 @@ def report(path: Path) -> dict:
     }
 
 
-def main() -> int:
-    if len(sys.argv) < 2:
-        print("用法: python3 analyze_image.py <img> [<img> ...]")
-        return 2
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        description="配图客观验收：输出清晰度 / 墨迹分布 / 亮度 / 接缝四个可判定指标 "
+                    "（当无法肉眼看图时用数据代替眼睛）。",
+    )
+    p.add_argument("images", nargs="*", metavar="img",
+                   help="待验收图片路径，可传多个")
+    return p
+
+
+def main(argv=None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if not args.images:
+        parser.error("至少需要指定一张图片，例如：python3 analyze_image.py a.png")
     print(f"{'文件':<22}{'尺寸':>10}{'全图锐':>8}{'主体锐':>8}{'均亮':>7}{'P99':>7}  "
           f"主体分布(上/中/下 × 左/中/右, %)      接缝")
     print("-" * 128)
-    for p in sys.argv[1:]:
+    for p in args.images:
         r = report(Path(p))
         rows = ["  ".join(f"{r['ink'][i][j]*100:5.1f}" for j in range(3)) for i in range(3)]
         print(f"{r['name']:<22}{r['size']:>10}{r['sharp']:>8.1f}{r['ssharp']:>8.1f}"
