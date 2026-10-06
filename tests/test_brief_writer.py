@@ -196,6 +196,26 @@ class TestBriefWriter(unittest.TestCase):
             code = main(["missing.json"], base_dir=base)
             self.assertEqual(code, 1)
 
+    @patch("urllib.request.urlopen", fake_urlopen_factory(FAKE_MD))
+    def test_main_cli_with_config_flag(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            proj = base / "my_proj"
+            proj.mkdir()
+            (proj / "brief.json").write_text(json.dumps(BRIEF), encoding="utf-8")
+            cfg = proj / "custom_key.json"
+            cfg.write_text(json.dumps({"image_base_url": "http://127.0.0.1:9999/v1", "api_key": "test_key"}), encoding="utf-8")
+            code = main(["my_proj/brief.json", "-o", "my_proj/out/report.md", "--config", "my_proj/custom_key.json", "--base-dir", str(base)])
+            self.assertEqual(code, 0)
+            self.assertTrue((proj / "out" / "report.md").is_file())
+
+    def test_load_chat_gateway_without_module_raises(self):
+        from brief_writer import load_chat_gateway
+        with patch("brief_writer.resolve_gateway", None):
+            with self.assertRaises(RuntimeError):
+                load_chat_gateway()
+
 
 REAL_BRIEF = {'topic': '2026秋冬时尚趋势', 'sources': [{'title': 'Pantone 官方 FW2026 色板', 'url': 'https://www.pantone.com/color-finder/19-1521', 'snippet': 'Red Mahogany 19-1521 领衔 2026 秋冬色板，深酒红调成为核心流行色。', 'trust': 0.95, 'grade': 'A'}, {'title': 'W Magazine：Celine Hiver 2026', 'url': 'https://www.wmagazine.com/celine-hiver-2026', 'snippet': 'Celine 2026 冬季系列首推爵士鞋款，成为秀场焦点单品。', 'trust': 0.88, 'grade': 'A'}, {'title': 'Coveteur：BioFluff 皮草替代品', 'url': 'https://coveteur.com/biofluff-fur-alternative', 'snippet': 'BioFluff 植物基皮草替代品受关注，fur-trim 装饰细节出现在多个品牌秋冬系列。', 'trust': 0.8, 'grade': 'B'}, {'title': 'Elle：2026 秋冬配饰趋势', 'url': 'https://www.elle.com/fashion/fw2026-accessories', 'snippet': '爵士鞋与宽肩廓形西装成为 2026 秋冬关键单品，配饰强调复古运动混搭。', 'trust': 0.78, 'grade': 'B'}, {'title': 'Grazia 街拍观察', 'url': 'https://www.grazia.com/fw2026-street-style', 'snippet': '街拍中深色系大衣出现频率上升，约占受访造型的六成。', 'trust': 0.62, 'grade': 'C'}, {'title': '某论坛爆料帖', 'url': 'https://forum.example.com/fw2026-rumor', 'snippet': '据传 2026 秋冬将流行霓虹绿，相关搜索热度暴涨 300%，多家大牌秘密备货。', 'trust': 0.25, 'grade': 'D'}, {'title': '营销号小道消息', 'url': 'https://blog.example.com/glow-down-jacket', 'snippet': '小道消息称某大牌将推出夜间会发光的羽绒服，定价或超 5 万元。', 'trust': 0.18, 'grade': 'D'}]}
 

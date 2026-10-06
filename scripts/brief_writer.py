@@ -27,23 +27,27 @@ import sys
 import urllib.request
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:
-    from gateway_config import resolve_gateway
+    from scripts.gateway_config import resolve_gateway
 except ImportError:
-    resolve_gateway = None  # type: ignore
+    try:
+        from gateway_config import resolve_gateway
+    except ImportError:
+        resolve_gateway = None  # type: ignore
 
 DEFAULT_TEXT_MODEL = "agnes-3.0-flash"
 CITABLE_GRADES = ("A", "B", "C")  # D 级不引用
 
 
-def load_chat_gateway():
+def load_chat_gateway(config_path: Path | str | None = None, base_dir: Path | str | None = None):
     """解析 Agnes 文本网关 (base, key)。"""
     if resolve_gateway is None:
         raise RuntimeError("无法加载 gateway_config 模块")
     return resolve_gateway(
         env_base_var="AGNES_CHAT_BASE_URL",
         env_key_var="AGNES_CHAT_API_KEY",
+        config_path=config_path,
+        base_dir=base_dir,
     )
 
 
@@ -82,9 +86,11 @@ def build_brief_prompt(topic: str, sources: list[dict]) -> str:
 
 
 def call_agnes(prompt: str, model: str = DEFAULT_TEXT_MODEL,
-               timeout: int = 180) -> str:
+               timeout: int = 180,
+               config_path: Path | str | None = None,
+               base_dir: Path | str | None = None) -> str:
     """调 New API /v1/chat/completions，返回 markdown 文本。"""
-    base, key = load_chat_gateway()
+    base, key = load_chat_gateway(config_path=config_path, base_dir=base_dir)
     body = json.dumps({
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
@@ -132,7 +138,8 @@ def validate_citations(md: str, n_sources: int) -> dict:
 def write_brief(brief_path: str | Path, output: str | Path | None = None,
                 model: str = DEFAULT_TEXT_MODEL,
                 dry_run: bool = False,
-                base_dir: str | Path | None = None) -> dict:
+                base_dir: str | Path | None = None,
+                config_path: str | Path | None = None) -> dict:
     base = Path(base_dir).resolve() if base_dir else Path.cwd().resolve()
     bp = Path(brief_path)
     brief_file = (base / bp).resolve() if not bp.is_absolute() else bp.resolve()
@@ -144,7 +151,7 @@ def write_brief(brief_path: str | Path, output: str | Path | None = None,
     if dry_run:
         print(prompt)
         return {"dry_run": True, "prompt_chars": len(prompt)}
-    md = call_agnes(prompt, model=model)
+    md = call_agnes(prompt, model=model, config_path=config_path, base_dir=base)
     check = validate_citations(md, len(sources))
     # 文末自动补来源清单（防 Agnes 漏写）
     if "## 来源清单" not in md:
@@ -174,6 +181,7 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
     ap = argparse.ArgumentParser(description="三段式研究第 3 段：Agnes 写带 citation 简报")
     ap.add_argument("brief_json", help="research_to_spec.py 输出的 JSON")
     ap.add_argument("-o", "--output", help="输出 markdown 路径")
+    ap.add_argument("--config", help="可选网关配置文件路径 (JSON)")
     ap.add_argument("--model", default=DEFAULT_TEXT_MODEL)
     ap.add_argument("--dry-run", action="store_true",
                     help="只打印 prompt，不调 API")
@@ -189,7 +197,14 @@ def main(argv: list[str] | None = None, base_dir: str | Path | None = None) -> i
         else (Path(base_dir).resolve() if base_dir else Path.cwd().resolve())
     )
     try:
-        res = write_brief(a.brief_json, a.output, model=a.model, dry_run=a.dry_run, base_dir=effective_base)
+        res = write_brief(
+            a.brief_json,
+            a.output,
+            model=a.model,
+            dry_run=a.dry_run,
+            base_dir=effective_base,
+            config_path=a.config,
+        )
     except FileNotFoundError as err:
         print(f"[err] {err}", file=sys.stderr)
         return 1
