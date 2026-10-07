@@ -116,7 +116,8 @@ def generate(prompt: str, ratio: str = "16:9", model: str | None = None,
         return {"ok": False, "error": str(e)}
     base, key = load_gateway()
     size = RATIO_SIZE.get(ratio, "1920x1080")
-    payload_base = {"prompt": prompt, "n": 1, "size": size}
+    payload_base = {"prompt": prompt, "n": 1, "size": size,
+                    "response_format": "b64_json"}  # 直接拿 base64，绕开 CDN
 
     last_err = None
     for m in candidate_models(ratio, model):
