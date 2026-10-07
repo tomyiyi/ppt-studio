@@ -118,9 +118,10 @@ def main(argv=None) -> int:
         n = gen_images(out, pages_path)
         print("  成功 %d 张" % n)
 
-    print("[3/7] 渲染 pages -> SVG")
-    run([sys.executable, str(SCRIPTS / "pages_to_svg.py"),
-         "--pages", str(pages_path), "--out", str(svg_dir)])
+    print("[3/7] 渲染 pages -> SVG（ppt-master 模板驱动）")
+    run([sys.executable, str(SCRIPTS / "template_renderer.py"),
+         "--pages", str(pages_path), "--out", str(svg_dir),
+         "--images", str(out / "images")])
 
     if not args.skip_qa:
         print("[4/7] planning 合同校验")
