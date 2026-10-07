@@ -74,7 +74,7 @@ python3 scripts/qa_cards.py projects/xxx/cards qa_cards_render
 ## 三、导出物（回读，不能只看导出命令）
 
 ```bash
-python3 $PPT_MASTER/skills/ppt-master/scripts/svg_to_pptx.py projects/xxx -o output/xxx.pptx  # PPT_MASTER 见 README 第 78 行
+python3 vendor/ppt-master/scripts/svg_to_pptx.py projects/xxx -o output/xxx.pptx
 unzip -q output/xxx.pptx -d /tmp/chk
 ```
 

@@ -1,0 +1,647 @@
+{
+  "schema": "ppt-master.svg-quality-report.v1",
+  "stage": "final",
+  "target": "/Volumes/3TB_DATA/05-开发项目/ppt-studio/projects/agentflow-os-launch/svg_output",
+  "source_fingerprint": {
+    "algorithm": "sha256",
+    "digest": "cdba3459f6bc8dd2afe80bdfff6f0668cc1a61c07053b1144290c617cb29b0a5",
+    "file_count": 7,
+    "files": [
+      {
+        "file": "01_cover.svg",
+        "sha256": "ec0ff3cf80aef52a8fd39e6b190d89997c7644f25a112698116471b286576fe1"
+      },
+      {
+        "file": "02_tension.svg",
+        "sha256": "b6dc65630177884e5cef88e9226d91bb33ca8a1b9bdffdf25e5ec22c011814d2"
+      },
+      {
+        "file": "03_position.svg",
+        "sha256": "3c28897210ed7b837d2fe6c80a202484598eb7b9d93fa271c05a028f8bc95506"
+      },
+      {
+        "file": "04_capability_selfheal.svg",
+        "sha256": "80e9e2d8994ea8de114edc5795d4c35bea6b5c7308b0e3e912a46f481ddbb1bc"
+      },
+      {
+        "file": "05_capability_bus.svg",
+        "sha256": "16ac9ff67357c48d0e0501ded9a0ddecbbb4d3069a4dc6b233c98039da84627e"
+      },
+      {
+        "file": "06_before_after.svg",
+        "sha256": "09f348f53cb12e6dc923a79e6ec43620490ee3c5a0f50fa442e9d71dc07e844e"
+      },
+      {
+        "file": "07_next_step.svg",
+        "sha256": "2be773d225aec7ef3f59a2d7e7f05690aa26253ffbcb1bee56376675b19cf12a"
+      }
+    ]
+  },
+  "summary": {
+    "total": 7,
+    "passed": 7,
+    "warnings": 0,
+    "errors": 0
+  },
+  "issue_types": {},
+  "categories": {
+    "blocking": {
+      "count": 0,
+      "issues": []
+    },
+    "introduced": {
+      "count": 0,
+      "issues": []
+    },
+    "inherited": {
+      "count": 0,
+      "issues": []
+    },
+    "source-import": {
+      "count": 0,
+      "summary": {
+        "warning_count": 0,
+        "by_code": {}
+      }
+    }
+  },
+  "drift": {
+    "colors": {
+      "#7F8090": [
+        "01_cover.svg",
+        "02_tension.svg",
+        "03_position.svg",
+        "04_capability_selfheal.svg",
+        "05_capability_bus.svg",
+        "06_before_after.svg",
+        "07_next_step.svg"
+      ]
+    },
+    "fonts": {
+      "\"Microsoft YaHei\", \"PingFang SC\", Arial, sans-serif": [
+        "01_cover.svg",
+        "02_tension.svg",
+        "03_position.svg",
+        "04_capability_selfheal.svg",
+        "05_capability_bus.svg",
+        "06_before_after.svg",
+        "07_next_step.svg"
+      ],
+      "Arial, Helvetica, sans-serif": [
+        "01_cover.svg",
+        "02_tension.svg",
+        "04_capability_selfheal.svg",
+        "05_capability_bus.svg",
+        "06_before_after.svg"
+      ]
+    },
+    "sizes": {}
+  },
+  "carrier_receipt": {
+    "scope": "informational-not-a-quota",
+    "pages": 7,
+    "totals": {
+      "text_elements": 77,
+      "image_placements": 7,
+      "icons": 0,
+      "svg_geometry_elements": 61,
+      "preset_shapes": 0,
+      "page_frame_elements": 22,
+      "marker_uses": 0,
+      "inline_emphasis_runs": 2,
+      "gradient_uses": 14,
+      "filter_uses": 0,
+      "text_effects": 0
+    },
+    "pages_with": {
+      "images": 7,
+      "icons": 0,
+      "presets": 0,
+      "charts": 0,
+      "tables": 0,
+      "formulas": 0,
+      "inline_emphasis_runs": 1,
+      "gradient_uses": 7,
+      "filter_uses": 0,
+      "text_effects": 0
+    },
+    "relationship_pages": null,
+    "geometry_elements": {
+      "circle": 2,
+      "ellipse": 0,
+      "line": 17,
+      "path": 4,
+      "polygon": 0,
+      "polyline": 0,
+      "rect": 38
+    },
+    "preset_names": {},
+    "native_objects": {
+      "chart": 0,
+      "formula_block": 0,
+      "formula_inline": 0,
+      "other": 0,
+      "table": 0
+    },
+    "image_page_max_frame_share_range": [
+      1.0,
+      1.0
+    ]
+  },
+  "project_issues": {
+    "template": [],
+    "animation": [],
+    "illustration": [],
+    "communication_trace": [],
+    "pptx_structure": []
+  },
+  "files": [
+    {
+      "file": "01_cover.svg",
+      "path": "/Volumes/3TB_DATA/05-开发项目/ppt-studio/projects/agentflow-os-launch/svg_output/01_cover.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "carrier_receipt": {
+          "text_elements": 7,
+          "images": {
+            "placements": 1,
+            "files": [
+              "cover_bg.png"
+            ],
+            "max_frame_share": 1.0
+          },
+          "icons": 0,
+          "effects": {
+            "inline_emphasis_runs": 0,
+            "gradient_uses": 2,
+            "filter_uses": 0,
+            "text_effects": 0
+          },
+          "geometry": {
+            "svg_elements": {
+              "rect": 4,
+              "circle": 0,
+              "ellipse": 0,
+              "line": 2,
+              "polyline": 0,
+              "polygon": 0,
+              "path": 0
+            },
+            "preset_shapes": 0,
+            "preset_names": {},
+            "page_frame_elements": 4,
+            "marker_uses": {
+              "start": 0,
+              "mid": 0,
+              "end": 0
+            }
+          },
+          "native_objects": {
+            "chart": 0,
+            "table": 0,
+            "formula_block": 0,
+            "formula_inline": 0,
+            "other": 0
+          }
+        },
+        "fonts": [
+          "\"Microsoft YaHei\", \"PingFang SC\", Arial, sans-serif",
+          "Arial, Helvetica, sans-serif"
+        ],
+        "text_elements": 7,
+        "tspan_elements": 0,
+        "contextual_values": {
+          "colors": [
+            "#7F8090"
+          ],
+          "font_families": [
+            "\"Microsoft YaHei\", \"PingFang SC\", Arial, sans-serif",
+            "Arial, Helvetica, sans-serif"
+          ]
+        }
+      },
+      "passed": true,
+      "source_sha256": "ec0ff3cf80aef52a8fd39e6b190d89997c7644f25a112698116471b286576fe1"
+    },
+    {
+      "file": "02_tension.svg",
+      "path": "/Volumes/3TB_DATA/05-开发项目/ppt-studio/projects/agentflow-os-launch/svg_output/02_tension.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "carrier_receipt": {
+          "text_elements": 11,
+          "images": {
+            "placements": 1,
+            "files": [
+              "tension_bg.png"
+            ],
+            "max_frame_share": 1.0
+          },
+          "icons": 0,
+          "effects": {
+            "inline_emphasis_runs": 2,
+            "gradient_uses": 2,
+            "filter_uses": 0,
+            "text_effects": 0
+          },
+          "geometry": {
+            "svg_elements": {
+              "rect": 3,
+              "circle": 0,
+              "ellipse": 0,
+              "line": 2,
+              "polyline": 0,
+              "polygon": 0,
+              "path": 0
+            },
+            "preset_shapes": 0,
+            "preset_names": {},
+            "page_frame_elements": 3,
+            "marker_uses": {
+              "start": 0,
+              "mid": 0,
+              "end": 0
+            }
+          },
+          "native_objects": {
+            "chart": 0,
+            "table": 0,
+            "formula_block": 0,
+            "formula_inline": 0,
+            "other": 0
+          }
+        },
+        "fonts": [
+          "\"Microsoft YaHei\", \"PingFang SC\", Arial, sans-serif",
+          "Arial, Helvetica, sans-serif"
+        ],
+        "text_elements": 11,
+        "tspan_elements": 3,
+        "contextual_values": {
+          "colors": [
+            "#7F8090"
+          ],
+          "font_families": [
+            "\"Microsoft YaHei\", \"PingFang SC\", Arial, sans-serif",
+            "Arial, Helvetica, sans-serif"
+          ]
+        }
+      },
+      "passed": true,
+      "source_sha256": "b6dc65630177884e5cef88e9226d91bb33ca8a1b9bdffdf25e5ec22c011814d2"
+    },
+    {
+      "file": "03_position.svg",
+      "path": "/Volumes/3TB_DATA/05-开发项目/ppt-studio/projects/agentflow-os-launch/svg_output/03_position.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "carrier_receipt": {
+          "text_elements": 5,
+          "images": {
+            "placements": 1,
+            "files": [
+              "position_bg.png"
+            ],
+            "max_frame_share": 1.0
+          },
+          "icons": 0,
+          "effects": {
+            "inline_emphasis_runs": 0,
+            "gradient_uses": 2,
+            "filter_uses": 0,
+            "text_effects": 0
+          },
+          "geometry": {
+            "svg_elements": {
+              "rect": 3,
+              "circle": 0,
+              "ellipse": 0,
+              "line": 2,
+              "polyline": 0,
+              "polygon": 0,
+              "path": 0
+            },
+            "preset_shapes": 0,
+            "preset_names": {},
+            "page_frame_elements": 3,
+            "marker_uses": {
+              "start": 0,
+              "mid": 0,
+              "end": 0
+            }
+          },
+          "native_objects": {
+            "chart": 0,
+            "table": 0,
+            "formula_block": 0,
+            "formula_inline": 0,
+            "other": 0
+          }
+        },
+        "fonts": [
+          "\"Microsoft YaHei\", \"PingFang SC\", Arial, sans-serif"
+        ],
+        "text_elements": 5,
+        "tspan_elements": 1,
+        "contextual_values": {
+          "colors": [
+            "#7F8090"
+          ],
+          "font_families": [
+            "\"Microsoft YaHei\", \"PingFang SC\", Arial, sans-serif"
+          ]
+        }
+      },
+      "passed": true,
+      "source_sha256": "3c28897210ed7b837d2fe6c80a202484598eb7b9d93fa271c05a028f8bc95506"
+    },
+    {
+      "file": "04_capability_selfheal.svg",
+      "path": "/Volumes/3TB_DATA/05-开发项目/ppt-studio/projects/agentflow-os-launch/svg_output/04_capability_selfheal.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "carrier_receipt": {
+          "text_elements": 12,
+          "images": {
+            "placements": 1,
+            "files": [
+              "heal_bg.png"
+            ],
+            "max_frame_share": 1.0
+          },
+          "icons": 0,
+          "effects": {
+            "inline_emphasis_runs": 0,
+            "gradient_uses": 2,
+            "filter_uses": 0,
+            "text_effects": 0
+          },
+          "geometry": {
+            "svg_elements": {
+              "rect": 4,
+              "circle": 1,
+              "ellipse": 0,
+              "line": 2,
+              "polyline": 0,
+              "polygon": 0,
+              "path": 1
+            },
+            "preset_shapes": 0,
+            "preset_names": {},
+            "page_frame_elements": 3,
+            "marker_uses": {
+              "start": 0,
+              "mid": 0,
+              "end": 0
+            }
+          },
+          "native_objects": {
+            "chart": 0,
+            "table": 0,
+            "formula_block": 0,
+            "formula_inline": 0,
+            "other": 0
+          }
+        },
+        "fonts": [
+          "\"Microsoft YaHei\", \"PingFang SC\", Arial, sans-serif",
+          "Arial, Helvetica, sans-serif",
+          "Consolas, monospace"
+        ],
+        "text_elements": 12,
+        "tspan_elements": 0,
+        "contextual_values": {
+          "colors": [
+            "#7F8090"
+          ],
+          "font_families": [
+            "\"Microsoft YaHei\", \"PingFang SC\", Arial, sans-serif",
+            "Arial, Helvetica, sans-serif"
+          ]
+        }
+      },
+      "passed": true,
+      "source_sha256": "80e9e2d8994ea8de114edc5795d4c35bea6b5c7308b0e3e912a46f481ddbb1bc"
+    },
+    {
+      "file": "05_capability_bus.svg",
+      "path": "/Volumes/3TB_DATA/05-开发项目/ppt-studio/projects/agentflow-os-launch/svg_output/05_capability_bus.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "carrier_receipt": {
+          "text_elements": 14,
+          "images": {
+            "placements": 1,
+            "files": [
+              "bus_bg.png"
+            ],
+            "max_frame_share": 1.0
+          },
+          "icons": 0,
+          "effects": {
+            "inline_emphasis_runs": 0,
+            "gradient_uses": 2,
+            "filter_uses": 0,
+            "text_effects": 0
+          },
+          "geometry": {
+            "svg_elements": {
+              "rect": 9,
+              "circle": 1,
+              "ellipse": 0,
+              "line": 2,
+              "polyline": 0,
+              "polygon": 0,
+              "path": 3
+            },
+            "preset_shapes": 0,
+            "preset_names": {},
+            "page_frame_elements": 3,
+            "marker_uses": {
+              "start": 0,
+              "mid": 0,
+              "end": 0
+            }
+          },
+          "native_objects": {
+            "chart": 0,
+            "table": 0,
+            "formula_block": 0,
+            "formula_inline": 0,
+            "other": 0
+          }
+        },
+        "fonts": [
+          "\"Microsoft YaHei\", \"PingFang SC\", Arial, sans-serif",
+          "Arial, Helvetica, sans-serif"
+        ],
+        "text_elements": 14,
+        "tspan_elements": 0,
+        "contextual_values": {
+          "colors": [
+            "#7F8090"
+          ],
+          "font_families": [
+            "\"Microsoft YaHei\", \"PingFang SC\", Arial, sans-serif",
+            "Arial, Helvetica, sans-serif"
+          ]
+        }
+      },
+      "passed": true,
+      "source_sha256": "16ac9ff67357c48d0e0501ded9a0ddecbbb4d3069a4dc6b233c98039da84627e"
+    },
+    {
+      "file": "06_before_after.svg",
+      "path": "/Volumes/3TB_DATA/05-开发项目/ppt-studio/projects/agentflow-os-launch/svg_output/06_before_after.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "carrier_receipt": {
+          "text_elements": 20,
+          "images": {
+            "placements": 1,
+            "files": [
+              "diverge_bg.png"
+            ],
+            "max_frame_share": 1.0
+          },
+          "icons": 0,
+          "effects": {
+            "inline_emphasis_runs": 0,
+            "gradient_uses": 2,
+            "filter_uses": 0,
+            "text_effects": 0
+          },
+          "geometry": {
+            "svg_elements": {
+              "rect": 11,
+              "circle": 0,
+              "ellipse": 0,
+              "line": 5,
+              "polyline": 0,
+              "polygon": 0,
+              "path": 0
+            },
+            "preset_shapes": 0,
+            "preset_names": {},
+            "page_frame_elements": 3,
+            "marker_uses": {
+              "start": 0,
+              "mid": 0,
+              "end": 0
+            }
+          },
+          "native_objects": {
+            "chart": 0,
+            "table": 0,
+            "formula_block": 0,
+            "formula_inline": 0,
+            "other": 0
+          }
+        },
+        "fonts": [
+          "\"Microsoft YaHei\", \"PingFang SC\", Arial, sans-serif",
+          "Arial, Helvetica, sans-serif"
+        ],
+        "text_elements": 20,
+        "tspan_elements": 0,
+        "contextual_values": {
+          "colors": [
+            "#7F8090"
+          ],
+          "font_families": [
+            "\"Microsoft YaHei\", \"PingFang SC\", Arial, sans-serif",
+            "Arial, Helvetica, sans-serif"
+          ]
+        }
+      },
+      "passed": true,
+      "source_sha256": "09f348f53cb12e6dc923a79e6ec43620490ee3c5a0f50fa442e9d71dc07e844e"
+    },
+    {
+      "file": "07_next_step.svg",
+      "path": "/Volumes/3TB_DATA/05-开发项目/ppt-studio/projects/agentflow-os-launch/svg_output/07_next_step.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "carrier_receipt": {
+          "text_elements": 8,
+          "images": {
+            "placements": 1,
+            "files": [
+              "next_bg.png"
+            ],
+            "max_frame_share": 1.0
+          },
+          "icons": 0,
+          "effects": {
+            "inline_emphasis_runs": 0,
+            "gradient_uses": 2,
+            "filter_uses": 0,
+            "text_effects": 0
+          },
+          "geometry": {
+            "svg_elements": {
+              "rect": 4,
+              "circle": 0,
+              "ellipse": 0,
+              "line": 2,
+              "polyline": 0,
+              "polygon": 0,
+              "path": 0
+            },
+            "preset_shapes": 0,
+            "preset_names": {},
+            "page_frame_elements": 3,
+            "marker_uses": {
+              "start": 0,
+              "mid": 0,
+              "end": 0
+            }
+          },
+          "native_objects": {
+            "chart": 0,
+            "table": 0,
+            "formula_block": 0,
+            "formula_inline": 0,
+            "other": 0
+          }
+        },
+        "fonts": [
+          "\"Microsoft YaHei\", \"PingFang SC\", Arial, sans-serif"
+        ],
+        "text_elements": 8,
+        "tspan_elements": 0,
+        "contextual_values": {
+          "colors": [
+            "#7F8090"
+          ],
+          "font_families": [
+            "\"Microsoft YaHei\", \"PingFang SC\", Arial, sans-serif"
+          ]
+        }
+      },
+      "passed": true,
+      "source_sha256": "2be773d225aec7ef3f59a2d7e7f05690aa26253ffbcb1bee56376675b19cf12a"
+    }
+  ]
+}

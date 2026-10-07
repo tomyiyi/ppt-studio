@@ -72,18 +72,19 @@ python3 ../../scripts/build_preview.py svg_output/ preview.html "发布会预览
 
 ## PPTX 出口（诚实说明）
 
-PPTX 转换**不在本仓库**：`svg_to_pptx.py` 是兄弟目录 `ppt/tools/ppt-master` 的外部依赖（vendoring / submodule 待定，本仓库不复制）。导出是两步，不是"一键直达"：
+PPTX 转换脚本已 vendor 进本仓库（`vendor/ppt-master`，来源 [hugohe3/ppt-master](https://github.com/hugohe3/ppt-master)，MIT），开箱即用。导出是两步，不是"一键直达"：
 
 ```bash
-PPT_MASTER=/Volumes/3TB_DATA/05-开发项目/ppt/tools/ppt-master   # 按你的实际路径改
 # 1. 质量门禁：blocking 必须为 0，否则不许转
-python3 $PPT_MASTER/skills/ppt-master/scripts/svg_quality_checker.py \
+python3 vendor/ppt-master/scripts/svg_quality_checker.py \
     projects/agentflow-os-launch --canonical-authoring --stage final --json
 # 2. 转换（原生 DrawingML：文字可编辑、图形可改，不是贴图）
-python3 $PPT_MASTER/skills/ppt-master/scripts/svg_to_pptx.py \
+python3 vendor/ppt-master/scripts/svg_to_pptx.py \
     projects/agentflow-os-launch -o output/deck.pptx
 # 3. 回读验证：unzip -q output/deck.pptx -d /tmp/chk，核对 ppt/media/ 文件数与每页 <p:pic> 数量
 ```
+
+> 说明：`run_auto_poc.py` 的模板生成功能仍需外部模板库（约 3.1GB），通过 `PPT_MASTER_ROOT` 环境变量指定，见该脚本 `--help`。
 
 SVG 画布约定：`viewBox="0 0 1280 720"`，边距 60px。
 
