@@ -94,7 +94,23 @@ python3 vendor/ppt-master/scripts/svg_to_pptx.py \
 # 3. 回读验证：unzip -q output/deck.pptx -d /tmp/chk，核对 ppt/media/ 文件数与每页 <p:pic> 数量
 ```
 
-> 说明：模板库（`editorial_bleed` / `presentation_core_43`）同样已 vendor，开箱即用；也可用 `PPT_MASTER_ROOT` 环境变量指向外部完整模板库。
+> 说明：模板库（`editorial_bleed` / `presentation_core_43`）同样已 vendor，开箱即用。
+
+### 完整模板库（可选）
+
+如需其余 6 个模板家族（`presentation_core` / `moments_square` / `story_vertical` /
+`report_core` / `xiaohongshu_post` 等，约 3.1GB），从上游获取：
+
+```bash
+# 只拉模板目录（sparse checkout，不下整个 3.5GB 仓库）
+git clone --filter=blob:none --sparse https://github.com/hugohe3/ppt-master.git
+cd ppt-master
+git sparse-checkout set skills/ppt-master/templates
+
+# 指向它即可（或只换某一画幅）
+export PPT_MASTER_ROOT=/path/to/ppt-master/skills/ppt-master
+python3 scripts/run_auto_poc.py --base-dir projects/xxx
+```
 
 SVG 画布约定：`viewBox="0 0 1280 720"`，边距 60px。
 
