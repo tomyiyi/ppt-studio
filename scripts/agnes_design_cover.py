@@ -20,6 +20,8 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
+from cover_archetypes import select_cover_archetype
 
 AGNES_ROOT = Path(os.environ.get(
     "AGNES_STUDIO_ROOT",
@@ -42,7 +44,9 @@ def parse_args(argv=None):
     p.add_argument("--subtitle", default="", help="英文副标题")
     p.add_argument("--body", default="", help="正文/标语")
     p.add_argument("--author", default="TOM // AGNES STUDIO", help="署名")
-    p.add_argument("--style", default="swiss_01", choices=STYLES, help="海报风格")
+    p.add_argument("--style", default=None, choices=STYLES, help="海报风格（不填自动推导）")
+    p.add_argument("--platform", default="wechat", choices=("wechat", "xiaohongshu"), help="目标平台")
+    p.add_argument("--tone", default="practical", choices=("analytical", "provocative", "empathetic", "practical"), help="内容语气")
     p.add_argument("--project", type=Path, required=True, help="ppt 项目目录")
     p.add_argument("--filename", default="cover_agnes.png", help="输出文件名")
     p.add_argument("--crop", default="top", choices=("top", "center", "bottom"),
@@ -52,6 +56,9 @@ def parse_args(argv=None):
 
 def main(argv=None):
     args = parse_args(argv)
+    if not args.style:
+        aid, args.style = select_cover_archetype(args.platform, args.tone, args.title)
+        print("[原型推导] %s -> %s" % (aid, args.style))
 
     if not (AGNES_SCRIPTS / "pro_poster_renderer.py").exists():
         print(f"找不到 agnes-studio：{AGNES_ROOT}", file=sys.stderr)
