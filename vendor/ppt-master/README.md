@@ -7,8 +7,9 @@
 以及完整性门禁要求的 `SKILL.md` / `LICENSE` / `SPONSORS.md` / `SPONSORS_CN.md`
 （门禁做 SHA 校验，一字未改）。
 
-未包含：`templates/`（3.1GB 模板库；`run_auto_poc.py` 的模板生成功能仍需外部提供，
-用 `PPT_MASTER_ROOT` 环境变量指定）、`references/`、`workflows/`。
+另含 `templates/layouts/` 下的 `editorial_bleed` 与 `presentation_core_43` 两个模板家族
+（`run_auto_poc.py` 默认使用，共约 7.5MB）。其余模板家族（约 3.1GB）未包含。
+未包含：`references/`、`workflows/`。
 
 注意：`scripts/attribution_guard.py` 每次调用都会做完整性校验，
 不要删减门禁文件，不要修改 LICENSE / SKILL.md 中的署名元数据。

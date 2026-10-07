@@ -4,8 +4,8 @@
 输出目录默认走仓库内 ``projects/auto_poc``（由本脚本位置向上推导 repo root），
 可用 ``--base-dir`` 覆盖。
 
-SVG 模板是外部依赖 —— 兄弟仓库 ``ppt/tools/ppt-master`` 的模板库：
-默认从 ``<repo>/../ppt/tools/ppt-master/skills/ppt-master`` 推导，
+SVG 模板已 vendor 进本仓库（``vendor/ppt-master/templates/layouts``，
+来源 hugohe3/ppt-master，MIT），开箱即用；
 也可用 ``--tpl-169-dir`` / ``--tpl-43-dir`` 或 ``PPT_MASTER_ROOT`` 环境变量覆盖。
 """
 import argparse
@@ -17,7 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_BASE_DIR = REPO_ROOT / "projects" / "auto_poc"
 PPT_MASTER_ROOT = Path(os.environ.get(
     "PPT_MASTER_ROOT",
-    str(REPO_ROOT.parent / "ppt" / "tools" / "ppt-master" / "skills" / "ppt-master"),
+    str(REPO_ROOT / "vendor" / "ppt-master"),
 ))
 DEFAULT_TPL_169_DIR = PPT_MASTER_ROOT / "templates" / "layouts" / "editorial_bleed" / "templates"
 DEFAULT_TPL_43_DIR = PPT_MASTER_ROOT / "templates" / "layouts" / "presentation_core_43" / "templates"
@@ -28,9 +28,9 @@ def parse_args(argv=None):
     p.add_argument("--base-dir", type=Path, default=DEFAULT_BASE_DIR,
                    help=f"输出根目录（默认 {DEFAULT_BASE_DIR}）")
     p.add_argument("--tpl-169-dir", type=Path, default=DEFAULT_TPL_169_DIR,
-                   help="16:9 模板目录（外部依赖，默认从兄弟仓库 ppt/tools/ppt-master 推导）")
+                   help="16:9 模板目录（默认 vendor/ppt-master）")
     p.add_argument("--tpl-43-dir", type=Path, default=DEFAULT_TPL_43_DIR,
-                   help="4:3 模板目录（外部依赖，默认从兄弟仓库 ppt/tools/ppt-master 推导）")
+                   help="4:3 模板目录（默认 vendor/ppt-master）")
     return p.parse_args(argv)
 
 

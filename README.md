@@ -84,7 +84,7 @@ python3 vendor/ppt-master/scripts/svg_to_pptx.py \
 # 3. 回读验证：unzip -q output/deck.pptx -d /tmp/chk，核对 ppt/media/ 文件数与每页 <p:pic> 数量
 ```
 
-> 说明：`run_auto_poc.py` 的模板生成功能仍需外部模板库（约 3.1GB），通过 `PPT_MASTER_ROOT` 环境变量指定，见该脚本 `--help`。
+> 说明：模板库（`editorial_bleed` / `presentation_core_43`）同样已 vendor，开箱即用；也可用 `PPT_MASTER_ROOT` 环境变量指向外部完整模板库。
 
 SVG 画布约定：`viewBox="0 0 1280 720"`，边距 60px。
 
@@ -102,7 +102,7 @@ SVG 画布约定：`viewBox="0 0 1280 720"`，边距 60px。
 | `make_cards.py` | 横版画布 → 1080×1350 竖版卡片：内容要素重排（自适应图片带 40%–62%，装不下按优先级砍） |
 | `qa_layout.py` | 横版质检闸门：溢出 / 字号阶梯 / 底图 / 重复图片 / 面板墨量 / 压行 / 对比度，7 项 |
 | `qa_cards.py` | 卡片质检闸门：字号 / 安全区 / 溢出 / 压行 / 对比度 / 底图 / 留白，7 项 |
-| `run_auto_poc.py` | auto_poc 双画幅（16:9 + 4:3）SVG 生成管线，POC 验证用；模板目录从外部 ppt-master 推导（`--tpl-169-dir` / `--tpl-43-dir` 可覆盖） |
+| `run_auto_poc.py` | auto_poc 双画幅（16:9 + 4:3）SVG 生成管线，POC 验证用；模板已 vendor（`--tpl-169-dir` / `--tpl-43-dir` 可覆盖） |
 
 ## 配图铁律
 
