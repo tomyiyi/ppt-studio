@@ -66,16 +66,20 @@ def wrap_text(text, max_chars):
     return lines or [text]
 
 
-def fit_title(title, max_chars=18):
-    """标题太长则截断，保证不溢出"""
+def split_title(title, max_chars=14):
+    """标题分行，不截断。返回行列表。"""
     if len(title) <= max_chars:
-        return title
-    # 尽量在标点处截断
-    for sep in "：，、 ":
-        if sep in title[:max_chars]:
-            idx = title[:max_chars].rfind(sep)
-            return title[:idx]
-    return title[:max_chars]
+        return [title]
+    lines, cur = [], ""
+    for ch in title:
+        cur += ch
+        if len(cur) >= max_chars and ch in "：，、； ；":
+            lines.append(cur); cur = ""
+    if cur: lines.append(cur)
+    # 最多 3 行，超出的合并到最后一行
+    if len(lines) > 3:
+        lines = lines[:2] + ["".join(lines[2:])]
+    return lines
 
 
 def bullets_to_svg(bullets, x, y, font_size, fill, line_h, max_chars=18, max_items=2):
@@ -100,7 +104,9 @@ def bullets_to_svg(bullets, x, y, font_size, fill, line_h, max_chars=18, max_ite
 
 def render_page(page, images_dir):
     layout = page.get("layout", "bullets")
-    title = fit_title(page.get("title", ""))
+    _raw_title = page.get("title", "")
+    _title_lines = split_title(_raw_title)
+    title = _raw_title  # 完整标题，分行在占位符替换时处理
     bullets = page.get("bullets", [])
     image_file = page.get("image_file")
 
@@ -114,6 +120,9 @@ def render_page(page, images_dir):
     # 背景图 slot 的 bounds 会与文字重叠（设计使然），先去掉避免 QA 误报
     # 注意：必须在 strip_flat_forbidden 之前，此时 placeholder 属性还在
     svg = re.sub(r'(<g[^>]*data-pptx-placeholder="picture"[^>]*?)\s+data-pptx-bounds="[^"]*"', r"\g<1>", svg)
+    # 减轻 scrim（模板默认 0.88 太重，图被压没了）：降到 0.55/0.35
+    svg = re.sub(r'stop-opacity="0\.88"', 'stop-opacity="0.55"', svg)
+    svg = re.sub(r'stop-opacity="0\.62"', 'stop-opacity="0.35"', svg)
     # 剥离 flat 禁用属性
     svg = strip_flat_forbidden(svg)
 
@@ -161,10 +170,14 @@ def render_page(page, images_dir):
             else:
                 svg = re.sub(r'(<svg[^>]*>)', r"\g<1>" + img_tag, svg, count=1)
 
+    # 标题分行：找到 title carrier，替换为多行 text
+    title_lines = split_title(_raw_title, max_chars=12)
+    # 先占位，后面统一处理
     reps = {
-        "{{TITLE}}": esc(title),
-        "{{PAGE_TITLE}}": esc(title),
+        "{{TITLE}}": "__TITLE_MULTILINE__",
+        "{{PAGE_TITLE}}": "__TITLE_MULTILINE__",
         "{{SUBTITLE}}": esc(page.get("subtitle", "")),
+        "__TITLE_LINES__": title_lines,
     }
 
     if "{{CONTENT_AREA}}" in svg:
@@ -194,8 +207,8 @@ def render_page(page, images_dir):
         r = page.get("right", {})
         reps.update(
             {
-                "{{LEFT_TITLE}}": esc(fit_title(l.get("title", ""), 12)),
-                "{{RIGHT_TITLE}}": esc(fit_title(r.get("title", ""), 12)),
+                "{{LEFT_TITLE}}": esc(l.get("title", "")[:12]),
+                "{{RIGHT_TITLE}}": esc(r.get("title", "")[:12]),
                 "{{LEFT_CONTENT}}": esc(" / ".join(l.get("items", [])[:2])),
                 "{{RIGHT_CONTENT}}": esc(" / ".join(r.get("items", [])[:2])),
             }
@@ -204,14 +217,34 @@ def render_page(page, images_dir):
         steps = page.get("steps", bullets)
         for i in range(1, 5):
             s = steps[i - 1] if i - 1 < len(steps) else ""
-            reps["{{STEP_%d}}" % i] = esc(fit_title(s, 16))
-        reps["{{KEY_MESSAGE}}"] = esc(fit_title(page.get("takeaway", ""), 30))
+            reps["{{STEP_%d}}" % i] = esc(s[:16])
+        reps["{{KEY_MESSAGE}}"] = esc(page.get("takeaway", "")[:30])
     if layout == "cover":
         reps["{{KEY_MESSAGE}}"] = esc(title)
-        reps["{{SUPPORT_TEXT}}"] = esc(fit_title(page.get("subtitle", ""), 30))
+        reps["{{SUPPORT_TEXT}}"] = esc(page.get("subtitle", "")[:30])
 
+    # 多行标题：找到包含 __TITLE_MULTILINE__ 的 text，展开为多行
+    title_lines = reps.pop("__TITLE_LINES__", [])
     for k, v in reps.items():
         svg = svg.replace(k, v)
+    if "__TITLE_MULTILINE__" in svg and title_lines:
+        m = re.search(r'<text([^>]*?)>__TITLE_MULTILINE__</text>', svg, re.DOTALL)
+        if m:
+            attrs, x, y, fs = m.group(1), 0, 0, 44
+            xm = re.search(r'x="(\d+)"', attrs); ym = re.search(r'y="(\d+)"', attrs)
+            fm = re.search(r'font-size="(\d+)"', attrs)
+            if xm: x = int(xm.group(1))
+            if ym: y = int(ym.group(1))
+            if fm: fs = int(fm.group(1))
+            # 长标题缩小字号
+            if len(title_lines) > 2: fs = max(32, fs - 8)
+            fill = re.search(r'fill="([^"]+)"', attrs)
+            fill = fill.group(1) if fill else "#FFFFFF"
+            multi = []
+            for i, line in enumerate(title_lines[:3]):
+                multi.append('<text%s y="%d">%s</text>' % (
+                    re.sub(r'y="\d+"', "", attrs), y + i * (fs + 12), esc(line)))
+            svg = svg.replace(m.group(0), "\n".join(multi))
     svg = re.sub(r"\{\{[A-Z_0-9]+\}\}", "", svg)
     return svg
 
