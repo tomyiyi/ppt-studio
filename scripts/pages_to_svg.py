@@ -68,9 +68,11 @@ def page_frame(title, kicker, inner):
     parts.append(' font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif">')
     parts.append("<title>" + esc(title) + "</title>" + NL)
     parts.append('<rect width="1280" height="720" fill="' + BG + '"/>' + NL)
-    parts.append('<g id="kicker">' + t(MARGIN, 100, kicker, 11, MUTED, ls="4") + "</g>" + NL)
-    parts.append(inner + NL)
-    parts.append('<g id="footer"><line x1="60" y1="648" x2="1220" y2="648"')
+    parts.append('<g id="kicker" data-pptx-bounds="60 80 1160 30" data-pptx-role="decoration">'
+                 + t(MARGIN, 100, kicker, 11, MUTED, ls="4") + "</g>" + NL)
+    parts.append('<g id="content" data-pptx-bounds="60 120 1160 500">' + NL + inner + NL + "</g>" + NL)
+    parts.append('<g id="footer" data-pptx-bounds="60 640 1160 20" data-pptx-role="decoration">'
+                 + '<line x1="60" y1="648" x2="1220" y2="648"')
     parts.append(' stroke="' + DIV + '" stroke-width="1"/></g>' + NL)
     parts.append("</svg>")
     return "".join(parts)
