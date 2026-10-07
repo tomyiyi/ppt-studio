@@ -4,6 +4,12 @@ from pathlib import Path
 import html
 import re
 
+try:
+    from cover_v2 import fit_font_size, split_cover_title, disp_width, get_cover_font_family
+    HAS_COVER_V2 = True
+except ImportError:
+    HAS_COVER_V2 = False
+
 TEMPLATE_ROOT = Path(
     "/Volumes/3TB_DATA/05-开发项目/ppt/tools/ppt-master/skills/ppt-master/templates/layouts"
 )
@@ -88,16 +94,25 @@ def wrap_text(text, max_chars):
 
 
 def split_title(title, max_chars=14):
-    """标题分行，不截断。返回行列表。"""
-    if len(title) <= max_chars:
+    """标题分行，不截断。返回行列表。中英混排时英文按单词断。"""
+    # 计算显示宽度：中文算1，英文算0.6
+    def disp_w(s):
+        w = 0
+        for ch in s:
+            w += 1 if ord(ch) > 127 else 0.6
+        return w
+    if disp_w(title) <= max_chars:
         return [title]
-    lines, cur = [], ""
-    for ch in title:
-        cur += ch
-        if len(cur) >= max_chars and ch in "：，、； ；":
-            lines.append(cur); cur = ""
+    lines, cur, cur_w = [], "", 0
+    # 按词切分（保留分隔符）
+    import re as _re
+    tokens = _re.findall(r"[\u4e00-\u9fff]+|[a-zA-Z0-9]+|.", title)
+    for tok in tokens:
+        tw = disp_w(tok)
+        if cur_w + tw > max_chars and cur:
+            lines.append(cur); cur, cur_w = "", 0
+        cur += tok; cur_w += tw
     if cur: lines.append(cur)
-    # 最多 3 行，超出的合并到最后一行
     if len(lines) > 3:
         lines = lines[:2] + ["".join(lines[2:])]
     return lines
@@ -284,19 +299,26 @@ def render_page(page, images_dir):
         reps["{{CHAPTER_TITLE}}"] = "__TITLE_MULTILINE__"
         reps["{{CHAPTER_DESC}}"] = esc(" / ".join(bullets[:1])[:30])
     if layout == "closing":
-        reps["{{CLOSING_MESSAGE}}"] = esc(_raw_title[:40])
-        reps["{{CONTACT_LINE}}"] = esc(" / ".join(bullets[:2])[:60])
+        reps["{{CLOSING_MESSAGE}}"] = esc(_raw_title[:24])
+        # CONTACT_LINE 槽位窄，只放第一条且截到 24 字
+        _cl = bullets[0][:24] if bullets else ""
+        reps["{{CONTACT_LINE}}"] = esc(_cl)
     if layout == "cover":
         # 封面是钩子：取冒号前的核心标题，避免长标题堆砌溢出
         _hook = re.split(r"[：:——]", _raw_title)[0].strip()
         if len(_hook) > 20:
             _hook = _hook[:20]
         reps["{{KEY_MESSAGE}}"] = "__TITLE_MULTILINE__"
-        reps["__TITLE_LINES__"] = split_title(_hook, max_chars=10)
+        if HAS_COVER_V2:
+            reps["__TITLE_LINES__"] = split_cover_title(_hook)
+            reps["__COVER_V2__"] = True
+        else:
+            reps["__TITLE_LINES__"] = split_title(_hook, max_chars=10)
         reps["{{SUPPORT_TEXT}}"] = esc(page.get("subtitle", "")[:30])
 
     # 多行标题：找到包含 __TITLE_MULTILINE__ 的 text，展开为多行
     title_lines = reps.pop("__TITLE_LINES__", [])
+    _cover_v2_flag = reps.pop("__COVER_V2__", False)
     for k, v in reps.items():
         svg = svg.replace(k, v)
     if "__TITLE_MULTILINE__" in svg and title_lines:
@@ -312,11 +334,26 @@ def render_page(page, images_dir):
             # 档位: subtitle 24 / title 32 / headline 44 / statement 56 / cover 96
             _n = len(title_lines[:3])
             _is_cover = (layout == "cover")
-            if _n == 3:
+            # Cover v2 (neo式): 每行字号自适应铺满
+            _cover_v2 = _is_cover and HAS_COVER_V2 and _cover_v2_flag
+            if _cover_v2:
+                # 容器宽度估算：从 attrs 或默认 1000
+                _cw = 1000
+                _wm = __import__("re").search(r'width="([0-9]+)"', attrs)
+                # 每行独立计算字号
+                _sizes = [fit_font_size(l, _cw) for l in title_lines[:3]]
+                fs = _sizes[0] if _sizes else 96
+                _lh = fs + 10
+                _n = len(title_lines[:3])
+                if _n > 1:
+                    y = y - (_n - 1) * _lh // 2
+                # 衬线字体
+                _serif = get_cover_font_family()
+            if not _cover_v2 and _n == 3:
                 fs = 44 if _is_cover else 24
                 _lh = fs + 6
                 y = y - (_n - 1) * _lh // 2
-            elif _n == 2:
+            elif not _cover_v2 and _n == 2:
                 # 有图 hero 版槽位更矮，用 32
                 fs = 32 if _is_cover else 32
                 _lh = fs + 8
@@ -331,9 +368,13 @@ def render_page(page, images_dir):
             multi = []
             for i, line in enumerate(title_lines[:3]):
                 _sync = attrs
-                _sync = __import__('re').sub('font-size="[0-9]+"', 'font-size="%d"' % fs, _sync)
-                _sync = __import__('re').sub('y="[0-9]+"', '', _sync)
-                multi.append('<text%s y="%d">%s</text>' % (_sync, y + i * _lh, esc(line)))
+                _sz = _sizes[i] if (_cover_v2 and i < len(_sizes)) else fs
+                _sync = __import__("re").sub('font-size="[0-9]+"', 'font-size="%d"' % _sz, _sync)
+                _sync = __import__("re").sub('y="[0-9]+"', "", _sync)
+                if _cover_v2:
+                    _sync = __import__("re").sub('font-family="[^"]+"', 'font-family="%s"' % _serif, _sync)
+                _lh_i = _sz + 10 if _cover_v2 else _lh
+                multi.append('<text%s y="%d">%s</text>' % (_sync, y + i * _lh_i, esc(line)))
             svg = svg.replace(m.group(0), "\n".join(multi))
     svg = re.sub(r"\{\{[A-Z_0-9]+\}\}", "", svg)
     return svg
