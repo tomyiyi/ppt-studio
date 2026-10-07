@@ -25,6 +25,27 @@ LAYOUT_MAP = {
         "with_image": ("presentation_core", "14_process_timeline.svg"),
         "without_image": ("presentation_core", "14_process_timeline.svg"),
     },
+    # === 专题设计规范 v1：阅读功能版式 ===
+    "statement": {  # 金句页：一句话观点，居中放大
+        "with_image": ("editorial_bleed", "09_full_statement.svg"),
+        "without_image": ("presentation_core", "10_hero_statement.svg"),
+    },
+    "fact": {  # 大数字页：KPI 式数据展示
+        "with_image": ("presentation_core", "13_kpi_dashboard.svg"),
+        "without_image": ("presentation_core", "13_kpi_dashboard.svg"),
+    },
+    "quote": {  # 引用页
+        "with_image": ("editorial_bleed", "06_quote_over_image.svg"),
+        "without_image": ("presentation_core", "10_hero_statement.svg"),
+    },
+    "section": {  # 章节页：引子/过渡
+        "with_image": ("editorial_bleed", "05_chapter_full.svg"),
+        "without_image": ("presentation_core", "03_section_header.svg"),
+    },
+    "closing": {  # 收束页：金句 + CTA
+        "with_image": ("editorial_bleed", "10_closing_full.svg"),
+        "without_image": ("editorial_bleed", "10_closing_full.svg"),
+    },
 }
 
 # flat 模式禁用的属性（模板自带，需剥离）
@@ -219,8 +240,41 @@ def render_page(page, images_dir):
             s = steps[i - 1] if i - 1 < len(steps) else ""
             reps["{{STEP_%d}}" % i] = esc(s[:16])
         reps["{{KEY_MESSAGE}}"] = esc(page.get("takeaway", "")[:30])
+    # === 专题设计规范 v1：阅读功能版式填充 ===
+    if layout == "statement":
+        reps["{{KEY_MESSAGE}}"] = esc(_raw_title)
+        reps["{{SUPPORT_TEXT}}"] = esc(" / ".join(bullets[:2])[:60])
+        reps["{{SUBTITLE}}"] = esc(" / ".join(bullets[:2])[:60])
+    if layout == "fact":
+        reps["{{PAGE_TITLE}}"] = "__TITLE_MULTILINE__"
+        # 从 bullets 提取数字
+        kpis = []
+        for b in bullets[:4]:
+            m = re.search(r"(\d+[%倍]?)", b)
+            num = m.group(1) if m else ""
+            kpis.append((num, b[:30]))
+        for i in range(1, 5):
+            if i - 1 < len(kpis):
+                reps["{{KPI_%d}}" % i] = esc(kpis[i-1][0][:12])
+            else:
+                reps["{{KPI_%d}}" % i] = ""
+        reps["{{CONTENT_AREA}}"] = esc(bullets[0][:30] if bullets else "")
+    if layout == "quote":
+        reps["{{QUOTE_TEXT}}"] = esc(_raw_title)
+        reps["{{ATTRIBUTION}}"] = esc(" / ".join(bullets[:1])[:40])
+    if layout == "section":
+        reps["{{CHAPTER_TITLE}}"] = "__TITLE_MULTILINE__"
+        reps["{{CHAPTER_DESC}}"] = esc(" / ".join(bullets[:1])[:30])
+    if layout == "closing":
+        reps["{{CLOSING_MESSAGE}}"] = esc(_raw_title[:40])
+        reps["{{CONTACT_LINE}}"] = esc(" / ".join(bullets[:2])[:60])
     if layout == "cover":
-        reps["{{KEY_MESSAGE}}"] = esc(title)
+        # 封面是钩子：取冒号前的核心标题，避免长标题堆砌溢出
+        _hook = re.split(r"[：:——]", _raw_title)[0].strip()
+        if len(_hook) > 20:
+            _hook = _hook[:20]
+        reps["{{KEY_MESSAGE}}"] = "__TITLE_MULTILINE__"
+        reps["__TITLE_LINES__"] = split_title(_hook, max_chars=10)
         reps["{{SUPPORT_TEXT}}"] = esc(page.get("subtitle", "")[:30])
 
     # 多行标题：找到包含 __TITLE_MULTILINE__ 的 text，展开为多行
@@ -236,14 +290,31 @@ def render_page(page, images_dir):
             if xm: x = int(xm.group(1))
             if ym: y = int(ym.group(1))
             if fm: fs = int(fm.group(1))
-            # 长标题缩小字号
-            if len(title_lines) > 2: fs = max(32, fs - 8)
+            # 长标题对齐 spec_lock 声明档位，避免溢出槽位
+            # 档位: subtitle 24 / title 32 / headline 44 / statement 56 / cover 96
+            _n = len(title_lines[:3])
+            _is_cover = (layout == "cover")
+            if _n == 3:
+                fs = 44 if _is_cover else 24
+                _lh = fs + 6
+                y = y - (_n - 1) * _lh // 2
+            elif _n == 2:
+                fs = 44 if _is_cover else 32
+                _lh = fs + 8
+                y = y - _lh // 2
+            else:
+                # 单行也对齐档位：模板自带的 36 不在 spec_lock 声明中
+                if not _is_cover:
+                    fs = 32  # title 档
+                _lh = fs + 12
             fill = re.search(r'fill="([^"]+)"', attrs)
             fill = fill.group(1) if fill else "#FFFFFF"
             multi = []
             for i, line in enumerate(title_lines[:3]):
-                multi.append('<text%s y="%d">%s</text>' % (
-                    re.sub(r'y="\d+"', "", attrs), y + i * (fs + 12), esc(line)))
+                _sync = attrs
+                _sync = __import__('re').sub('font-size="[0-9]+"', 'font-size="%d"' % fs, _sync)
+                _sync = __import__('re').sub('y="[0-9]+"', '', _sync)
+                multi.append('<text%s y="%d">%s</text>' % (_sync, y + i * _lh, esc(line)))
             svg = svg.replace(m.group(0), "\n".join(multi))
     svg = re.sub(r"\{\{[A-Z_0-9]+\}\}", "", svg)
     return svg
