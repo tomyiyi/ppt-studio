@@ -70,6 +70,16 @@ python3 ../../scripts/build_preview.py svg_output/ preview.html "发布会预览
 
 > 配图生成（`agnes_ppt_bridge.py`）只在缺图时跑：读 `images/image_prompts.json` 批量调 Agnes 生图，已有图自动跳过。需要本机 New API（`http://127.0.0.1:3000/v1`）。
 
+> **Agnes 海报设计直出封面**（`agnes_design_cover.py`）：调用 agnes-studio 的海报排版引擎，
+> 按标题/副标题/风格（10 种：swiss/article/cyber/chinese/cinema 各 2 款）设计 1200x1200 海报，
+> 裁成 16:9 后存入 `<project>/images/cover_agnes.png`，SVG 里直接 `href="../images/cover_agnes.png"` 引用。
+> 不需要 New API（纯本地 Chrome 光栅化）。示例：
+> ```bash
+> python3 scripts/agnes_design_cover.py --title "智能生产力" --subtitle "AI WORKFLOW" \
+>     --style swiss_01 --project projects/agentflow-os-launch
+> ```
+> 需 `AGNES_STUDIO_ROOT` 指向 agnes-studio（默认黑苹果路径）。
+
 ## PPTX 出口（诚实说明）
 
 PPTX 转换脚本已 vendor 进本仓库（`vendor/ppt-master`，来源 [hugohe3/ppt-master](https://github.com/hugohe3/ppt-master)，MIT），开箱即用。导出是两步，不是"一键直达"：
@@ -93,6 +103,7 @@ SVG 画布约定：`viewBox="0 0 1280 720"`，边距 60px。
 | 脚本 | 干什么 |
 |---|---|
 | `agnes_ppt_bridge.py` | 读 `image_prompts.json` 批量调 Agnes 生图；内置模型黑名单，硬性拦截 gemini / dall-e / gpt-image / flux / seedream |
+| `agnes_design_cover.py` | 调 agnes-studio 海报排版引擎设计封面（10 种风格），1200x1200 裁 16:9 存入 `images/cover_agnes.png`；纯本地渲染，不需要 New API |
 | `prepare_agnes_image.py` | 生图后处理：等比放大居中裁到精确 16:9、消除拼缝、压暗归一 |
 | `analyze_image.py` | 配图客观验收：锐度（拉普拉斯方差）、主体 3×3 位置分布、墨量、接缝检测 |
 | `crop_panel.py` | 按主体包围盒裁切，让主体撑满面板而非缩在中间 |

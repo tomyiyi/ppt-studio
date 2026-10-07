@@ -7,3 +7,6 @@ playwright>=1.62.0
 #   python3 -m playwright install chromium
 # 注：cairosvg（2.9.0）虽已安装，但全仓库无任何脚本实际 import（仅 README/docs 提及），
 # 故诚实起见不列入；未来若有脚本真正依赖再补。
+
+# PPTX 转换（vendor/ppt-master，svg_to_pptx.py 实测依赖）
+python-pptx>=0.6.21
