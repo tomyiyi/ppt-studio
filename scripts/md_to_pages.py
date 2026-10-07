@@ -21,6 +21,12 @@ import json
 import re
 from pathlib import Path
 
+try:
+    from narrative_rewrite import visual_concept, build_image_prompt
+    HAS_NR = True
+except ImportError:
+    HAS_NR = False
+
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
 H1_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
 H2_RE = re.compile(r"^##\s+(.+)$", re.MULTILINE)
@@ -101,22 +107,19 @@ def infer_layout(section_text: str) -> str:
     return detect_reading_function("", section_text, [])
 
 
-def page_image_prompt(title: str, layout: str) -> str:
-    """为每页生成英文生图 prompt（过 prompt_safety，无中文无违禁词）。"""
+def page_image_prompt(title: str, layout: str, bullets: list = None) -> str:
+    """6段式内容感知生图 prompt（Midjourney 公式 + visual_concept）。
+    返回 positive prompt；negative 走独立通道（由生图阶段处理）。
+    """
+    if HAS_NR:
+        concept = visual_concept(title, bullets or [], layout)
+        positive, _negative = build_image_prompt(concept)
+        return positive
+    # 回退：旧通用模板
     base = ("dark tech editorial background, deep navy black gradient, "
             "abstract geometric depth, subtle grid, cinematic lighting, "
-            "minimalist, no text, no words, no letters, no people, "
-            "monochrome pale ivory tones where applicable")
-    hint = {"cover": "hero wide composition",
-            "bullets": "soft abstract side motif",
-            "compare": "symmetric dual-panel abstract",
-            "steps": "flowing timeline abstract",
-            "statement": "minimal centered spotlight",
-            "fact": "bold numeric graphic",
-            "quote": "editorial pull-quote backdrop",
-            "section": "chapter divider abstract",
-            "closing": "conclusive horizon"}.get(layout, "abstract")
-    return f"{base}, {hint}"
+            "minimalist, no text, no words, no letters, no people")
+    return base
 
 
 def md_to_pages(md_path: Path, max_bullets: int = 5) -> dict:
@@ -135,7 +138,7 @@ def md_to_pages(md_path: Path, max_bullets: int = 5) -> dict:
     # 按 ## 切节
     parts = H2_RE.split(body)
     pages = [{"index": 0, "title": title, "bullets": [subtitle] if subtitle else [],
-              "layout": "cover", "image_prompt": page_image_prompt(title, "cover")}]
+              "layout": "cover", "image_prompt": page_image_prompt(title, "cover", [subtitle] if subtitle else [])}]
     for i in range(1, len(parts), 2):
         sec_title = strip_md(parts[i])
         sec_body = parts[i + 1] if i + 1 < len(parts) else ""
@@ -155,7 +158,7 @@ def md_to_pages(md_path: Path, max_bullets: int = 5) -> dict:
         _short = re.split(r"[：:]", sec_title)[0].strip()[:16]
         base_page = {"index": len(pages), "title": _short,
                      "bullets": bullets, "layout": lay,
-                     "image_prompt": page_image_prompt(sec_title, lay)}
+                     "image_prompt": page_image_prompt(sec_title, lay, bullets)}
         # 溢出拆分：绝不缩小硬塞
         if needs_split(bullets):
             for j in range(0, len(bullets), 4):
