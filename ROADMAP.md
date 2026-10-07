@@ -80,3 +80,21 @@
 1. **先让现有的两个出口足够稳**，再开新出口。每次加形态都会反噬画布规范。
 2. **每个新形态都要配质检**。卡片有卡片的安全区检查，视频有视频的音画同步检查 —— 没有质检的形态等于没有形态。
 3. **不重复设计**。新形态从已有 SVG 派生，不另起炉灶做一套。
+
+---
+
+## ✅ 2026-10-07 ContentForge 融合迭代
+
+从 ContentForge 知识库（521MB 设计文档/稿件/资料）提炼并落地：
+
+- [x] **Prompt 安全拦截**（`scripts/prompt_safety.py`）：违禁词正则 + 否定词反噬检测 + 中文乱码告警，
+  `agnes_ppt_bridge.generate()` 入口 fail-fast。源自 ContentForge 白瓷肌标准。
+- [x] **封面构图原型体系**（`scripts/cover_archetypes.py`）：4 大原型 codified，
+  `select_cover_archetype(platform, tone, title)` 自动推导风格；标题超 18 字自动降阶。
+  `agnes_design_cover.py` 新增 `--platform/--tone`。
+- [x] **Planning 合同前置校验**（`scripts/plan_contract.py`）：渲染前校验 SVG 引用的
+  images 资源、spec_lock 三节；缺 `<title>` 降为警告。源自 PPT Agent V4 模式。
+- [x] **打分制质检**（`scripts/qa_score.py`）：6 项检查 0-100 打分 + evidence 证据链，
+  阈值 80，低于判 REVIEW。源自 ContentForge 低创作度预检模式。
+- [x] **内容驱动最小闭环**（`scripts/md_to_pages.py`）：数字方法论文章 `##`->页、列表->要点，
+  layout 自动推导（compare/steps/bullets）。ROADMAP"更远"项的 MVP。
