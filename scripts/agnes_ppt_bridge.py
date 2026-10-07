@@ -36,6 +36,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from prompt_safety import assert_prompt_safe  # ContentForge 白瓷肌安全拦截
+
 # ---------------------------------------------------------------- 配置解析
 
 def load_gateway() -> tuple[str, str]:
@@ -108,6 +110,10 @@ def candidate_models(ratio: str, preferred: str | None = None) -> list[str]:
 def generate(prompt: str, ratio: str = "16:9", model: str | None = None,
              retries: int = 2, timeout: int = 180) -> dict:
     """调 New API /v1/images/generations，返回 {ok, bytes, via, cost_s, error}。"""
+    try:
+        assert_prompt_safe(prompt)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
     base, key = load_gateway()
     size = RATIO_SIZE.get(ratio, "1920x1080")
     payload_base = {"prompt": prompt, "n": 1, "size": size}
