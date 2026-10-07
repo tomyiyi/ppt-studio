@@ -226,12 +226,30 @@ def render_page(page, images_dir):
     if layout == "compare":
         l = page.get("left", {})
         r = page.get("right", {})
+        if not l and not r:
+            # 回退：从 bullets 解析表格，或前后对半分
+            _tbl = [b for b in bullets if b.strip().startswith("|") and "---" not in b]
+            if len(_tbl) >= 2:
+                # Markdown 表格：跳过表头，取数据行
+                _rows = []
+                for row in _tbl[1:]:
+                    cells = [c.strip() for c in row.strip("|").split("|")]
+                    if cells and cells[0]:
+                        _rows.append(cells)
+                if _rows:
+                    _mid = (len(_rows) + 1) // 2
+                    l = {"title": "前半", "items": ["%s：%s" % (r[0][:8], r[1][:16]) for r in _rows[:_mid]]}
+                    r = {"title": "后半", "items": ["%s：%s" % (r[0][:8], r[1][:16]) for r in _rows[_mid:]]}
+            if not l:
+                _mid = (len(bullets) + 1) // 2
+                l = {"title": "要点", "items": bullets[:_mid]}
+                r = {"title": "续", "items": bullets[_mid:]}
         reps.update(
             {
                 "{{LEFT_TITLE}}": esc(l.get("title", "")[:12]),
                 "{{RIGHT_TITLE}}": esc(r.get("title", "")[:12]),
-                "{{LEFT_CONTENT}}": esc(" / ".join(l.get("items", [])[:2])),
-                "{{RIGHT_CONTENT}}": esc(" / ".join(r.get("items", [])[:2])),
+                "{{LEFT_CONTENT}}": esc(" / ".join(l.get("items", [])[:2])[:60]),
+                "{{RIGHT_CONTENT}}": esc(" / ".join(r.get("items", [])[:2])[:60]),
             }
         )
     if layout == "steps":
@@ -299,9 +317,10 @@ def render_page(page, images_dir):
                 _lh = fs + 6
                 y = y - (_n - 1) * _lh // 2
             elif _n == 2:
-                fs = 44 if _is_cover else 32
+                # 有图 hero 版槽位更矮，用 32
+                fs = 32 if _is_cover else 32
                 _lh = fs + 8
-                y = y - _lh // 2
+                y = y - _lh // 2 - (10 if _is_cover else 0)
             else:
                 # 单行也对齐档位：模板自带的 36 不在 spec_lock 声明中
                 if not _is_cover:
