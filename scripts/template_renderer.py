@@ -110,6 +110,7 @@ def render_page(page, images_dir):
 
     svg = (TEMPLATE_ROOT / family / "templates" / tpl_file).read_text(encoding="utf-8")
     svg = svg.replace('width="1280" height="720"', 'width="1920" height="1080"', 1)
+
     # 背景图 slot 的 bounds 会与文字重叠（设计使然），先去掉避免 QA 误报
     # 注意：必须在 strip_flat_forbidden 之前，此时 placeholder 属性还在
     svg = re.sub(r'(<g[^>]*data-pptx-placeholder="picture"[^>]*?)\s+data-pptx-bounds="[^"]*"', r"\g<1>", svg)
@@ -136,6 +137,29 @@ def render_page(page, images_dir):
                 flags=re.DOTALL,
             )
         svg = svg2
+        # 规范化 image 标签为单行（svg_to_pptx 兼容性）：href 优先
+        def _norm_img(m):
+            tag = m.group(0)
+            href = re.search(r'href="([^"]*)"', tag, re.DOTALL)
+            x = re.search(r'x="([^"]*)"', tag); y = re.search(r'y="([^"]*)"', tag)
+            w = re.search(r'width="([^"]*)"', tag); h = re.search(r'height="([^"]*)"', tag)
+            par = re.search(r'preserveAspectRatio="([^"]*)"', tag)
+            if not href: return tag
+            return '<image href="%s" x="%s" y="%s" width="%s" height="%s" preserveAspectRatio="%s"/>' % (
+                href.group(1), x.group(1) if x else "0", y.group(1) if y else "0",
+                w.group(1) if w else "1280", h.group(1) if h else "720",
+                par.group(1) if par else "xMidYMid slice")
+        svg = re.sub(r'<image\s[^>]*?/>', _norm_img, svg, flags=re.DOTALL)
+        # 把 image 提升到顶层（svg_to_pptx 只处理顶层 image）
+        m_img = re.search(r'<image\s[^>]*?/>', svg, flags=re.DOTALL)
+        if m_img:
+            img_tag = m_img.group(0)
+            svg = svg.replace(img_tag, "", 1)
+            # 插到 <svg...> 之后（若有 defs 则插到 defs 之后）
+            if "<defs>" in svg:
+                svg = svg.replace("</defs>", "</defs>" + img_tag, 1)
+            else:
+                svg = re.sub(r'(<svg[^>]*>)', r"\g<1>" + img_tag, svg, count=1)
 
     reps = {
         "{{TITLE}}": esc(title),
