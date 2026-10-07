@@ -113,7 +113,7 @@ def page_image_prompt(title: str, layout: str, bullets: list = None) -> str:
     """
     if HAS_NR:
         concept = visual_concept(title, bullets or [], layout)
-        positive, _negative = build_image_prompt(concept)
+        positive, _negative = build_image_prompt(concept, title, bullets or [])
         return positive
     # 回退：旧通用模板
     base = ("dark tech editorial background, deep navy black gradient, "

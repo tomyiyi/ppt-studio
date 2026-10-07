@@ -106,15 +106,41 @@ VISUAL_METAPHORS = {
 }
 
 
+
+FASHION_METAPHORS = {
+    "红": "crimson red fabric flowing in wind",
+    "red": "crimson red fabric flowing in wind",
+    "灰": "grey wool texture close-up",
+    "棕": "rich brown leather texture",
+    "西装": "sharp tailored suit on hanger",
+    "套装": "sharp tailored suit on hanger",
+    "皮草": "luxurious faux fur texture",
+    "蕾丝": "delicate lace fabric macro",
+    "lace": "delicate lace fabric macro",
+    "皮革": "glossy leather jacket detail",
+    "leather": "glossy leather jacket detail",
+    "格纹": "heritage plaid pattern flat lay",
+    "外套": "oversized coat silhouette",
+    "靴": "knee-high boots still life",
+    "廓形": "dramatic oversized silhouette",
+}
+
+
 def visual_concept(slide_title: str, bullets: list, layout: str = "bullets") -> dict:
     """从页面内容提炼视觉概念（6段式前三段）。"""
     text = slide_title + " " + " ".join(bullets[:2])
 
     subject = "abstract geometric depth"  # 默认
-    for kw, metaphor in VISUAL_METAPHORS.items():
-        if kw in text:
+    # 时尚主题优先查时尚映射
+    for kw, metaphor in FASHION_METAPHORS.items():
+        if kw.lower() in text.lower():
             subject = metaphor
             break
+    else:
+        for kw, metaphor in VISUAL_METAPHORS.items():
+            if kw in text:
+                subject = metaphor
+                break
 
     # action: 根据版式
     action_map = {
@@ -135,19 +161,37 @@ def visual_concept(slide_title: str, bullets: list, layout: str = "bullets") -> 
 
 # === 6段式 Prompt 生成 ===
 
-STYLE_SUFFIX = "dark tech editorial, deep navy black gradient, cinematic lighting, minimalist"
+STYLE_SUFFIX_TECH = "dark tech editorial, deep navy black gradient, cinematic lighting, minimalist"
+STYLE_SUFFIX_FASHION = "fashion editorial photography, elegant studio lighting, high fashion magazine aesthetic"
 QUALITY_SUFFIX = "highly detailed, professional photography quality"
+
+
+def get_style_suffix(slide_title: str, bullets: list) -> str:
+    """按主题选择风格。"""
+    text = slide_title + " " + " ".join(bullets[:2])
+    fashion_kw = ["时尚", "趋势", "fashion", "trend", "穿搭", "秀场", "runway"]
+    if any(kw.lower() in text.lower() for kw in fashion_kw):
+        return STYLE_SUFFIX_FASHION
+    return STYLE_SUFFIX_TECH
 NEGATIVE_PROMPT = "text, words, letters, watermark, logo, people, face, blurry, low quality"
 
 
-def build_image_prompt(concept: dict) -> tuple[str, str]:
+def build_image_prompt(concept: dict, slide_title: str = "", bullets: list = None) -> tuple[str, str]:
     """6段式：[Subject]+[Action]+[Environment]+[Lighting]+[Style]+[Quality]"""
+    style = get_style_suffix(slide_title, bullets or [])
+    # 时尚主题的环境也调整
+    env = concept["environment"]
+    if style == STYLE_SUFFIX_FASHION:
+        env = "elegant neutral studio backdrop"
+        lighting = "soft diffused studio lighting"
+    else:
+        lighting = "dramatic rim lighting"
     positive = ", ".join([
         concept["subject"],      # Subject
         concept["action"],       # Action
-        concept["environment"],  # Environment
-        "dramatic rim lighting", # Lighting
-        STYLE_SUFFIX,            # Style（全套锁定）
+        env,                     # Environment
+        lighting,                # Lighting
+        style,                   # Style（按主题锁定）
         QUALITY_SUFFIX,          # Quality
     ])
     return positive, NEGATIVE_PROMPT
