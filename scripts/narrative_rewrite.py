@@ -1,98 +1,54 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""叙事重写：extract_claims -> rewrite_slide_copy -> extract_hook
+"""视觉概念提炼：页面内容 -> 6段式生图 prompt
 
-基于 patterns/writing/ 的三个 pattern 的规则版实现。
-确定性、离线、快速。LLM 版作为 P1 增强。
+依据 patterns/visual/visual_concept.md 落地，但**只在确定性安全的范围内工作**。
+
+设计原则（重要）
+----------------
+1. **不猜内容**。只用显式关键词映射，映射表按"多字词优先"匹配，
+   避免单字歧义（旧版用「红」「灰」等单字，中文里极易误伤）。
+2. **匹配不到就诚实降级**。subject 返回 None，由调用方决定用哪种底图，
+   而不是塞一个"总归对得上"的抽象词。
+3. **不跨领域抢命中**。时尚等专属映射需先通过领域门槛，
+   否则不启用。
+4. 排版计算（字号、行宽）属确定性范畴，可以用规则；
+   "画什么"属创作判断，规则只给候选，不给结论。
 """
 from __future__ import annotations
 
-import re
+
+# === 领域门槛 ===
+# 只有页面里出现这些词，才认为该领域成立，进而启用对应的风格/隐喻。
+DOMAIN_GATES = {
+    "fashion": ["时尚", "趋势", "穿搭", "秀场", "runway", "fashion", "trend",
+                "时装", "服饰", "面料", "廓形", "当季", "秋冬", "春夏"],
+    "tech": ["AI", "模型", "算法", "架构", "代码", "部署", "服务", "数据",
+             "系统", "平台", "接口", "智能体", "agent", "model", "api"],
+    "finance": ["增长", "收入", "成本", "利润", "融资", "估值", "营收", "毛利",
+                "revenue", "profit", "cost", "margin"],
+}
 
 
-def extract_claims(section_title: str, section_body: str) -> dict:
-    """从章节提取核心主张。"""
-    # claim: 取标题冒号前的核心，或第一句
-    claim = re.split(r"[：:]", section_title)[0].strip()
-    if len(claim) > 20:
-        # 取正文第一句
-        sentences = [s.strip() for s in re.split(r"[。！？\n]", section_body) if s.strip()]
-        claim = sentences[0][:20] if sentences else claim[:20]
-
-    # evidence: 取列表项或关键句，清洗连接词
-    evidence = []
-    for line in section_body.split("\n"):
-        line = line.strip()
-        m = re.match(r"^(?:\d+[.、]|[-*])\s+(.+)$", line)
-        if m:
-            ev = re.sub(r"^(首先|其次|另外|此外|最后|第一|第二|第三)[，、]", "", m.group(1).strip())
-            ev = re.sub(r"\*\*(.+?)\*\*", r"\1", ev)
-            if len(ev) > 8:
-                evidence.append(ev[:30])
-        if len(evidence) >= 3:
-            break
-
-    # hook_candidate: 找最有力的句子（含数字/对比/反差）
-    hook_candidate = ""
-    sentences = [s.strip() for s in re.split(r"[。！？]", section_body) if len(s.strip()) > 10]
-    for s in sentences:
-        if re.search(r"\d+[%％倍]|不是.*而是|与其.*不如", s):
-            hook_candidate = s[:30]
-            break
-    if not hook_candidate and sentences:
-        hook_candidate = sentences[0][:30]
-
-    return {"claim": claim, "evidence": evidence[:3], "hook_candidate": hook_candidate}
+def detect_domain(text: str) -> str | None:
+    """判定页面属于哪个领域。命中不了返回 None（不猜）。"""
+    if not text:
+        return None
+    tl = text.lower()
+    for dom, gates in DOMAIN_GATES.items():
+        if any(g.lower() in tl for g in gates):
+            return dom
+    return None
 
 
-def rewrite_slide_copy(claim: str, evidence: list, layout: str = "bullets") -> dict:
-    """改写成演示型文案。"""
-    # slide_title: 观点句，12字以内
-    slide_title = claim[:12]
-
-    # bullets: 短句，20字以内，保留数字和动词
-    bullets = []
-    for ev in evidence[:4]:
-        # 去修饰，保留核心
-        short = re.sub(r"(非常|特别|十分|很|比较|有点)", "", ev)
-        short = short.strip("，,。")
-        if len(short) > 20:
-            # 保留数字部分，截断
-            m = re.search(r"(.{0,15}\d+[%％倍]?[^，,]*)", short)
-            short = m.group(1) if m else short[:20]
-        bullets.append(short)
-
-    # takeaway: 记忆点
-    takeaway = claim[:15]
-
-    return {"slide_title": slide_title, "bullets": bullets, "takeaway": takeaway}
-
-
-def extract_hook(title: str, claims: list) -> dict:
-    """提炼封面钩子。"""
-    # hook: 从标题提炼断言
-    base = re.split(r"[：:——]", title)[0].strip()
-    # 尝试制造认知冲突
-    hook = base[:12]
-
-    # subhook: 回答"跟我有什么关系"
-    subhook = ""
-    if claims:
-        # 取第一个 claim 的核心
-        subhook = claims[0][:20] if isinstance(claims[0], str) else claims[0].get("claim", "")[:20]
-
-    return {"hook": hook, "subhook": subhook}
-
-
-# === 视觉概念 ===
-
+# === 视觉隐喻映射（通用，跨领域）===
 VISUAL_METAPHORS = {
     "第一性原理": "peeling layers revealing glowing core",
     "本质": "peeling layers revealing glowing core",
     "核心": "concentric circles converging to center",
-    "对抗": "stress test chamber with red warning lights",
+    "对抗": "stress test chamber with warning lights",
     "审查": "magnifying glass over circuit board",
-    "测试": "stress test chamber with red warning lights",
+    "测试": "stress test chamber with warning lights",
     "校验": "precision caliper measuring golden standard",
     "确定性": "precision caliper measuring golden standard",
     "零信任": "fortress gate with multiple checkpoints",
@@ -103,109 +59,157 @@ VISUAL_METAPHORS = {
     "对照": "split diptych with contrasting sides",
     "流程": "flowing luminous timeline path",
     "步骤": "flowing luminous timeline path",
+    "协同": "interlocking gears in motion",
+    "闭环": "continuous loop of light",
+    "演进": "layered geological strata",
+    "权衡": "balanced scales on a fulcrum",
 }
 
-
-
+# 时尚专属（需 fashion 门槛通过才生效，避免技术页被单字误伤）
 FASHION_METAPHORS = {
-    "红": "crimson red fabric flowing in wind",
-    "red": "crimson red fabric flowing in wind",
-    "灰": "grey wool texture close-up",
-    "棕": "rich brown leather texture",
-    "西装": "sharp tailored suit on hanger",
-    "套装": "sharp tailored suit on hanger",
     "皮草": "luxurious faux fur texture",
     "蕾丝": "delicate lace fabric macro",
-    "lace": "delicate lace fabric macro",
-    "皮革": "glossy leather jacket detail",
-    "leather": "glossy leather jacket detail",
+    "皮革": "glossy leather surface detail",
     "格纹": "heritage plaid pattern flat lay",
-    "外套": "oversized coat silhouette",
-    "靴": "knee-high boots still life",
     "廓形": "dramatic oversized silhouette",
+    "西装": "sharp tailored suit on hanger",
+    "外套": "oversized coat silhouette",
+    "面料": "textile weave macro detail",
+    "红": "crimson fabric draped in wind",
+    "棕": "rich brown leather texture",
+    "灰": "grey wool texture close-up",
+}
+
+_ALL_METAPHORS = {**VISUAL_METAPHORS, **FASHION_METAPHORS}
+# 按 key 长度降序，保证「第一性原理」先于「本质」匹配
+_METAPHOR_KEYS = sorted(_ALL_METAPHORS.keys(), key=len, reverse=True)
+
+
+def match_visual_concept(slide_title: str, bullets: list | None = None) -> dict | None:
+    """匹配视觉隐喻。返回 None 表示没有可靠匹配（调用方应走中性底图）。"""
+    text = (slide_title + " " + " ".join((bullets or [])[:2])).strip()
+    if not text:
+        return None
+
+    domain = detect_domain(text)
+    for kw in _METAPHOR_KEYS:
+        if kw not in text:
+            continue
+        # 时尚词必须在 fashion 领域内才生效
+        if kw in FASHION_METAPHORS and domain != "fashion":
+            continue
+        return {"subject": _ALL_METAPHORS[kw], "domain": domain, "matched": kw}
+    return None
+
+
+ACTION_BY_LAYOUT = {
+    "cover": "hero wide composition",
+    "bullets": "soft ambient presence",
+    "compare": "symmetric balanced tension",
+    "steps": "forward flowing motion",
+    "statement": "centered spotlight focus",
+    "fact": "bold numeric graphic",
+    "quote": "editorial pull-quote backdrop",
+    "section": "chapter transition",
+    "closing": "horizon resolution",
 }
 
 
-def visual_concept(slide_title: str, bullets: list, layout: str = "bullets") -> dict:
-    """从页面内容提炼视觉概念（6段式前三段）。"""
-    text = slide_title + " " + " ".join(bullets[:2])
+def visual_concept(slide_title: str, bullets: list | None = None,
+                    layout: str = "bullets") -> dict:
+    """返回 concept dict。**subject / environment 可能为 None**，调用方必须处理。"""
+    text = (slide_title + " " + " ".join((bullets or [])[:2])).strip()
+    m = match_visual_concept(slide_title, bullets)
+    domain = m["domain"] if m else detect_domain(text)
 
-    subject = "abstract geometric depth"  # 默认
-    # 时尚主题优先查时尚映射
-    for kw, metaphor in FASHION_METAPHORS.items():
-        if kw.lower() in text.lower():
-            subject = metaphor
-            break
-    else:
-        for kw, metaphor in VISUAL_METAPHORS.items():
-            if kw in text:
-                subject = metaphor
-                break
-
-    # action: 根据版式
-    action_map = {
-        "cover": "hero wide composition",
-        "bullets": "soft ambient presence",
-        "compare": "symmetric balanced tension",
-        "steps": "forward flowing motion",
-        "statement": "centered spotlight focus",
-        "section": "chapter transition",
-        "closing": "horizon resolution",
+    if m is None:
+        return {
+            "subject": None, "action": ACTION_BY_LAYOUT.get(layout, "soft ambient presence"),
+            "environment": None, "domain": domain, "matched": None,
+        }
+    return {
+        "subject": m["subject"],
+        "action": ACTION_BY_LAYOUT.get(layout, "soft ambient presence"),
+        "environment": ENV_BY_DOMAIN.get(domain, "deep navy black void with subtle grid"),
+        "domain": domain, "matched": m["matched"],
     }
-    action = action_map.get(layout, "soft ambient presence")
-
-    environment = "deep navy black void with subtle grid"
-
-    return {"subject": subject, "action": action, "environment": environment}
 
 
-# === 6段式 Prompt 生成 ===
+# === 风格 / 光照 / 环境：按领域，不再按单字关键词 ===
 
-STYLE_SUFFIX_TECH = "dark tech editorial, deep navy black gradient, cinematic lighting, minimalist"
-STYLE_SUFFIX_FASHION = "fashion editorial photography, elegant studio lighting, high fashion magazine aesthetic"
-QUALITY_SUFFIX = "highly detailed, professional photography quality"
+STYLE_BY_DOMAIN = {
+    "fashion": "fashion editorial photography, elegant studio lighting, high fashion magazine aesthetic",
+    "tech": "dark tech editorial, deep navy black gradient, cinematic lighting, minimalist",
+    "finance": "editorial report style, clean composition, muted professional palette",
+    None: "clean editorial background, soft directional lighting, generous whitespace, minimalist",
+}
+LIGHTING_BY_DOMAIN = {
+    "fashion": "soft diffused studio lighting",
+    "tech": "dramatic rim lighting",
+    "finance": "even soft lighting",
+    None: "soft directional lighting",
+}
+ENV_BY_DOMAIN = {
+    "fashion": "elegant neutral studio backdrop",
+    "tech": "deep navy black void with subtle grid",
+    "finance": "light neutral gradient backdrop",
+    None: "clean neutral gradient backdrop",
+}
+
+NEGATIVE_PROMPT = ("text, words, letters, watermark, logo, people, face, "
+                   "blurry, low quality, cluttered, oversaturated")
 
 
-def get_style_suffix(slide_title: str, bullets: list) -> str:
-    """按主题选择风格。"""
-    text = slide_title + " " + " ".join(bullets[:2])
-    fashion_kw = ["时尚", "趋势", "fashion", "trend", "穿搭", "秀场", "runway"]
-    if any(kw.lower() in text.lower() for kw in fashion_kw):
-        return STYLE_SUFFIX_FASHION
-    return STYLE_SUFFIX_TECH
-NEGATIVE_PROMPT = "text, words, letters, watermark, logo, people, face, blurry, low quality"
+def get_style_suffix(slide_title: str, bullets: list | None = None) -> str:
+    """按领域选风格。传空串时返回**中性风格**，不再错误地回落科技风。"""
+    domain = detect_domain((slide_title or "") + " " + " ".join(bullets or []))
+    return STYLE_BY_DOMAIN.get(domain, STYLE_BY_DOMAIN[None])
 
 
-def build_image_prompt(concept: dict, slide_title: str = "", bullets: list = None) -> tuple[str, str]:
-    """6段式：[Subject]+[Action]+[Environment]+[Lighting]+[Style]+[Quality]"""
-    style = get_style_suffix(slide_title, bullets or [])
-    # 时尚主题的环境也调整
-    env = concept["environment"]
-    if style == STYLE_SUFFIX_FASHION:
-        env = "elegant neutral studio backdrop"
-        lighting = "soft diffused studio lighting"
-    else:
-        lighting = "dramatic rim lighting"
+def build_image_prompt(concept: dict, slide_title: str = "",
+                       bullets: list | None = None) -> tuple[str, str]:
+    """6段式：[Subject]+[Action]+[Environment]+[Lighting]+[Style]+[Quality]
+
+    领域判定优先用显式传入的 slide_title/bullets；传空时退回 concept 里记录的
+    domain，再不行就是中性风格——**不猜、不伪装成知道**。
+    """
+    text = (slide_title or "") + " " + " ".join(bullets or [])
+    domain = detect_domain(text) if text.strip() else concept.get("domain")
+
+    style = STYLE_BY_DOMAIN.get(domain, STYLE_BY_DOMAIN[None])
+    env = concept.get("environment") or ENV_BY_DOMAIN.get(domain, ENV_BY_DOMAIN[None])
+    lighting = LIGHTING_BY_DOMAIN.get(domain, LIGHTING_BY_DOMAIN[None])
+    # Subject 缺失时用排版元素兜底，避免塞一个可能跑题的具象主体
+    subject = concept.get("subject") or "subtle abstract geometric depth"
+
     positive = ", ".join([
-        concept["subject"],      # Subject
-        concept["action"],       # Action
-        env,                     # Environment
-        lighting,                # Lighting
-        style,                   # Style（按主题锁定）
-        QUALITY_SUFFIX,          # Quality
+        subject,
+        concept.get("action", "soft ambient presence"),
+        env, lighting, style,
+        "highly detailed, professional quality",
     ])
     return positive, NEGATIVE_PROMPT
 
 
 if __name__ == "__main__":
-    # 自测
-    c = extract_claims("准则一｜第一性原理：AI 的自信是机制层面的必然",
-                       "AI 的自信不是 bug，是机制必然。\n- RLHF 训练偏置：人类偏好自信的回答\n- 模型缺乏元认知通道")
-    print("claims:", c)
-    r = rewrite_slide_copy(c["claim"], c["evidence"])
-    print("rewrite:", r)
-    v = visual_concept("准则一｜第一性原理", c["evidence"])
-    print("visual:", v)
-    pos, neg = build_image_prompt(v)
-    print("positive:", pos[:80])
-    print("negative:", neg)
+    print("=== 视觉隐喻匹配（关键：单字是否还误伤）===")
+    cases = [
+        ("2026 秋冬时尚趋势", ["皮草与格纹同步回潮", "廓形外套替代收腰"]),
+        ("增长确定性", ["置信度提升"]),
+        ("网络安全护城河", ["多层检查点"]),
+        ("三层架构：感知层自主决策", ["工具层统一总线"]),
+        ("随手记", ["今天天气不错"]),
+        ("红色预警", ["核心指标告警"]),
+    ]
+    for t, b in cases:
+        c = visual_concept(t, b, "bullets")
+        flag = "无匹配 -> 中性底图" if c["subject"] is None else f"命中[{c['matched']}]"
+        print(f"  {t[:18]:<20} domain={str(c['domain']):<8} {flag}")
+
+    print()
+    print("=== 风格判定：传参 vs 不传参（不应再错落科技风）===")
+    c1 = visual_concept("2026 秋冬时尚趋势", ["皮草"], "cover")
+    p_with, _ = build_image_prompt(c1, "2026 秋冬时尚趋势", ["皮草"])
+    p_without, _ = build_image_prompt(c1)
+    print("  传参  :", p_with[:92])
+    print("  不传参:", p_without[:92])

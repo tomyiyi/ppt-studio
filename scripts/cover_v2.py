@@ -44,15 +44,20 @@ def fit_font_size(text: str, container_width: float, base_size: int = 72,
 
 
 def split_cover_title(title: str, max_lines: int = 3) -> list[str]:
-    """封面标题分行：按语义断（冒号/空格），每行尽量铺满。"""
-    # 先按冒号分主副
-    parts = re.split(r"[：:]", title, 1)
-    main = parts[0].strip()
+    """封面标题分行：按语义断（冒号/破折号），每行尽量铺满。
 
-    # 如果主标题太长，按长度分行
-    lines = []
+    **不丢弃副标题**——旧版 `re.split(r"[：:]", title, 1)` 之后只取 parts[0]，
+    导致 `AI Agent 开发：从工具到协作者` 只显示前半。
+    现在：冒号前的部分做主标题（分行），冒号后的部分作为第二行/第三行追加。
+    """
+    # 先按冒号/破折号切主副
+    parts = re.split(r"[：:]|——|—", title, maxsplit=1)
+    main = parts[0].strip()
+    sub = parts[1].strip() if len(parts) > 1 else ""
+
+    lines: list[str] = []
     if disp_width(main) <= 14:
-        lines = [main]
+        lines = [main] if main else []
     else:
         # 贪心分行：每行显示宽度尽量接近 12
         cur, cur_w = "", 0
@@ -66,7 +71,18 @@ def split_cover_title(title: str, max_lines: int = 3) -> list[str]:
         if cur:
             lines.append(cur)
 
-    return lines[:max_lines]
+    # 副标题按需追加（不超过 max_lines）
+    if sub:
+        sub_lines = [sub] if disp_width(sub) <= 14 else [
+            sub[i:i + 12] for i in range(0, len(sub), 12)
+        ]
+        for sl in sub_lines:
+            if len(lines) >= max_lines:
+                break
+            if sl.strip():
+                lines.append(sl.strip())
+
+    return lines[:max_lines] or [title[:12]]
 
 
 # 三种构图方案
@@ -89,14 +105,20 @@ COVER_VARIANTS = {
 }
 
 
+# 字体栈：把系统实际装有的字体放前面，避免依赖未安装的字体。
+# 与 pages_to_svg.py / template_renderer.py 保持一致的回退策略。
 def get_cover_font_family() -> str:
-    """中文字体：Noto Serif SC 标题（衬线管气质）。"""
-    return "Noto Serif SC, Songti SC, serif"
+    """封面标题字体：优先衬线（气质），逐级回退到系统一定有的字体。
+
+    注意：旧版首位是 'Noto Serif SC'——本机未安装时会静默回退到
+    Songti SC / serif，与项目其他渲染器的 PingFang SC 观感割裂。
+    """
+    return "Songti SC, STSong, Noto Serif SC, serif"
 
 
 def get_body_font_family() -> str:
-    """正文字体：Noto Sans SC（单家族权重法）。"""
-    return "Noto Sans SC, PingFang SC, sans-serif"
+    """正文字体：与项目其余部分统一走苹方。"""
+    return "PingFang SC, Hiragino Sans GB, Noto Sans SC, Microsoft YaHei, sans-serif"
 
 
 if __name__ == "__main__":

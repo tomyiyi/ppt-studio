@@ -102,9 +102,77 @@ def needs_split(bullets: list, max_bullets: int = 4) -> bool:
     return sum(len(b) for b in bullets) > 200
 
 
+# === 标题质量闸门 ===
+#
+# 旧实现用 `re.split(r"[：:]", sec_title)[0].strip()[:16]` 硬截断，
+# 会把"确定性：不是更准，而是可被追溯"砍成"确定性"——正是
+# patterns/writing/rewrite_slide_copy.md 规则1 明令禁止的坏输出。
+#
+# 现在**不用规则去"写"标题，只用规则去"筛"**：
+# 好标题原样保留；有主副结构的取主句；实在不行的标记 needs_review，
+# 交给人/LLM 判断。规则层不再越权创作。
+
+TITLE_MAX = 20          # 超过这个长度且无法断句才提示
+_BAD_TITLE_TAILERS = ("方法", "方式, ", "概述", "简介", "总结", "解析")
+
+
+def title_quality(title: str) -> dict:
+    """评估一个章节标题能不能直接当页面标题用。
+
+    返回 {"ok": bool, "reason": str, "suggested": str | None}
+    """
+    t = (title or "").strip()
+    if not t:
+        return {"ok": False, "reason": "空标题", "suggested": None}
+
+    # 章节序号开头：准则一 / 第一层 / 3.2 —— 直接当标题必然是坏输出
+    if re.match(r"^(准则|原则|要点|章节|第[一二三四五六七八九十\d]+[层条步点])\s*[一-鿿\d]*\s*$", t):
+        return {"ok": False, "reason": "只有章节编号，没有观点",
+                "suggested": f"{t}（需补充观点句）"}
+
+    # 主体过短：截断后大概率变成半句
+    if len(t) <= 3 and not re.search(r"[：:]", t):
+        return {"ok": False, "reason": f"标题过短（{len(t)}字），可能是被截断的半句",
+                "suggested": None}
+
+    # 有主副结构：冒号前是主句，冒号后是解释——主句通常可独立成立
+    if re.search(r"[：:]", t):
+        head = re.split(r"[：:]", t, maxsplit=1)[0].strip()
+        if len(head) >= 4 and len(head) <= TITLE_MAX:
+            return {"ok": True, "reason": "有主副结构，取主句", "suggested": head}
+
+    if len(t) > TITLE_MAX:
+        return {"ok": False, "reason": f"超长（{len(t)}字 > {TITLE_MAX}），需断句",
+                "suggested": None}
+
+    return {"ok": True, "reason": "可直接使用", "suggested": t}
+
+
+def resolve_title(sec_title: str) -> tuple[str, list]:
+    """把章节标题解析成页面标题 + 待审标记列表。
+
+    返回 (title, review_flags)
+    """
+    q = title_quality(sec_title)
+    if q["ok"] and q["suggested"]:
+        return q["suggested"], []
+    # 不合格：原样保留（不截断、不编造），并标记 needs_review
+    return (sec_title or "").strip(), [q["reason"]]
+
+
 def infer_layout(section_text: str) -> str:
     """保留兼容：旧调用走新逻辑。"""
     return detect_reading_function("", section_text, [])
+
+
+# 叙事风格 -> 收尾页策略。让 narrative_style 真正被消费，而不只是打印。
+CLOSING_BY_STYLE = {
+    "listicle": "要点回顾",
+    "how-to": "下一步行动",
+    "myth-busting": "误区澄清",
+    "framework": "框架总览",
+    "story-arc": "行动号召",
+}
 
 
 def page_image_prompt(title: str, layout: str, bullets: list = None) -> str:
@@ -115,11 +183,9 @@ def page_image_prompt(title: str, layout: str, bullets: list = None) -> str:
         concept = visual_concept(title, bullets or [], layout)
         positive, _negative = build_image_prompt(concept, title, bullets or [])
         return positive
-    # 回退：旧通用模板
-    base = ("dark tech editorial background, deep navy black gradient, "
-            "abstract geometric depth, subtle grid, cinematic lighting, "
-            "minimalist, no text, no words, no letters, no people")
-    return base
+    # 回退：不猜领域，用中性底图（旧的"一律深色科技"是退化的开始）
+    return ("clean editorial background, soft directional lighting, "
+            "generous whitespace, minimalist, no text, no words, no letters, no people")
 
 
 def md_to_pages(md_path: Path, max_bullets: int = 5) -> dict:
@@ -137,16 +203,22 @@ def md_to_pages(md_path: Path, max_bullets: int = 5) -> dict:
 
     # 按 ## 切节
     parts = H2_RE.split(body)
+    review_flags: list[dict] = []   # 收集需要人工/LLM 复核的标题
     pages = [{"index": 0, "title": title, "bullets": [subtitle] if subtitle else [],
-              "layout": "cover", "image_prompt": page_image_prompt(title, "cover", [subtitle] if subtitle else [])}]
+              "layout": "cover", "needs_review": [],
+              "image_prompt": page_image_prompt(title, "cover", [subtitle] if subtitle else [])}]
     for i in range(1, len(parts), 2):
         sec_title = strip_md(parts[i])
         sec_body = parts[i + 1] if i + 1 < len(parts) else ""
         bullets = []
         for line in sec_body.split("\n"):
-            bm = BULLET_RE.match(line.strip())
+            ls = line.strip()
+            bm = BULLET_RE.match(ls)
             if bm:
                 bullets.append(strip_md(bm.group(1))[:80])
+            elif ls.startswith("|") and "---" not in ls:
+                # 表格行：保留原始，供 compare 解析
+                bullets.append(ls[:100])
             if len(bullets) >= max_bullets:
                 break
         # 无列表项时，取前两句正文
@@ -154,10 +226,14 @@ def md_to_pages(md_path: Path, max_bullets: int = 5) -> dict:
             sentences = [s.strip() for s in re.split(r"[。！？\n]", sec_body) if s.strip()]
             bullets = [strip_md(s)[:80] for s in sentences[:3] if len(s) > 8][:max_bullets]
         lay = detect_reading_function(sec_title, sec_body, bullets)
-        # 标题收紧：取冒号前的核心（不超过16字），避免槽位溢出
-        _short = re.split(r"[：:]", sec_title)[0].strip()[:16]
-        base_page = {"index": len(pages), "title": _short,
+        # 标题：规则层只做「筛」，不做「写」——不截断成半句，不合格就标记待审
+        _title, _flags = resolve_title(sec_title)
+        if _flags:
+            review_flags.append({"page": len(pages), "source_title": sec_title,
+                                 "issue": _flags[0]})
+        base_page = {"index": len(pages), "title": _title,
                      "bullets": bullets, "layout": lay,
+                     "needs_review": _flags,
                      "image_prompt": page_image_prompt(sec_title, lay, bullets)}
         # 溢出拆分：绝不缩小硬塞
         if needs_split(bullets):
@@ -167,12 +243,19 @@ def md_to_pages(md_path: Path, max_bullets: int = 5) -> dict:
                 sp["bullets"] = chunk
                 sp["index"] = len(pages)
                 if j > 0:
-                    sp["title"] = _short[:14] + "（续）"
+                    sp["title"] = (_title[:14] + "（续）") if _title else "（续）"
                 pages.append(sp)
         else:
             pages.append(base_page)
-    return {"source": md_path.name, "title": title,
-            "narrative_style": narrative_style, "pages": pages}
+
+    # 让 narrative_style 真正被消费：给出该风格下的收尾页建议
+    plan = {"source": md_path.name, "title": title,
+            "narrative_style": narrative_style,
+            "closing_hint": CLOSING_BY_STYLE.get(narrative_style, "收束"),
+            "pages": pages}
+    if review_flags:
+        plan["review_flags"] = review_flags
+    return plan
 
 
 def main(argv=None) -> int:
@@ -188,7 +271,14 @@ def main(argv=None) -> int:
     print(f"叙事风格：{plan['narrative_style']}（{NARRATIVE_STYLES[plan['narrative_style']]}）")
     print(f"分页：{len(plan['pages'])} 页")
     for pg in plan["pages"]:
-        print(f"  p{pg['index']} [{pg['layout']}] {pg['title'][:30]} ({len(pg['bullets'])} 要点)")
+        mark = " ⚠" if pg.get("needs_review") else ""
+        print(f"  p{pg['index']} [{pg['layout']}]{mark} {pg['title'][:30]} ({len(pg['bullets'])} 要点)")
+    # 标题质量待审清单：规则层筛出来的问题，交人/LLM 复核
+    rf = plan.get("review_flags") or []
+    if rf:
+        print(f"\n⚠ {len(rf)} 个标题需人工复核（规则不做改写，只标记）：")
+        for f in rf:
+            print(f"  p{f['page']}「{f['source_title'][:24]}」→ {f['issue']}")
     print(f"-> {args.out}")
     return 0
 

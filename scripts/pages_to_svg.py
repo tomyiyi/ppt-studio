@@ -51,6 +51,14 @@ def wrap(text: str, px: int, max_w: int) -> list:
     return lines or [""]
 
 
+def disp_estimate(text: str, px: int) -> float:
+    """粗略估算文本显示宽度（中英混排），用于字号自适应。"""
+    w = 0.0
+    for ch in text:
+        w += px if ord(ch) > 0x2E7F else px * 0.55
+    return w
+
+
 def t(x, y, s, px, fill=None, weight=None, ls=None):
     fill = fill or FG
     a = ' x="%d" y="%d" font-size="%d" fill="%s"' % (x, y, px, fill)
@@ -157,8 +165,130 @@ def layout_steps(pg, kicker):
     return page_frame(title, kicker, inner, pg.get("image_file"))
 
 
+def layout_statement(pg, kicker):
+    """金句页：大字观点，居中偏上，留白给情绪。"""
+    title = pg["title"]
+    px = snap(title_font_size(title, 44))
+    lines = wrap(title, px, W - 2 * MARGIN - 120)[:4]
+    inner = ""
+    y = 300 - (len(lines) - 1) * int(px * 0.7)
+    # 顶部一道强调线，视觉锚点
+    inner += '<rect x="%d" y="%d" width="88" height="4" fill="%s"/>' % (MARGIN, y - 90, ACCENT) + NL
+    for i, ln in enumerate(lines):
+        inner += t(MARGIN, y + i * int(px * 1.35), ln, px, weight="bold") + NL
+    # 副句压在下方，作为注解而非并列要点
+    for b in pg["bullets"][:1]:
+        for j, bl in enumerate(wrap(b, 20, W - 2 * MARGIN - 120)[:2]):
+            inner += t(MARGIN, y + len(lines) * int(px * 1.35) + 60 + j * 32, bl, 20, MUTED) + NL
+    return page_frame(title, kicker, inner, pg.get("image_file"))
+
+
+def layout_fact(pg, kicker):
+    """大数字页：数字是绝对主角，说明文字退居次要。
+
+    取数优先级：标题里的数字 > 要点里的数字。
+    旧实现用 max(len) 选最长字符串，会选中正文里的样本量（如"1200"）
+    而错过标题里的核心指标（如"41%"）。
+    """
+    import re as _re
+    title = pg["title"]
+    num_re = r"\d+(?:\.\d+)?\s*[%％倍万千百亿]?"
+
+    big = None
+    m = _re.search(num_re, title)
+    if m:
+        big = m.group(0)
+    else:
+        for b in pg["bullets"]:
+            m = _re.search(num_re, b)
+            if m:
+                big = m.group(0)
+                break
+
+    inner = ""
+    if big:
+        # 数字放大到 96 档，字宽适配容器
+        n_px = 96
+        while n_px > 44 and disp_estimate(big, n_px) > W - 2 * MARGIN - 160:
+            n_px -= 4
+        inner += t(MARGIN, 360, big, n_px, weight="bold", fill=ACCENT) + NL
+        # 标题去掉数字后作为说明
+        rest = title.replace(big, "").strip("：: 的")[:40]
+        if rest:
+            for i, ln in enumerate(wrap(rest, 32, W - 2 * MARGIN - 160)[:2]):
+                inner += t(MARGIN, 420 + i * 44, ln, 32) + NL
+    else:
+        # 没数字就不硬造，退回 statement 版式
+        return layout_statement(pg, kicker)
+
+    # 补充说明：只取不含该数字的要点，避免重复
+    for b in pg["bullets"]:
+        if len(pg["bullets"]) > 1 and big and big in b:
+            for k, bl in enumerate(wrap(b.replace(big, "").strip("：: 的，,")[:40],
+                                          20, W - 2 * MARGIN - 160)[:2]):
+                inner += t(MARGIN, 520 + k * 32, bl, 20, MUTED) + NL
+            break
+    return page_frame(title, kicker, inner, pg.get("image_file"))
+
+
+def layout_quote(pg, kicker):
+    """引用页：竖向强调条 + 斜体感引文 + 出处。"""
+    title = pg["title"]
+    quote = pg["bullets"][0] if pg["bullets"] else title
+    inner = '<rect x="%d" y="180" width="6" height="300" fill="%s"/>' % (MARGIN, ACCENT) + NL
+    x = MARGIN + 44
+    inner += t(MARGIN, 150, title[:30], 20, MUTED, ls="2") + NL
+    y = 250
+    for ln in wrap(quote, 32, W - 2 * MARGIN - 120)[:5]:
+        inner += t(x, y, ln, 32, weight="bold") + NL
+        y += 48
+    if len(pg["bullets"]) > 1:
+        inner += t(x, y + 24, "—— " + pg["bullets"][1][:30], 20, MUTED) + NL
+    return page_frame(title, kicker, inner, pg.get("image_file"))
+
+
+def layout_section(pg, kicker):
+    """章节页：大号序号 + 章节名，横向分割线。"""
+    title = pg["title"]
+    index = str(pg.get("index", 0) + 1).zfill(2)
+    inner = t(MARGIN, 260, index, 44, weight="bold", fill=ACCENT) + NL
+    inner += '<rect x="%d" y="300" width="%d" height="1" fill="%s"/>' % (MARGIN, W - 2 * MARGIN, DIV) + NL
+    y = 380
+    for ln in wrap(title, 44, W - 2 * MARGIN)[:2]:
+        inner += t(MARGIN, y, ln, 44, weight="bold") + NL
+        y += 62
+    if pg["bullets"]:
+        for j, bl in enumerate(wrap(pg["bullets"][0], 20, W - 2 * MARGIN)[:1]):
+            inner += t(MARGIN, y + 20 + j * 32, bl, 20, MUTED) + NL
+    return page_frame(title, kicker, inner, pg.get("image_file"))
+
+
+def layout_closing(pg, kicker):
+    """收束页：居中大字 + 底部横线，给"结束感"。"""
+    title = pg["title"]
+    px = snap(title_font_size(title, 44))
+    lines = wrap(title, px, W - 2 * MARGIN - 200)[:3]
+    total_h = len(lines) * int(px * 1.35)
+    y = (H - total_h) // 2
+    inner = ""
+    for i, ln in enumerate(lines):
+        inner += t(MARGIN, y + i * int(px * 1.35), ln, px, weight="bold") + NL
+    for b in pg["bullets"][:2]:
+        y2 = y + total_h + 40
+        for j, bl in enumerate(wrap(b, 20, W - 2 * MARGIN - 200)[:1]):
+            inner += t(MARGIN, y2 + j * 32, bl, 20, MUTED) + NL
+            y2 += 32
+    inner += '<rect x="%d" y="%d" width="120" height="3" fill="%s"/>' % (W // 2 - 60, y + total_h + 70, ACCENT) + NL
+    return page_frame(title, kicker, inner, pg.get("image_file"))
+
+
+# 9 种版式全部实现。旧版只实现 4 种，statement/fact/quote/section/closing
+# 全部 fallback 到 bullets——这是「内容驱动」输出难看的直接原因。
 LAYOUTS = {"cover": layout_cover, "bullets": layout_bullets,
-           "compare": layout_compare, "steps": layout_steps}
+           "compare": layout_compare, "steps": layout_steps,
+           "statement": layout_statement, "fact": layout_fact,
+           "quote": layout_quote, "section": layout_section,
+           "closing": layout_closing}
 
 
 def main(argv=None):

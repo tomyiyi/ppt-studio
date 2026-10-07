@@ -114,22 +114,66 @@ python3 scripts/run_auto_poc.py --base-dir projects/xxx
 
 SVG 画布约定：`viewBox="0 0 1280 720"`，边距 60px。
 
-## 脚本（11 个，全部在本仓库）
+## 脚本（23 个，全部在本仓库）
+
+### 渲染与质检（主链路）
+
+| 脚本 | 干什么 |
+|---|---|
+| `render_svg.py` | SVG → PNG（Playwright 驱动系统 Chrome；`<image href>` 自动内联 base64） |
+| `qa_layout.py` | 横版质检闸门：溢出 / 字号阶梯 / 底图 / 重复图片 / 面板墨量 / 压行 / 对比度，7 项 |
+| `qa_cards.py` | 卡片质检闸门：字号 / 安全区 / 溢出 / 压行 / 对比度 / 底图 / 留白，7 项 |
+| `qa_score.py` | 打分制质检：6 项检查 0–100 打分 + evidence 证据链，阈值 80 |
+| `plan_contract.py` | 渲染前 planning 合同校验：SVG 引用的 images 资源、spec_lock 三节 |
+| `build_preview.py` | 若干 SVG → 单文件 HTML 翻页预览（图片内联 dataURI） |
+
+### 内容驱动生成
+
+| 脚本 | 干什么 |
+|---|---|
+| `md_to_pages.py` | Markdown → 分页计划：叙事风格判定 + 阅读功能版式推导；**标题只筛不改**，不合格标题标记 `needs_review` 交人复核 |
+| `pages_to_svg.py` | 分页计划 → SVG，9 种版式全覆盖（cover/bullets/compare/steps/statement/fact/quote/section/closing） |
+| `md_to_pptx.py` | 页面计划 → 原生 PPTX 闭环 |
+| `narrative_rewrite.py` | 视觉概念提炼 → 6 段式生图 prompt。**按领域门槛匹配**，匹配不到返回 None走中性底图，不猜内容 |
+| `do_research.py` | 找资料：通用认知视角（现状/变化/动因/影响/反例/趋势）→ research.json，**领域无关** |
+| `research_to_article.py` | research.json → 专题文章。内容 100% 来自素材，**无素材即报错，绝不编造** |
+
+### 封面引擎
+
+| 脚本 | 干什么 |
+|---|---|
+| `cover_archetypes.py` | 4 大构图原型（侧置留白/深色纵深/极简大字/正面对视），按平台+语气自动推导 |
+| `cover_v2.py` | neo 式封面：标题字号自适应铺满 + 语义分行（**保留副标题**）+ 3 种构图 |
+| `template_renderer.py` | 模板驱动 SVG 渲染（ppt-master 布局体系） |
+| `prompt_safety.py` | prompt 安全拦截：违禁词正则 + 否定词反噬 + 中文乱码告警 |
+
+### 配图（Agnes 链路）
 
 | 脚本 | 干什么 |
 |---|---|
 | `agnes_ppt_bridge.py` | 读 `image_prompts.json` 批量调 Agnes 生图；内置模型黑名单，硬性拦截 gemini / dall-e / gpt-image / flux / seedream |
+| `agnes_bridge.py` | 复用 agnes-studio 设计资产（薄桥接） |
 | `agnes_design_cover.py` | 调 agnes-studio 海报排版引擎设计封面（10 种风格），1200x1200 裁 16:9 存入 `images/cover_agnes.png`；纯本地渲染，不需要 New API |
 | `prepare_agnes_image.py` | 生图后处理：等比放大居中裁到精确 16:9、消除拼缝、压暗归一 |
 | `analyze_image.py` | 配图客观验收：锐度（拉普拉斯方差）、主体 3×3 位置分布、墨量、接缝检测 |
 | `crop_panel.py` | 按主体包围盒裁切，让主体撑满面板而非缩在中间 |
 | `boost_ink.py` | 暗底线性图提亮：黑点保持 + 高光增益，背景不被抬灰 |
-| `render_svg.py` | SVG → PNG（Playwright 驱动系统 Chrome；`<image href>` 自动内联 base64） |
-| `build_preview.py` | 若干 SVG → 单文件 HTML 翻页预览（图片内联 data URI） |
-| `make_cards.py` | 横版画布 → 1080×1350 竖版卡片：内容要素重排（自适应图片带 40%–62%，装不下按优先级砍） |
-| `qa_layout.py` | 横版质检闸门：溢出 / 字号阶梯 / 底图 / 重复图片 / 面板墨量 / 压行 / 对比度，7 项 |
-| `qa_cards.py` | 卡片质检闸门：字号 / 安全区 / 溢出 / 压行 / 对比度 / 底图 / 留白，7 项 |
+
+### POC
+
+| 脚本 | 干什么 |
+|---|---|
 | `run_auto_poc.py` | auto_poc 双画幅（16:9 + 4:3）SVG 生成管线，POC 验证用；模板已 vendor（`--tpl-169-dir` / `--tpl-43-dir` 可覆盖） |
+| `make_cards.py` | 横版画布 → 1080×1350 竖版卡片：内容要素重排（自适应图片带 40%–62%，装不下按优先级砍） |
+
+### 设计原则（写在前面，避免走回头路）
+
+**用规则筛设计，别用规则写设计。**
+
+- 规则层**适合**：排版计算（字号、行宽、断行）、确定性清洗、**质检闸门**（挑出坏设计）
+- 规则层**不适合**：文案创作、标题改写、设计决策——这些交给人或 LLM
+- 匹配不上时**诚实降级**（返回 None / 标记 needs_review），不要塞一个"总归对得上"的内容
+  ——硬凑出来的错内容比留空更糟
 
 ## 配图铁律
 
