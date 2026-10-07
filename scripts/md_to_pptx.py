@@ -3,14 +3,17 @@
 """一键：Markdown 文章 -> PPTX（内容驱动生成的完整闭环）
 
 链路：
-  md_to_pages.py（切页） -> pages_to_svg.py（渲染）
+  md_to_pages.py（切页，含 image_prompt） -> agnes_ppt_bridge.py（生图）
+  -> pages_to_svg.py（渲染，背景图+scrim）
   -> plan_contract.py（合同校验） -> qa_score.py（打分质检）
   -> svg_quality_checker.py（vendor 门禁） -> svg_to_pptx.py（转 PPTX）
 
 用法：
     python3 scripts/md_to_pptx.py --md <文章.md> --out <输出目录> [--name deck]
+    python3 scripts/md_to_pptx.py --md <文章.md> --out <输出目录> --no-images  # 纯文字版
 
 要求：vendor 转换链需 Python 3.10+（黑苹果上用 /usr/local/bin/python3.11）。
+生图走本机 New API（agnes_ppt_bridge），prompt 经 prompt_safety 拦截。
 """
 
 from __future__ import annotations
@@ -26,63 +29,114 @@ REPO = Path(__file__).resolve().parent.parent
 SCRIPTS = REPO / "scripts"
 VENDOR = REPO / "vendor" / "ppt-master" / "scripts"
 
-# 黑苹果上有 3.11；其他机器回退到 python3
 PY311 = Path("/usr/local/bin/python3.11")
 PY = str(PY311 if PY311.exists() else sys.executable)
 
 
 def run(cmd, **kw):
-    print("  $ " + " ".join(str(c) for c in cmd))
+    print("  $ " + " ".join(str(c) for c in cmd[:3]) + (" ..." if len(cmd) > 3 else ""))
     r = subprocess.run(cmd, capture_output=True, text=True, **kw)
     if r.returncode != 0:
         print(r.stdout[-1500:])
         print(r.stderr[-1500:], file=sys.stderr)
-        raise SystemExit(f"失败: {cmd[1] if len(cmd) > 1 else cmd[0]}")
+        raise SystemExit("阶段失败")
     return r
+
+
+def gen_images(out: Path, pages_path: Path) -> int:
+    """按 pages.json 生成配图 manifest，调 agnes_ppt_bridge 生图。返回成功数。"""
+    plan = json.loads(pages_path.read_text(encoding="utf-8"))
+    images_dir = out / "images"
+    images_dir.mkdir(parents=True, exist_ok=True)
+
+    items = []
+    for pg in plan["pages"]:
+        fn = "p%02d_bg.png" % pg["index"]
+        items.append({
+            "filename": fn,
+            "purpose": "第%d页配图：%s" % (pg["index"] + 1, pg["title"][:30]),
+            "page_role": "content_bg",
+            "text_policy": "none",
+            "aspect_ratio": "16:9",
+            "model": "agnes-image-2.5-flash",
+            "status": "Pending",
+            "prompt": pg.get("image_prompt", ""),
+        })
+    manifest = images_dir / "image_prompts.json"
+    manifest.write_text(json.dumps({"items": items}, ensure_ascii=False, indent=2),
+                        encoding="utf-8")
+
+    print("  生图 %d 张（经 prompt 安全拦截）..." % len(items))
+    r = subprocess.run(
+        [sys.executable, str(SCRIPTS / "agnes_ppt_bridge.py"),
+         "--manifest", str(manifest)],
+        capture_output=True, text=True)
+    print(r.stdout[-800:])
+    if r.returncode != 0:
+        print(r.stderr[-800:], file=sys.stderr)
+
+    # 回写 image_file
+    done = 0
+    mf = json.loads(manifest.read_text(encoding="utf-8"))
+    status = {it["filename"]: it.get("status") for it in mf.get("items", [])}
+    for pg, it in zip(plan["pages"], items):
+        fn = it["filename"]
+        if status.get(fn) == "Generated" and (images_dir / fn).exists():
+            pg["image_file"] = fn
+            done += 1
+    pages_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
+    return done
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Markdown -> PPTX 一键")
-    ap.add_argument("--md", type=Path, required=True, help="输入 Markdown 文章")
-    ap.add_argument("--out", type=Path, required=True, help="输出目录（项目）")
-    ap.add_argument("--name", default="deck", help="PPTX 文件名（不含扩展名）")
-    ap.add_argument("--skip-qa", action="store_true", help="跳过质检（调试用）")
+    ap.add_argument("--md", type=Path, required=True)
+    ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--name", default="deck")
+    ap.add_argument("--no-images", action="store_true", help="跳过生图（纯文字版）")
+    ap.add_argument("--skip-qa", action="store_true")
     args = ap.parse_args(argv)
 
     out = args.out
     svg_dir = out / "svg_output"
     (out / "images").mkdir(parents=True, exist_ok=True)
+    pages_path = out / "pages.json"
 
-    # spec_lock：没有就从样例项目拷一份默认
     if not (out / "spec_lock.md").exists():
         sample = REPO / "projects" / "agentflow-os-launch" / "spec_lock.md"
         if sample.exists():
             shutil.copy(sample, out / "spec_lock.md")
-            print("  [info] 使用默认 spec_lock.md")
 
-    print("[1/6] 切页 md -> pages.json")
+    print("[1/7] 切页 md -> pages.json")
     run([sys.executable, str(SCRIPTS / "md_to_pages.py"),
-         "--md", str(args.md), "--out", str(out / "pages.json")])
+         "--md", str(args.md), "--out", str(pages_path)])
 
-    print("[2/6] 渲染 pages -> SVG")
+    if args.no_images:
+        print("[2/7] 跳过生图")
+    else:
+        print("[2/7] Agnes 生图")
+        n = gen_images(out, pages_path)
+        print("  成功 %d 张" % n)
+
+    print("[3/7] 渲染 pages -> SVG")
     run([sys.executable, str(SCRIPTS / "pages_to_svg.py"),
-         "--pages", str(out / "pages.json"), "--out", str(svg_dir)])
+         "--pages", str(pages_path), "--out", str(svg_dir)])
 
     if not args.skip_qa:
-        print("[3/6] planning 合同校验")
+        print("[4/7] planning 合同校验")
         run([sys.executable, str(SCRIPTS / "plan_contract.py"), "--project", str(out)])
-        print("[4/6] 打分质检")
+        print("[5/7] 打分质检")
         run([sys.executable, str(SCRIPTS / "qa_score.py"), str(svg_dir)])
-        print("[5/6] vendor SVG 质检门禁")
+        print("[6/7] vendor SVG 质检门禁")
         run([PY, str(VENDOR / "svg_quality_checker.py"), str(out),
              "--canonical-authoring", "--stage", "final", "--json"])
 
-    print("[6/6] SVG -> PPTX")
+    print("[7/7] SVG -> PPTX")
     pptx = out / (args.name + ".pptx")
     run([PY, str(VENDOR / "svg_to_pptx.py"), str(out), "-o", str(pptx)])
 
-    n = len(json.loads((out / "pages.json").read_text(encoding="utf-8"))["pages"])
-    print(f"\n✅ 完成：{n} 页 -> {pptx} ({pptx.stat().st_size // 1024} KB)")
+    n = len(json.loads(pages_path.read_text(encoding="utf-8"))["pages"])
+    print("\n✅ 完成：%d 页 -> %s (%d KB)" % (n, pptx, pptx.stat().st_size // 1024))
     return 0
 
 

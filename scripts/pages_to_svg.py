@@ -61,13 +61,22 @@ def t(x, y, s, px, fill=None, weight=None, ls=None):
     return "<text%s>%s</text>" % (a, esc(s))
 
 
-def page_frame(title, kicker, inner):
+def page_frame(title, kicker, inner, bg_file=None):
     parts = []
     parts.append('<svg data-pptx-page-role="content" xmlns="http://www.w3.org/2000/svg"')
     parts.append(' viewBox="0 0 1280 720" width="1280" height="720"')
     parts.append(' font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif">')
     parts.append("<title>" + esc(title) + "</title>" + NL)
     parts.append('<rect width="1280" height="720" fill="' + BG + '"/>' + NL)
+    if bg_file:
+        parts.append('<defs><linearGradient id="scrim" x1="0" y1="0" x2="1" y2="0">'
+                     '<stop offset="0" stop-color="#08090C" stop-opacity="0.92"/>'
+                     '<stop offset="0.55" stop-color="#08090C" stop-opacity="0.55"/>'
+                     '<stop offset="1" stop-color="#08090C" stop-opacity="0.25"/>'
+                     '</linearGradient></defs>' + NL)
+        parts.append('<image href="../images/' + bg_file + '" x="0" y="0" '
+                     'width="1280" height="720" preserveAspectRatio="xMidYMid slice"/>' + NL)
+        parts.append('<rect width="1280" height="720" fill="url(#scrim)"/>' + NL)
     parts.append('<g id="kicker" data-pptx-bounds="60 80 1160 30" data-pptx-role="decoration">'
                  + t(MARGIN, 100, kicker, 11, MUTED, ls="4") + "</g>" + NL)
     parts.append('<g id="content" data-pptx-bounds="60 120 1160 500">' + NL + inner + NL + "</g>" + NL)
@@ -90,7 +99,7 @@ def layout_cover(pg, kicker):
     for j, sl in enumerate(wrap(sub, 20, W - 2 * MARGIN)[:2]):
         inner += t(MARGIN, y + len(lines) * int(px * 1.35) + 40 + j * 32, sl, 20, MUTED) + NL
     inner += '<rect x="%d" y="%d" width="64" height="4" fill="%s"/>' % (MARGIN, y - 70, ACCENT) + NL
-    return page_frame(title, kicker, inner)
+    return page_frame(title, kicker, inner, pg.get("image_file"))
 
 
 def layout_bullets(pg, kicker):
@@ -110,7 +119,7 @@ def layout_bullets(pg, kicker):
         y += len(blines) * 32 + 22
         if y > 600:
             break
-    return page_frame(title, kicker, inner)
+    return page_frame(title, kicker, inner, pg.get("image_file"))
 
 
 def layout_compare(pg, kicker):
@@ -129,7 +138,7 @@ def layout_compare(pg, kicker):
             for j, bl in enumerate(blines):
                 inner += t(x + 20, y + j * 32, bl, 20) + NL
             y += len(blines) * 32 + 20
-    return page_frame(title, kicker, inner)
+    return page_frame(title, kicker, inner, pg.get("image_file"))
 
 
 def layout_steps(pg, kicker):
@@ -145,7 +154,7 @@ def layout_steps(pg, kicker):
         y = 320
         for j, bl in enumerate(wrap(s, 20, col_w - 40)[:5]):
             inner += t(x + 20, y + j * 32, bl, 20) + NL
-    return page_frame(title, kicker, inner)
+    return page_frame(title, kicker, inner, pg.get("image_file"))
 
 
 LAYOUTS = {"cover": layout_cover, "bullets": layout_bullets,

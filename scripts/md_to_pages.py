@@ -47,6 +47,19 @@ def infer_layout(section_text: str) -> str:
     return "bullets"
 
 
+def page_image_prompt(title: str, layout: str) -> str:
+    """为每页生成英文生图 prompt（过 prompt_safety，无中文无违禁词）。"""
+    base = ("dark tech editorial background, deep navy black gradient, "
+            "abstract geometric depth, subtle grid, cinematic lighting, "
+            "minimalist, no text, no words, no letters, no people, "
+            "monochrome pale ivory tones where applicable")
+    hint = {"cover": "hero wide composition",
+            "bullets": "soft abstract side motif",
+            "compare": "symmetric dual-panel abstract",
+            "steps": "flowing timeline abstract"}.get(layout, "abstract")
+    return f"{base}, {hint}"
+
+
 def md_to_pages(md_path: Path, max_bullets: int = 5) -> dict:
     raw = md_path.read_text(encoding="utf-8")
     body = FRONTMATTER_RE.sub("", raw).strip()
@@ -61,7 +74,7 @@ def md_to_pages(md_path: Path, max_bullets: int = 5) -> dict:
     parts = H2_RE.split(body)
     # parts[0] 是标题前导，之后每两项一组 (节标题, 节正文)
     pages = [{"index": 0, "title": title, "bullets": [subtitle] if subtitle else [],
-              "layout": "cover"}]
+              "layout": "cover", "image_prompt": page_image_prompt(title, "cover")}]
     for i in range(1, len(parts), 2):
         sec_title = strip_md(parts[i])
         sec_body = parts[i + 1] if i + 1 < len(parts) else ""
@@ -76,8 +89,10 @@ def md_to_pages(md_path: Path, max_bullets: int = 5) -> dict:
         if not bullets:
             sentences = [s.strip() for s in re.split(r"[。！？\n]", sec_body) if s.strip()]
             bullets = [strip_md(s)[:80] for s in sentences[:3] if len(s) > 8][:max_bullets]
+        lay = infer_layout(sec_body)
         pages.append({"index": len(pages), "title": sec_title[:40],
-                      "bullets": bullets, "layout": infer_layout(sec_body)})
+                      "bullets": bullets, "layout": lay,
+                      "image_prompt": page_image_prompt(sec_title, lay)})
     return {"source": md_path.name, "title": title, "pages": pages}
 
 

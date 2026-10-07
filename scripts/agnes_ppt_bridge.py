@@ -141,8 +141,19 @@ def generate(prompt: str, ratio: str = "16:9", model: str | None = None,
                 if it.get("b64_json"):
                     raw = base64.b64decode(it["b64_json"])
                 elif it.get("url"):
-                    with urllib.request.urlopen(it["url"], timeout=timeout) as r2:
-                        raw = r2.read()
+                    # CDN 下载间歇性挂起：短超时 + 3 次重试，仍失败则抛给外层重试换模型
+                    raw = None
+                    dl_err = None
+                    for _ in range(2):
+                        try:
+                            with urllib.request.urlopen(it["url"], timeout=15) as r2:
+                                raw = r2.read()
+                            break
+                        except Exception as e:
+                            dl_err = e
+                            time.sleep(3)
+                    if raw is None:
+                        raise RuntimeError(f"图片 URL 下载失败(2次): {dl_err}")
                 if not raw:
                     last_err = f"{m}: 无 b64_json 也无 url"
                     break
