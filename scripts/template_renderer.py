@@ -99,13 +99,18 @@ def strip_flat_forbidden(svg):
 
 
 def wrap_text(text, max_chars):
+    """断行：优先在标点/空格处断，但超过 max_chars+4 必须硬断。
+
+    旧实现只在标点处断，中英混排的无标点串（如 0→0.92 / 0.45→0.80）会一路加宽，
+    实测画到 676px 而槽位只有 640px，门禁按 horizontal overflow 判 error。
+    """
     if len(text) <= max_chars:
         return [text]
     lines = []
     cur = ""
     for ch in text:
         cur += ch
-        if len(cur) >= max_chars and ch in "，。；：、） ":
+        if len(cur) >= max_chars and (ch in "，。；：、） " or len(cur) >= max_chars + 4):
             lines.append(cur)
             cur = ""
     if cur:
@@ -138,39 +143,66 @@ def split_title(title, max_chars=14):
     return lines
 
 
-def _slot_bottom(svg, pos, default=540):
-    """取 pos 之前最近一个带 data-pptx-bounds 的 <g>（该文本所属槽位）的下边界。
-    槽位几何才是文字能占的真实纵向空间：写死的 540 对 hero-side(底 556) 与
-    title-content(底 632) 都偏浅，会静默丢掉最后 1 条 bullet。"""
+def _slot_bounds(svg, pos, default=(80.0, 356.0, 640.0, 200.0)):
+    """取 pos 之前最近一个带 data-pptx-bounds 的 <g>，即该文本所属槽位 (x, y, w, h)。
+    槽位几何才是文字能占的真实空间：写死的 540 对 hero-side(底 556) 与
+    title-content(底 632) 都偏浅，会静默丢掉尾部 bullet。"""
     best = None
     for mm in re.finditer(r'<g\b([^>]*)>', svg[:pos]):
         bb = re.search(r'data-pptx-bounds="([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)"', mm.group(1))
         if bb:
             best = tuple(float(v) for v in bb.groups())
-    return (best[1] + best[3]) if best else default
+    return best or default
 
 
-def bullets_to_svg(bullets, x, y, font_size, fill, line_h, max_chars=22, max_items=4,
-                   max_y=540, accent=None):
-    """Bullets 渲染：先按槽位几何压行距把条目放全，仍放不下才丢并向 stderr 告警。
-    max_chars=28（中文14字/行），max_y 防止溢出槽位。"""
-    _items = [b.strip() for b in bullets[:max_items]]
-    _per_lines = [wrap_text(b, max_chars)[:3] for b in _items]
-    while line_h > int(font_size * 1.15) and sum(
-            len(ls) * line_h + line_h // 2 + 8 for ls in _per_lines) > (max_y - y) + line_h:
-        line_h -= 1
+def _slot_bottom(svg, pos, default=540):
+    x, y, w, h = _slot_bounds(svg, pos)
+    return y + h if h else default
+
+
+FIT_SIZES = (22, 20, 16)   # 降档阶梯；20/16 即 spec_lock 的 lead / body 档
+
+
+def _fit_plan(items, slot_w, y, max_y, font_size):
+    """在字号阶梯上找第一个能把全部条目装进 [y, max_y] 的档位。
+
+    每行字符数由槽位宽度反推（中文一个字符约占字号那么多像素），
+    条目总高 = 行数*行高 + 条目间距。放不下返回 None，由调用方换版式或硬失败。
+    """
+    fallback = None
+    for size in [s for s in FIT_SIZES if s <= font_size] or [font_size]:
+        lh = max(int(size * 1.3), 20)
+        # 一个中文字约等于字号宽，实测字体略宽 -> 取 1.15 安全系数；
+        # 再扣掉首行圆点偏移与续行缩进（合计约 2.2 个字号）。
+        mc = max(12, int((slot_w - size * 2.2) / (size * 1.15)))
+        per = [wrap_text(b, mc) for b in items]
+        need = sum(len(ls) * lh + lh // 2 + 8 for ls in per)
+        if need <= (max_y - y) + lh:
+            return size, lh, mc, per
+        if fallback is None:
+            fallback = (size, lh, mc, per)
+    return None
+
+
+def bullets_to_svg(bullets, x, y, font_size, fill, line_h, max_chars=22, max_items=0,
+                   max_y=540, accent=None, slot_w=640):
+    """Bullets 渲染：字号按槽位几何自适应降档，必须把条目全画出来。
+
+    放不下返回 None。历史上这里写死 font-size=22 / 单条 3 行 / 最多 4 条，
+    hero-side 的 200px 槽只够 2 条，其余条目被无声吃掉。
+    """
+    items = [b.strip() for b in bullets if b and b.strip()]
+    if max_items:
+        items = items[:max_items]
+    if not items:
+        return ""
+    plan = _fit_plan(items, slot_w, y, max_y, font_size)
+    if plan is None:
+        return None
+    font_size, line_h, max_chars, per_lines = plan
     out = []
     cy = y
-    for b in _items:
-        b = b.strip()
-        # 不再用 … 截断：换行显示完整内容
-        lines = wrap_text(b, max_chars)[:3]  # 单条最多3行
-        # 整条放不下就不放，避免断句
-        need_h = len(lines) * line_h + line_h // 2
-        if cy + need_h > max_y + line_h:
-            print("[WARN] bullets 溢出槽位(bottom=%s)：'%s' 未画出" % (max_y, b[:24]),
-                  file=sys.stderr)
-            break
+    for lines in per_lines:
         for li, line in enumerate(lines):
             if li == 0 and accent:
                 # 首行 • 标记用 agnes 强调色
@@ -298,8 +330,13 @@ def render_page(page, images_dir):
         )
         if m:
             x, y, fill, fs = int(m.group(1)), int(m.group(2)), m.group(3), int(m.group(4))
+            _sx, _sy, _sw, _sh = _slot_bounds(svg, m.start())
             multi = bullets_to_svg(bullets, x, y, fs, fill, fs + 16,
-                                   max_y=_slot_bottom(svg, m.start()), accent=_accent)
+                                   max_y=_sy + _sh, accent=_accent, slot_w=_sw)
+            if multi is None:
+                raise OverflowError("bullets 放不下：槽位 %dx%d，%d 条 / %d 字"
+                                    % (int(_sw), int(_sh), len(bullets),
+                                       sum(len(b) for b in bullets)))
             svg = svg.replace(m.group(0), multi)
         else:
             if len(bullets) > 2:
@@ -514,6 +551,17 @@ def render_page(page, images_dir):
                                                   'id="title-content-title-carrier-%d"' % (_i + 1))
                 _need_h = (y + _lh * (len(multi) - 1)) + int(fs * 0.35) - 40
                 _need_h = max(72, min(136, int(_need_h)))
+                # 封顶不能写死：要以「下一个槽位的上边界」为限，否则标题槽会压进
+                # 正文槽（hero-side_scrim 的 body 槽从 356 起，136 会溢出 16px）。
+                _ts = re.search(r'<g\b[^>]*title-slot[^>]*data-pptx-bounds='
+                                r'"([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)"', svg)
+                if _ts:
+                    _ty = float(_ts.group(2))
+                    _below = [float(mm.group(2)) for mm in re.finditer(
+                        r'<g\b[^>]*data-pptx-bounds="([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)"', svg)
+                        if float(mm.group(2)) > _ty]
+                    if _below:
+                        _need_h = max(64, min(_need_h, int(min(_below) - _ty - 4)))
                 svg = re.sub(r'(<g id="[^"]*title-slot"[^>]*data-pptx-bounds=")(\d+) (\d+) (\d+) (\d+)(")',
                              lambda mm: '%s%s %s %s %d%s' % (mm.group(1), mm.group(2), mm.group(3),
                                                              mm.group(4), _need_h, mm.group(6)),
@@ -537,10 +585,35 @@ def main():
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     imgd = Path(a.images)
+    failed = []
     for i, pg in enumerate(pages):
         name = "%02d_%s.svg" % (i, pg.get("layout", "bullets"))
-        (out / name).write_text(render_page(pg, imgd), encoding="utf-8")
+        try:
+            svg = render_page(pg, imgd)
+        except OverflowError as e:
+            # 内容优先于装饰：带图版式装不下就弃底图，改用同版式的纯文字模板重试
+            if pg.get("image_file"):
+                print("[INFO] p%02d 条目超出带图槽位，弃底图改纯文字版式重试（%s）"
+                      % (i, e), file=sys.stderr)
+                _plain = dict(pg)
+                _plain["image_file"] = None
+                try:
+                    svg = render_page(_plain, imgd)
+                except OverflowError as e2:
+                    failed.append("p%02d %s（换纯文字版式仍放不下）" % (i, e2))
+                    continue
+            else:
+                failed.append("p%02d %s" % (i, e))
+                continue
+        (out / name).write_text(svg, encoding="utf-8")
+    if failed:
+        print("[FAIL] %d 页条目溢出，请回 md_to_pages 拆页或精简原文：" % len(failed),
+              file=sys.stderr)
+        for f in failed:
+            print("   - " + f, file=sys.stderr)
+        return 1
     print("done: %d pages -> %s" % (len(pages), out))
+    return 0
 
 
 if __name__ == "__main__":
