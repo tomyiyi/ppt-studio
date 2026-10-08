@@ -95,6 +95,9 @@ def main(argv=None) -> int:
     ap.add_argument("--name", default="deck")
     ap.add_argument("--no-images", action="store_true", help="跳过生图（纯文字版）")
     ap.add_argument("--skip-qa", action="store_true")
+    ap.add_argument("--cover-choice",
+                    choices=["hero_full", "split", "minimal"],
+                    help="封面构图三选一（默认 hero_full；out/cover_choice.json 存在时自动采用）")
     args = ap.parse_args(argv)
 
     out = args.out
@@ -110,6 +113,23 @@ def main(argv=None) -> int:
     print("[1/7] 切页 md -> pages.json")
     run([sys.executable, str(SCRIPTS / "md_to_pages.py"),
          "--md", str(args.md), "--out", str(pages_path)])
+
+    # 封面三选一：显式参数 > cover_choice.json > 默认 hero_full
+    _choice = args.cover_choice
+    _choice_file = out / "cover_choice.json"
+    if not _choice and _choice_file.exists():
+        try:
+            _choice = json.loads(_choice_file.read_text(encoding="utf-8")).get("cover_variant")
+        except Exception:
+            _choice = None
+    _choice = _choice or "hero_full"
+    _plan = json.loads(pages_path.read_text(encoding="utf-8"))
+    for _pg in _plan.get("pages", []):
+        if _pg.get("layout") == "cover":
+            _pg["cover_variant"] = _choice
+            break
+    pages_path.write_text(json.dumps(_plan, ensure_ascii=False, indent=2), encoding="utf-8")
+    print("  封面构图：%s" % _choice)
 
     if args.no_images:
         print("[2/7] 跳过生图")

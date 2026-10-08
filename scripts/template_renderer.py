@@ -14,6 +14,16 @@ try:
     HAS_TABLE = True
 except ImportError:
     HAS_TABLE = False
+try:
+    from cover_v2 import detect_mood
+    HAS_MOOD = True
+except ImportError:
+    HAS_MOOD = False
+try:
+    from agnes_color import get_accent_color
+    HAS_ACCENT = True
+except ImportError:
+    HAS_ACCENT = False
 
 TEMPLATE_ROOT = Path(
     "/Volumes/3TB_DATA/05-开发项目/ppt/tools/ppt-master/skills/ppt-master/templates/layouts"
@@ -128,7 +138,7 @@ def split_title(title, max_chars=14):
 
 
 def bullets_to_svg(bullets, x, y, font_size, fill, line_h, max_chars=22, max_items=4,
-                   max_y=540):
+                   max_y=540, accent=None):
     """Bullets 渲染：不硬截断，换行显示，垂直空间内尽量放。
     max_chars=28（中文14字/行），max_y 防止溢出槽位。"""
     out = []
@@ -142,12 +152,25 @@ def bullets_to_svg(bullets, x, y, font_size, fill, line_h, max_chars=22, max_ite
         if cy + need_h > max_y + line_h:
             break
         for li, line in enumerate(lines):
-            prefix = "• " if li == 0 else "  "
-            out.append(
-                '<text x="%d" y="%d" fill="%s" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" '
-                'font-size="%d">%s</text>'
-                % (x, cy, fill, font_size, esc(prefix + line))
-            )
+            if li == 0 and accent:
+                # 首行 • 标记用 agnes 强调色
+                out.append(
+                    '<text x="%d" y="%d" fill="%s" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" '
+                    'font-size="%d">%s</text>'
+                    % (x, cy, accent, font_size, esc("\u2022 "))
+                )
+                out.append(
+                    '<text x="%d" y="%d" fill="%s" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" '
+                    'font-size="%d">%s</text>'
+                    % (x + int(font_size * 0.9), cy, fill, font_size, esc(line))
+                )
+            else:
+                prefix = "  "
+                out.append(
+                    '<text x="%d" y="%d" fill="%s" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" '
+                    'font-size="%d">%s</text>'
+                    % (x, cy, fill, font_size, esc(prefix + line))
+                )
             cy += line_h
         cy += line_h // 2  # 条目间距
         cy += 8
@@ -176,6 +199,9 @@ def render_page(page, images_dir):
     # CJK 字体优先：Noto Sans SC > PingFang SC > Microsoft YaHei > Arial
     svg = svg.replace('font-family="Arial, Microsoft YaHei, sans-serif"',
                       'font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, Arial, sans-serif"')
+    # agnes 配色注入：mood -> 强调色
+    _mood = detect_mood(_raw_title, page.get("subtitle", "")) if HAS_MOOD else ""
+    _accent = get_accent_color(_mood) if HAS_ACCENT else None
     svg = svg.replace('width="1280" height="720"', 'width="1920" height="1080"', 1)
 
     # 背景图 slot 的 bounds 会与文字重叠（设计使然），先去掉避免 QA 误报
@@ -252,7 +278,7 @@ def render_page(page, images_dir):
         )
         if m:
             x, y, fill, fs = int(m.group(1)), int(m.group(2)), m.group(3), int(m.group(4))
-            multi = bullets_to_svg(bullets, x, y, fs, fill, fs + 16)
+            multi = bullets_to_svg(bullets, x, y, fs, fill, fs + 16, accent=_accent)
             svg = svg.replace(m.group(0), multi)
         else:
             reps["{{CONTENT_AREA}}"] = esc(" / ".join(bullets[:2]))
@@ -264,7 +290,7 @@ def render_page(page, images_dir):
                 x, y, fs = int(cm.group(1)), int(cm.group(2)), int(cm.group(3))
                 fillm = re.search(r'fill="([^"]+)"', m.group(0))
                 fill = fillm.group(1) if fillm else "#334155"
-                multi = bullets_to_svg(bullets, x, y, fs, fill, fs + 16, max_chars=26)
+                multi = bullets_to_svg(bullets, x, y, fs, fill, fs + 16, max_chars=26, accent=_accent)
                 svg = svg.replace(m.group(0), multi)
 
     if layout == "compare":
@@ -382,6 +408,18 @@ def render_page(page, images_dir):
     if _table_svg:
         # 表格注入到内容区（</svg> 前）
         svg = svg.replace("</svg>", _table_svg + "\n</svg>", 1)
+    if layout == "cover" and _accent:
+        # agnes 细规线：标题槽位下方 3px 强调色线条
+        import re as _re
+        _tm = _re.search(r'<g id="[^"]*title-slot"[^>]*data-pptx-bounds="([\d ]+)"', svg)
+        if _tm:
+            _bx = [int(v) for v in _tm.group(1).split()]
+            # bounds: x y w h -> 规线在 y+h+16 处，宽 64px
+            _rx, _ry = _bx[0], _bx[1] + _bx[3] + 16
+            _rule = ('<rect x="%d" y="%d" width="64" height="4" fill="%s" '
+                     'data-pptx-role="decoration" data-agnes-accent="true"/>'
+                     % (_rx, _ry, _accent))
+            svg = svg.replace("</svg>", _rule + "\n</svg>", 1)
     if "__TITLE_MULTILINE__" in svg and title_lines:
         m = re.search(r'<text([^>]*?)>__TITLE_MULTILINE__</text>', svg, re.DOTALL)
         if m:

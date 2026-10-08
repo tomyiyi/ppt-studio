@@ -131,10 +131,12 @@ def build_tokens() -> dict:
                 tokens["cover_rules"].extend(item["rules"])
     tokens["palette_strategies"] = sorted(set(tokens["palette_strategies"]))
 
-    # 4. copy themes（封面用）
+    # 4. copy themes（封面用）：主题名 + 完整词库（title_a/title_b/latin/slogan）
     copy = load("copy_templates.json")
     if copy:
-        tokens["copy_themes"] = list(copy.get("themes", {}).keys())
+        themes = copy.get("themes", {})
+        tokens["copy_themes"] = list(themes.keys())
+        tokens["copy_vocab"] = themes
         tokens["copy_rules"] = copy.get("rules", {})
 
     return tokens
