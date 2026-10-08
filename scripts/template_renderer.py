@@ -229,6 +229,92 @@ def bullets_to_svg(bullets, x, y, font_size, fill, line_h, max_chars=22, max_ite
     return "\n".join(out)
 
 
+
+# ---- scrim 自适应：文字在底图上始终够对比度，同时不把图压成灰板 ----
+SCRIM_TARGET_L = 0.183   # 带图页文字为纯白(L=1.0)，4.5:1 要求背景相对亮度 <= 0.183
+SCRIM_MIN_A = 0.10       # 底图本身够暗时的遮罩下限（再低等于不加遮罩）
+SCRIM_MAX_A = 0.90       # 再高左半就糊成纯黑，等于没图
+
+
+def _body_slot_frac(svg):
+    """正文槽在画面中的归一化矩形 (x0, y0, x1, y1)，模板坐标系 1280x720。"""
+    m = re.search(r'<g\b[^>]*data-pptx-placeholder="body"[^>]*data-pptx-bounds='
+                  r'"([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)"', svg)
+    if not m:
+        return 80 / 1280.0, 356 / 720.0, 720 / 1280.0, 556 / 720.0
+    x, y, w, h = (float(m.group(i)) for i in range(1, 5))
+    return x / 1280.0, y / 720.0, (x + w) / 1280.0, (y + h) / 720.0
+
+
+def _band_luminance(image_path, x0, y0, x1, y1):
+    """底图在文字带上的平均相对亮度（sRGB，gamma 2.2 近似）。"""
+    try:
+        from PIL import Image
+    except Exception:
+        return None
+    try:
+        im = Image.open(image_path).convert("L").resize((64, 36))
+        px = im.load()
+        c0, c1 = max(0, int(x0 * 64)), max(1, int(x1 * 64))
+        r0, r1 = max(0, int(y0 * 36)), max(1, int(y1 * 36))
+        vals = [(px[c, r] / 255.0) ** 2.2 for c in range(c0, c1) for r in range(r0, r1)]
+    except Exception:
+        return None
+    return sum(vals) / len(vals) if vals else None
+
+
+def tune_scrim_to_image(svg, images_dir, image_file):
+    """按底图实测亮度等比缩放每个 scrim 渐变的不透明度（保留模板的渐变形状）。
+
+    锚点取「文字右边缘正下方那个 stop」：遮罩自左向右衰减，最右端是文字最吃紧处，
+    该处需要多强，整条渐变就按同一比例放大或缩小。
+    """
+    if not image_file:
+        return svg
+    path = Path(images_dir) / image_file
+    if not path.exists():
+        return svg
+    x0, y0, x1, y1 = _body_slot_frac(svg)
+    lum = _band_luminance(path, x0, y0, x1, y1)
+    if lum is None:
+        return svg
+    need = min(SCRIM_MAX_A, max(SCRIM_MIN_A, 1.0 - SCRIM_TARGET_L / max(lum, 1e-4)))
+    if lum > 0.40:
+        # 亮底图 + 压得够深的遮罩 = 图没了。这页真正该改的是图，不是遮罩。
+        sys.stderr.write("[WARN] %s 文字带亮度 %.2f 偏高：遮罩需压到 %.2f 才够 4.5:1，"
+                         "底图会被压死。建议重出图时在 prompt 里指定 dark/low-key 背景。\n"
+                         % (image_file, lum, need))
+
+    def _fix(gm):
+        head, inner, tail = gm.group(1), gm.group(2), gm.group(3)
+        gid = re.search(r'id="([^"]+)"', head).group(1)
+        rw = 1280.0   # 遮罩矩形宽度：渐变 offset 是按它铺的，不等于整幅画布宽
+        for _rm in re.finditer(r'<rect\b[^>]*>', svg):
+            if 'url(#%s)' % gid in _rm.group(0):
+                _wm = re.search(r'width="([\d.]+)"', _rm.group(0))
+                if _wm:
+                    rw = float(_wm.group(1))
+                break
+        stops = re.findall(r'offset="([\d.]+)"[^>]*?stop-opacity="([\d.]+)"', inner)
+        solid = [(float(o), v) for o, v in stops if float(v) > 0]
+        if not solid:
+            return gm.group(0)
+        in_text = [s for s in solid if s[0] * rw / 1280.0 <= x1 + 0.08]
+        k = need / float((in_text or solid)[-1][1])
+        out = inner
+        for _o, val_s in stops:
+            new = round(min(SCRIM_MAX_A, max(0.0, float(val_s) * k)), 2)
+            if abs(new - float(val_s)) < 0.005:
+                continue
+            out = out.replace('stop-opacity="%s"' % val_s, 'stop-opacity="%s"' % new, 1)
+        sys.stderr.write("[SCRIM] %s 文字带亮度 %.3f -> 渐变整体 x%.2f\n"
+                         % (gid, lum, k))
+        return head + out + tail
+
+    return re.sub(r'(<linearGradient\b[^>]*scrim[^>]*>)(.*?)(</linearGradient>)',
+                  _fix, svg, flags=re.S)
+
+
 def render_page(page, images_dir):
     layout = page.get("layout", "bullets")
     _raw_title = page.get("title", "")
@@ -259,9 +345,9 @@ def render_page(page, images_dir):
     # 背景图 slot 的 bounds 会与文字重叠（设计使然），先去掉避免 QA 误报
     # 注意：必须在 strip_flat_forbidden 之前，此时 placeholder 属性还在
     svg = re.sub(r'(<g[^>]*data-pptx-placeholder="picture"[^>]*?)\s+data-pptx-bounds="[^"]*"', r"\g<1>", svg)
-    # 减轻 scrim（模板默认 0.88 太重，图被压没了）：降到 0.55/0.35
-    svg = re.sub(r'stop-opacity="0\.88"', 'stop-opacity="0.55"', svg)
-    svg = re.sub(r'stop-opacity="0\.62"', 'stop-opacity="0.35"', svg)
+    # scrim 强度按底图实测亮度自适应（不再写死 0.55/0.35）
+    if has_img:
+        svg = tune_scrim_to_image(svg, images_dir, image_file)
     # 剥离 flat 禁用属性
     svg = strip_flat_forbidden(svg)
 
@@ -331,6 +417,8 @@ def render_page(page, images_dir):
         if m:
             x, y, fill, fs = int(m.group(1)), int(m.group(2)), m.group(3), int(m.group(4))
             _sx, _sy, _sw, _sh = _slot_bounds(svg, m.start())
+            if has_img:
+                fill = "#FFFFFF"   # 底图上浅灰字对比度不够，纯白可让遮罩少压 ~15%
             multi = bullets_to_svg(bullets, x, y, fs, fill, fs + 16,
                                    max_y=_sy + _sh, accent=_accent, slot_w=_sw)
             if multi is None:

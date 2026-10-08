@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
 
 try:
@@ -31,6 +32,21 @@ FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
 H1_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
 H2_RE = re.compile(r"^##\s+(.+)$", re.MULTILINE)
 BULLET_RE = re.compile(r"^(?:\d+[.、]|[-*])\s+(.+)$")
+
+# 单条 bullet 的上屏字数上限。旧实现写死 [:80] 会静默砍掉后半句
+# （实测把 "--seam auto" 砍成 "--seam au"），而 plan_contract 门禁只管
+# pages.json -> SVG 那一段，看不见这里丢的字。放宽到 160 并显式告警。
+MAX_BULLET_CHARS = 160
+_truncated: list = []
+
+
+def clip_bullet(s: str, src: str = "") -> str:
+    """按上屏上限裁剪；被裁的条目登记下来，收尾统一告警，不再静默。"""
+    s = s.strip()
+    if len(s) > MAX_BULLET_CHARS:
+        _truncated.append((src.strip()[:24], len(s)))
+        return s[:MAX_BULLET_CHARS]
+    return s
 QUOTE_RE = re.compile(r"^>\s+(.+)$", re.MULTILINE)
 TABLE_RE = re.compile(r"^\|.+\|$", re.MULTILINE)
 
@@ -226,18 +242,18 @@ def md_to_pages(md_path: Path, max_bullets: int = 5) -> dict:
             ls = line.strip()
             bm = BULLET_RE.match(ls)
             if bm:
-                bullets.append(strip_md(bm.group(1))[:80])
+                bullets.append(clip_bullet(strip_md(bm.group(1)), bm.group(1)))
             elif ls.startswith("|") and "---" not in ls:
                 # 表格行：完整收集，不受 max_bullets 截断（丢一行就是丢数据）
                 # 表格的分页由 needs_split 统一处理
-                bullets.append(ls[:100])
+                bullets.append(clip_bullet(ls, ls))
                 continue
             if len(bullets) >= max_bullets:
                 break
         # 无列表项时，取前两句正文
         if not bullets:
             sentences = [s.strip() for s in re.split(r"[。！？\n]", sec_body) if s.strip()]
-            bullets = [strip_md(s)[:80] for s in sentences[:3] if len(s) > 8][:max_bullets]
+            bullets = [clip_bullet(strip_md(s), s) for s in sentences[:3] if len(s) > 8][:max_bullets]
         lay = detect_reading_function(sec_title, sec_body, bullets)
         # 标题：规则层只做「筛」，不做「写」——不截断成半句，不合格就标记待审
         _title, _flags = resolve_title(sec_title)
@@ -268,6 +284,10 @@ def md_to_pages(md_path: Path, max_bullets: int = 5) -> dict:
             "pages": pages}
     if review_flags:
         plan["review_flags"] = review_flags
+    if _truncated:
+        sys.stderr.write("[WARN] %d 条内容超 %d 字被裁剪（原文->上屏），必要时拆条或精简：%s\n"
+                         % (len(_truncated), MAX_BULLET_CHARS,
+                            "; ".join("%s…(%d字)" % (a, b) for a, b in _truncated[:6])))
     return plan
 
 
