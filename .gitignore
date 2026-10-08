@@ -27,3 +27,7 @@ projects/*/output/
 projects/*/validation/*.json
 projects/*/preview.html
 projects/*/plan.json
+
+# 生成产物：底图与逐页 SVG 可由 pages.json 复现，不入库
+projects/*/images/
+projects/*/svg_output/

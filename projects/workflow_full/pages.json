@@ -1,0 +1,251 @@
+{
+  "source": "workflow.md",
+  "title": "工作流",
+  "narrative_style": "story-arc",
+  "closing_hint": "行动号召",
+  "pages": [
+    {
+      "index": 0,
+      "title": "工作流",
+      "bullets": [],
+      "layout": "cover",
+      "needs_review": [],
+      "image_prompt": "subtle abstract geometric depth, hero wide composition, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "cover_variant": "hero_full",
+      "image_file": "p00_bg.png"
+    },
+    {
+      "index": 1,
+      "title": "0. 前置",
+      "bullets": [
+        "# 图像分析依赖（任意 python3.11+ 均可）",
+        "python3 -m venv .venv && .venv/bin/pip install pillow numpy"
+      ],
+      "layout": "bullets",
+      "needs_review": [],
+      "image_prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "image_file": "p01_bg.png"
+    },
+    {
+      "index": 2,
+      "title": "1. 写内容笔记",
+      "bullets": [
+        "主句：失败不用等人来",
+        "三个证据：自动重试 / 断点续跑 / 异常分诊",
+        "数字：0 人工介入次数"
+      ],
+      "layout": "bullets",
+      "needs_review": [],
+      "image_prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "image_file": "p02_bg.png"
+    },
+    {
+      "index": 3,
+      "title": "2. 定 spec_lock.md（版式契约）",
+      "bullets": [
+        "全项目唯一真源",
+        "改字号只改这里，qa_layout.py 直接从该文件解析阶梯",
+        "`markdown"
+      ],
+      "layout": "bullets",
+      "needs_review": [
+        "超长（23字 > 20），需断句"
+      ],
+      "image_prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "image_file": "p03_bg.png"
+    },
+    {
+      "index": 4,
+      "title": "typography",
+      "bullets": [
+        "# 角色 → 档位必须锁死，否则同一角色在不同页会落到不同档",
+        "11 kicker",
+        "13 caption"
+      ],
+      "layout": "bullets",
+      "needs_review": [],
+      "image_prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "image_file": "p04_bg.png"
+    },
+    {
+      "index": 5,
+      "title": "colors",
+      "bullets": [
+        "bg: #08090C",
+        "tertiary_text: #7F8090    # 不要低于这个，#5A5B66 只有 2.9:1"
+      ],
+      "layout": "bullets",
+      "needs_review": [],
+      "image_prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "image_file": "p05_bg.png"
+    },
+    {
+      "index": 6,
+      "title": "3. 生成配图",
+      "bullets": [
+        "python3 scripts/agnes_ppt_bridge.py --manifest projects/xxx/images/image_prompts.json",
+        "python3 scripts/prepare_agnes_image.py raw.png out.png --size 1308x736 --seam auto"
+      ],
+      "layout": "bullets",
+      "needs_review": [],
+      "image_prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "image_file": "p06_bg.png"
+    },
+    {
+      "index": 7,
+      "title": "4. 客观验收（看图被拦截时靠这个）",
+      "bullets": [
+        "| 指标 | 及格线 |",
+        "| 主体锐 | ≥80（发光软边可放宽到 ~45） |",
+        "| P99 | ≥40 |",
+        "| 主体分布最高格 | ≥25%（每格 11% 为均匀基线） |",
+        "| 墨量（max(R,G,B) 通道） | ≥6% |",
+        "| 接缝 | None |"
+      ],
+      "layout": "table",
+      "needs_review": [],
+      "image_prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "image_file": "p07_bg.png"
+    },
+    {
+      "index": 8,
+      "title": "5. 画 SVG 画布",
+      "bullets": [
+        "一页只用一个图位。铺底 + 面板同时用同一张图 = 重影。",
+        "scrim 用方向性渐变，别整幅糊：0→0.92 / 0.45→0.80 / 0.62→0.30 / 1→0.04。文字侧压住，空侧几乎不遮。",
+        "卡片改半透明 fill-opacity=\"0.66\"，让底图透出来。",
+        "clip-path 必须挂在 <image> 上，不能挂外层 <g>，否则门禁报 blocking。"
+      ],
+      "layout": "bullets",
+      "needs_review": [],
+      "image_prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "image_file": "p08_bg.png"
+    },
+    {
+      "index": 9,
+      "title": "5. 画 SVG 画布（续）",
+      "bullets": [
+        "排版前先量主体的左右分布（三列墨量），文字放墨量少的一侧。"
+      ],
+      "layout": "bullets",
+      "needs_review": [],
+      "image_prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "image_file": "p09_bg.png"
+    },
+    {
+      "index": 10,
+      "title": "6. 质检（必跑）",
+      "bullets": [
+        "| 检查 | 内容 |",
+        "| `[字号]` | 所有文本字号落在 spec_lock 的九档内 |",
+        "| `[底图]` | 最大 `<image>` 面积 / 画布 ≥ 90% |",
+        "| `[重影]` | 同一源图不在一页出现两次 |"
+      ],
+      "layout": "table",
+      "needs_review": [],
+      "image_prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "image_file": "p10_bg.png"
+    },
+    {
+      "index": 11,
+      "title": "6. 质检（必跑）（续）",
+      "bullets": [
+        "| `[溢出]` | 文本不超出画布（按 `text-anchor` 算边界） |",
+        "| `[压行]` | 相邻文本行不碰撞 |",
+        "| `[面板]` | 面板区域墨量 ≥ 6% |",
+        "| `[对比]` | WCAG ≥ 4.5:1（背景取 20 分位，字色取 99.5 分位） |"
+      ],
+      "layout": "table",
+      "needs_review": [],
+      "image_prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "image_file": "p11_bg.png"
+    },
+    {
+      "index": 12,
+      "title": "6.5 出卡片（第三个出口）",
+      "bullets": [
+        "图片带高度要自适应。固定 47% 会让只有一句主句的卡片下半屏空着（面板墨量 2.96%）。改成按内容量反推，40%–62% 之间浮动。",
+        "遮罩别压太狠。0.88/0.42/0.08/0.30 把暗图压到整带墨量 0.7%，等于没图。",
+        "徽章要取数字不是标签。徽章组里通常有「数字（y 小）+ 标签（y 大）」两段文字，取 y 小的那个，否则会把中文短语塞进小圆牌。"
+      ],
+      "layout": "bullets",
+      "needs_review": [],
+      "image_prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "image_file": "p12_bg.png"
+    },
+    {
+      "index": 13,
+      "title": "7. 导出并回读",
+      "bullets": [
+        "python3 scripts/svg_to_pptx.py projects/xxx -f ppt169 -o output/xxx.pptx",
+        "python3 scripts/build_preview.py projects/xxx/svg_output output/预览.html \"标题\""
+      ],
+      "layout": "bullets",
+      "needs_review": [],
+      "image_prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "image_file": "p13_bg.png"
+    },
+    {
+      "index": 14,
+      "title": "常见翻车档案",
+      "bullets": [
+        "| 现象 | 真因 | 修法 |",
+        "| 图糊成一团 | 提示词写了 `volumetric fog` / `cinematic DoF` | 加 razor sharp 三连 |",
+        "| 图几乎全空 | 提示词写了 `no glow` / `pen plotter` | 保留 `bold glowing`，另加 razor sharp |",
+        "| 图上有竖线 | 提示词说了 \"左半 / 右半\" | 改成 \"uniform flat tone, no split\" |"
+      ],
+      "layout": "table",
+      "needs_review": [],
+      "image_prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "image_file": "p14_bg.png"
+    },
+    {
+      "index": 15,
+      "title": "常见翻车档案（续）",
+      "bullets": [
+        "| 主体太小 | 只写了亮度约束没写尺寸约束 | 补 `SIZE IS CRITICAL` 组 |",
+        "| 放大后锐度塌陷 | 源图 1312×736 放到 2560×1440 | 精确裁到 1308×736，别放大 |",
+        "| 一页看到两个相同图形 | 铺底 + 面板用了同一张图 | 二选一 |",
+        "| 底部文字读不清 | 整幅糊遮罩 | 改方向性渐变 scrim |"
+      ],
+      "layout": "table",
+      "needs_review": [],
+      "image_prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "image_file": "p15_bg.png"
+    },
+    {
+      "index": 16,
+      "title": "常见翻车档案（续）",
+      "bullets": [
+        "| 小字对比度不足 | `tertiary_text` 用了 `#5A5B66`（2.9:1） | 改 `#7F8090`（4.75:1） |",
+        "| 字忽大忽小 | 同一角色在不同页落了不同档 | spec_lock 里锁死角色→档位 |",
+        "| 审计表字号全是 16 | 验证器没解析继承 | `_iter_with_parents` + 向上回溯 |",
+        "| 卡片下半屏空着 | 图片带高度写死 | 按内容量自适应 40%–62% |"
+      ],
+      "layout": "table",
+      "needs_review": [],
+      "image_prompt": "split diptych with contrasting sides, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "image_file": "p16_bg.png"
+    },
+    {
+      "index": 17,
+      "title": "常见翻车档案（续）",
+      "bullets": [
+        "| 卡片上的图看不见 | scrim 压太狠 | 降到 0.78/0.28/0.05/0.16 |",
+        "| 卡片圆牌里塞了中文短语 | 徽章抽取取到了标签 | 取徽章组里 y 最小的那段（数字） |",
+        "| 质检阈值和生成器打架 | 两边各写各的常量 | 阈值对齐生成器下限并注明理由 |"
+      ],
+      "layout": "table",
+      "needs_review": [],
+      "image_prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "image_file": "p17_bg.png"
+    }
+  ],
+  "review_flags": [
+    {
+      "page": 3,
+      "source_title": "2. 定 spec_lock.md（版式契约）",
+      "issue": "超长（23字 > 20），需断句"
+    }
+  ]
+}
