@@ -3,6 +3,7 @@
 from pathlib import Path
 import html
 import re
+import sys
 
 try:
     from cover_v2 import fit_font_size, split_cover_title, disp_width, get_cover_font_family, detect_mood, COVER_VARIANTS, generate_cover_copy
@@ -137,19 +138,38 @@ def split_title(title, max_chars=14):
     return lines
 
 
+def _slot_bottom(svg, pos, default=540):
+    """取 pos 之前最近一个带 data-pptx-bounds 的 <g>（该文本所属槽位）的下边界。
+    槽位几何才是文字能占的真实纵向空间：写死的 540 对 hero-side(底 556) 与
+    title-content(底 632) 都偏浅，会静默丢掉最后 1 条 bullet。"""
+    best = None
+    for mm in re.finditer(r'<g\b([^>]*)>', svg[:pos]):
+        bb = re.search(r'data-pptx-bounds="([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)"', mm.group(1))
+        if bb:
+            best = tuple(float(v) for v in bb.groups())
+    return (best[1] + best[3]) if best else default
+
+
 def bullets_to_svg(bullets, x, y, font_size, fill, line_h, max_chars=22, max_items=4,
                    max_y=540, accent=None):
-    """Bullets 渲染：不硬截断，换行显示，垂直空间内尽量放。
+    """Bullets 渲染：先按槽位几何压行距把条目放全，仍放不下才丢并向 stderr 告警。
     max_chars=28（中文14字/行），max_y 防止溢出槽位。"""
+    _items = [b.strip() for b in bullets[:max_items]]
+    _per_lines = [wrap_text(b, max_chars)[:3] for b in _items]
+    while line_h > int(font_size * 1.15) and sum(
+            len(ls) * line_h + line_h // 2 + 8 for ls in _per_lines) > (max_y - y) + line_h:
+        line_h -= 1
     out = []
     cy = y
-    for b in bullets[:max_items]:
+    for b in _items:
         b = b.strip()
         # 不再用 … 截断：换行显示完整内容
         lines = wrap_text(b, max_chars)[:3]  # 单条最多3行
         # 整条放不下就不放，避免断句
         need_h = len(lines) * line_h + line_h // 2
         if cy + need_h > max_y + line_h:
+            print("[WARN] bullets 溢出槽位(bottom=%s)：'%s' 未画出" % (max_y, b[:24]),
+                  file=sys.stderr)
             break
         for li, line in enumerate(lines):
             if li == 0 and accent:
@@ -278,7 +298,8 @@ def render_page(page, images_dir):
         )
         if m:
             x, y, fill, fs = int(m.group(1)), int(m.group(2)), m.group(3), int(m.group(4))
-            multi = bullets_to_svg(bullets, x, y, fs, fill, fs + 16, accent=_accent)
+            multi = bullets_to_svg(bullets, x, y, fs, fill, fs + 16,
+                                   max_y=_slot_bottom(svg, m.start()), accent=_accent)
             svg = svg.replace(m.group(0), multi)
         else:
             reps["{{CONTENT_AREA}}"] = esc(" / ".join(bullets[:2]))
@@ -290,7 +311,8 @@ def render_page(page, images_dir):
                 x, y, fs = int(cm.group(1)), int(cm.group(2)), int(cm.group(3))
                 fillm = re.search(r'fill="([^"]+)"', m.group(0))
                 fill = fillm.group(1) if fillm else "#334155"
-                multi = bullets_to_svg(bullets, x, y, fs, fill, fs + 16, max_chars=26, accent=_accent)
+                multi = bullets_to_svg(bullets, x, y, fs, fill, fs + 16, max_chars=26,
+                                       max_y=_slot_bottom(svg, m.start()), accent=_accent)
                 svg = svg.replace(m.group(0), multi)
 
     if layout == "compare":
