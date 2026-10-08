@@ -9,9 +9,10 @@
 
 ## communication
 - primary_language: zh-Hans
-- audience: 技术决策者、平台工程负责人、早期采用者
-- objective: 发布智流 OS，让受众看见能力本身并知道下一步怎么开始
-- core_message: 不是更大的模型，是能真正动手的运行时
+# 模板：工程新建时由人工/LLM 填入，不参与栅格计算
+- audience: <待填>
+- objective: <待填>
+- core_message: <待填>
 - consumption_mode: presented
 
 ## mode
@@ -78,13 +79,8 @@
 - inventory: bolt, refresh, plug-connected, shield-check, brain
 
 ## page_rhythm
-- P01: anchor cover, breathing generous
-- P02: anchor tension-statement, breathing generous
-- P03: anchor position-claim, breathing generous
-- P04: anchor capability-reveal, dense left-light right-artifact
-- P05: anchor capability-reveal, dense left-light right-artifact
-- P06: anchor before-after, dense moderate
-- P07: anchor next-step, breathing generous
+# 模板：工程新建时由人工/LLM 按页数填入
+- P01: <待填>
 
 ## pptx_structure
 - mode: flat

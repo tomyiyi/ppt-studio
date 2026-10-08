@@ -69,7 +69,25 @@ def check_content_loss(project: Path, svg_dir: Path) -> list:
                     errs.append("p%02d(%s) 条目未画出: '%s'" % (pg.get("index", 0), layout, b[:24]))
     return errs
 
-REQUIRED_SPEC_SECTIONS = ["## canvas", "## colors", "## typography"]
+REQUIRED_SPEC_SECTIONS = ["## canvas", "## colors", "## typography", "## grid"]
+
+
+def check_spec_parity(project: Path, template: Path) -> list[str]:
+    """工程 spec_lock 与模板的节名集合对账：缺节 = blocking，多节 = 只提示。"""
+    try:
+        import spec_tokens as ST
+    except ImportError:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import spec_tokens as ST
+    want = ST.section_names(template.read_text(encoding="utf-8"))
+    got = ST.section_names((project / "spec_lock.md").read_text(encoding="utf-8"))
+    want = {w.strip() for w in want}
+    got = {g.strip() for g in got}
+    missing = sorted(want - got)
+    extra = sorted(got - want)
+    out = [f"[blocking] 缺节 {m}（模板有、工程无）" for m in missing]
+    out += [f"[提示] 工程多出节 {e}" for e in extra]
+    return out
 
 
 def build_plan(project: Path) -> dict:
@@ -85,6 +103,11 @@ def build_plan(project: Path) -> dict:
         for sec in REQUIRED_SPEC_SECTIONS:
             if sec not in txt:
                 plan["errors"].append(f"spec_lock.md 缺章节 {sec}")
+        tmpl = Path(__file__).resolve().parent.parent / "patterns" / "spec_lock.template.md"
+        if tmpl.exists():
+            for e in check_spec_parity(project, tmpl):
+                if e.startswith("[blocking]"):
+                    plan["errors"].append(e)
 
     if not svg_dir.is_dir():
         plan["errors"].append("缺 svg_output/ 目录")

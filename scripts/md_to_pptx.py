@@ -106,9 +106,10 @@ def main(argv=None) -> int:
     pages_path = out / "pages.json"
 
     if not (out / "spec_lock.md").exists():
-        sample = REPO / "projects" / "agentflow-os-launch" / "spec_lock.md"
-        if sample.exists():
-            shutil.copy(sample, out / "spec_lock.md")
+        tmpl = REPO / "patterns" / "spec_lock.template.md"
+        if not tmpl.exists():
+            raise SystemExit(f"缺真相源模板 {tmpl} —— 拒绝静默回退到工程实例（真相源缺口，见 spec §4.1）")
+        shutil.copy(tmpl, out / "spec_lock.md")
 
     print("[1/7] 切页 md -> pages.json")
     run([sys.executable, str(SCRIPTS / "md_to_pages.py"),

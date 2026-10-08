@@ -2,6 +2,8 @@
 # Execution Lock
 
 ## canvas
+- width: 1280
+- height: 720
 - viewBox: 0 0 1280 720
 - format: PPT 16:9
 
@@ -58,6 +60,17 @@
 - headline: 44
 - statement: 56
 - cover: 96
+# 封面 P1 纯排版标题档位，不参与正文阶梯
+- poster: 160
+
+## grid
+# 版心/栅格真相源。margin 取 L-01（画布宽 6%）；自检 76+12×72+11×24+76==1280
+- margin: 76
+- cols: 12
+- col: 72
+- gut: 24
+- bands: 4 8 12 16 24 32 48 64
+- baseline_step: 8
 
 ## icons
 - library: tabler-outline
