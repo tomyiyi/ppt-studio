@@ -21,3 +21,9 @@ local_key.json
 .env
 qa_cards_render/
 cards_render/
+
+# 可再生产物（md_to_pptx / 门禁报告每次跑都会重写，不入库）
+projects/*/output/
+projects/*/validation/*.json
+projects/*/preview.html
+projects/*/plan.json
