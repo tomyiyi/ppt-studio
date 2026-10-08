@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import re
 import sys
@@ -22,6 +23,51 @@ from pathlib import Path
 
 HREF_RE = re.compile(r'href="\.\./images/([^"]+)"')
 TITLE_RE = re.compile(r"<title>([^<]+)</title>", re.IGNORECASE)
+
+# 内容完整性：条目文字在 SVG 里可能被换行/转义拆开，用"去空白后的前缀是否出现"判定
+BULLET_PREFIX = 8
+CELL_PREFIX = 6
+
+
+def _flat(s: str) -> str:
+    return re.sub(r"\s+", "", html.unescape(s or ""))
+
+
+def check_content_loss(project: Path, svg_dir: Path) -> list:
+    """pages.json 里的每条 bullet / 表格单元格，必须在对应 SVG 中真实画出。
+    渲染器任何"放不下就不画"的分支都会在这里被抓成 blocking。"""
+    errs = []
+    pages_file = project / "pages.json"
+    if not pages_file.exists():
+        return ["缺 pages.json，无法校验内容完整性"]
+    try:
+        plan = json.loads(pages_file.read_text(encoding="utf-8"))
+    except Exception as e:
+        return ["pages.json 解析失败: %s" % e]
+    for pg in plan.get("pages", []):
+        bullets = pg.get("bullets") or []
+        if not bullets:
+            continue
+        svg = svg_dir / ("%02d_%s.svg" % (pg.get("index", 0), pg.get("layout", "bullets")))
+        if not svg.exists():
+            errs.append("p%02d 缺 SVG: %s" % (pg.get("index", 0), svg.name))
+            continue
+        hay = _flat(svg.read_text(encoding="utf-8"))
+        layout = pg.get("layout")
+        for b in bullets:
+            b = b.strip()
+            if layout == "table" and b.startswith("|"):
+                if set(b) <= set("|-: "):
+                    continue
+                for cell in (c.strip() for c in b.strip("|").split("|")):
+                    n = _flat(cell)[:CELL_PREFIX]
+                    if n and n not in hay:
+                        errs.append("p%02d(table) 单元格未画出: '%s'" % (pg.get("index", 0), cell[:20]))
+            else:
+                n = _flat(b)[:BULLET_PREFIX]
+                if n and n not in hay:
+                    errs.append("p%02d(%s) 条目未画出: '%s'" % (pg.get("index", 0), layout, b[:24]))
+    return errs
 
 REQUIRED_SPEC_SECTIONS = ["## canvas", "## colors", "## typography"]
 
@@ -60,6 +106,10 @@ def build_plan(project: Path) -> dict:
             plan["errors"].append(f"{svg.name} 引用缺失: images/{m}")
         if not page["title"]:
             plan.setdefault("warnings", []).append(f"{svg.name} 缺 <title>（建议补）")
+
+    # 内容完整性（blocking）：静默丢条目比排版瑕疵严重得多
+    for e in check_content_loss(project, svg_dir):
+        plan["errors"].append(e)
     return plan
 
 
