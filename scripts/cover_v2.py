@@ -85,24 +85,6 @@ def split_cover_title(title: str, max_lines: int = 3) -> list[str]:
     return lines[:max_lines] or [title[:12]]
 
 
-# 三种构图方案
-COVER_VARIANTS = {
-    "hero_full": {
-        "desc": "全幅底图 + 底部大标题",
-        "title_pos": "bottom",
-        "title_align": "left",
-    },
-    "split": {
-        "desc": "左右分栏：左文右图",
-        "title_pos": "left",
-        "title_align": "left",
-    },
-    "minimal": {
-        "desc": "极简：大面积留白 + 居中标题",
-        "title_pos": "center",
-        "title_align": "center",
-    },
-}
 
 
 # 字体栈：把系统实际装有的字体放前面，避免依赖未安装的字体。
@@ -134,3 +116,62 @@ if __name__ == "__main__":
             size = fit_font_size(line, 1000)
             print(f"'{line}' (宽{disp_width(line):.1f}) -> {size}px")
         print()
+
+
+# === 3 variant 规格（2026-10-08）：一次出 3 种构图，对标
+# jakecall/yt-thumbnail-generator --variants 3 / RESEARCH_COVER.md §6.2 ===
+# template: (family, file) 对应 template_renderer 的模板管线
+# container_width: 标题自适应字号的容器宽（取自各模板 title slot 的 bounds）
+# font_cap: 该构图下标题字号上限（窄栏不宜过大）
+COVER_VARIANTS = {
+    "hero_full": {
+        "desc": "全幅底图 + 底部大标题（v4 现状）",
+        "template": ("editorial_bleed", "01_hero_full.svg"),
+        "container_width": 1120,
+        "max_lines": 3,
+        "font_cap": 72,
+        "centered": False,
+        "use_image": True,
+    },
+    "split": {
+        "desc": "左右分栏：左文右图",
+        "template": ("editorial_bleed", "04_split_bleed_reverse.svg"),
+        "container_width": 480,
+        "max_lines": 2,
+        "font_cap": 56,
+        "centered": False,
+        "use_image": True,
+    },
+    "minimal": {
+        "desc": "极简：大面积留白 + 居中标题",
+        "template": ("presentation_core", "10_hero_statement.svg"),
+        "container_width": 1088,
+        "max_lines": 3,
+        "font_cap": 96,
+        "centered": True,
+        "use_image": False,
+    },
+}
+
+VARIANT_ORDER = ("hero_full", "split", "minimal")
+
+
+def generate_variants(title: str, subtitle: str = "", bg_image: str | None = None) -> list[dict]:
+    """一次生成 3 种封面构图的 page dict，直接喂给 template_renderer.render_page。
+
+    不破坏现有单封面流程：这只是新增的构造器，默认管线仍走 hero_full。
+    """
+    pages = []
+    for name in VARIANT_ORDER:
+        spec = COVER_VARIANTS[name]
+        page: dict = {
+            "title": title,
+            "subtitle": subtitle,
+            "bullets": [subtitle] if subtitle else [],
+            "layout": "cover",
+            "cover_variant": name,
+        }
+        if spec["use_image"] and bg_image:
+            page["image_file"] = bg_image
+        pages.append(page)
+    return pages

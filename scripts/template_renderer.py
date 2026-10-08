@@ -5,7 +5,7 @@ import html
 import re
 
 try:
-    from cover_v2 import fit_font_size, split_cover_title, disp_width, get_cover_font_family
+    from cover_v2 import fit_font_size, split_cover_title, disp_width, get_cover_font_family, COVER_VARIANTS
     HAS_COVER_V2 = True
 except ImportError:
     HAS_COVER_V2 = False
@@ -165,6 +165,12 @@ def render_page(page, images_dir):
     mapping = LAYOUT_MAP.get(layout, LAYOUT_MAP["bullets"])
     has_img = bool(image_file) and (images_dir / image_file).exists()
     family, tpl_file = mapping["with_image"] if has_img else mapping["without_image"]
+    _cover_variant = page.get("cover_variant", "hero_full") if layout == "cover" else None
+    if layout == "cover" and HAS_COVER_V2:
+        _vspec = COVER_VARIANTS.get(_cover_variant or "hero_full", COVER_VARIANTS["hero_full"])
+        family, tpl_file = _vspec["template"]
+        if not _vspec["use_image"]:
+            has_img = False  # minimal 纯文字构图，不用底图
 
     svg = (TEMPLATE_ROOT / family / "templates" / tpl_file).read_text(encoding="utf-8")
     # CJK 字体优先：Noto Sans SC > PingFang SC > Microsoft YaHei > Arial
@@ -219,8 +225,12 @@ def render_page(page, images_dir):
         if m_img:
             img_tag = m_img.group(0)
             svg = svg.replace(img_tag, "", 1)
-            # 插到 <svg...> 之后（若有 defs 则插到 defs 之后）
-            if "<defs>" in svg:
+            # z-order 修正：图必须在 master-background 之上，否则被不透明底色盖住。
+            # （旧逻辑插到 defs/<svg> 之后 = 背景之前，v4 封面图实际不可见）
+            _bgm = re.search(r'<rect[^>]*id="master-background"[^>]*/>', svg)
+            if _bgm:
+                svg = svg.replace(_bgm.group(0), _bgm.group(0) + img_tag, 1)
+            elif "<defs>" in svg:
                 svg = svg.replace("</defs>", "</defs>" + img_tag, 1)
             else:
                 svg = re.sub(r'(<svg[^>]*>)', r"\g<1>" + img_tag, svg, count=1)
@@ -235,7 +245,7 @@ def render_page(page, images_dir):
         "__TITLE_LINES__": title_lines,
     }
 
-    if "{{CONTENT_AREA}}" in svg:
+    if "{{CONTENT_AREA}}" in svg and layout != "cover":
         m = re.search(
             r'<text[^>]*x="(\d+)" y="(\d+)"[^>]*fill="([^"]+)"[^>]*font-size="(\d+)"[^>]*>\{\{CONTENT_AREA\}\}</text>',
             svg,
@@ -246,7 +256,7 @@ def render_page(page, images_dir):
             svg = svg.replace(m.group(0), multi)
         else:
             reps["{{CONTENT_AREA}}"] = esc(" / ".join(bullets[:2]))
-    if "{{BODY_TEXT}}" in svg:
+    if "{{BODY_TEXT}}" in svg and layout != "cover":
         m = re.search(r'<text[^>]*>\{\{BODY_TEXT\}\}</text>', svg)
         if m:
             cm = re.search(r'x="(\d+)" y="(\d+)"[^>]*font-size="(\d+)"', m.group(0))
@@ -341,16 +351,31 @@ def render_page(page, images_dir):
         if len(_hook) > 20:
             _hook = _hook[:20]
         reps["{{KEY_MESSAGE}}"] = "__TITLE_MULTILINE__"
+        _variant = page.get("cover_variant", "hero_full")
         if HAS_COVER_V2:
-            reps["__TITLE_LINES__"] = split_cover_title(_hook)
+            _vspec = COVER_VARIANTS.get(_variant, COVER_VARIANTS["hero_full"])
+            reps["__TITLE_LINES__"] = split_cover_title(_hook, max_lines=_vspec["max_lines"])
             reps["__COVER_V2__"] = True
+            reps["__COVER_CW__"] = str(_vspec["container_width"])
+            reps["__COVER_FONTCAP__"] = str(_vspec["font_cap"])
+            if _vspec.get("centered"):
+                # minimal 居中：标题与副标题锚点移到中央
+                svg = re.sub(r'(<text[^>]*id="hero-statement-title-carrier"[^>]*?)x="96"',
+                             r'\1x="640" text-anchor="middle"', svg, count=1)
+                svg = re.sub(r'(<text[^>]*id="hero-statement-subtitle-carrier"[^>]*?)x="96"',
+                             r'\1x="640" text-anchor="middle"', svg, count=1)
         else:
             reps["__TITLE_LINES__"] = split_title(_hook, max_chars=10)
         reps["{{SUPPORT_TEXT}}"] = esc(page.get("subtitle", "")[:30])
+        if _variant == "split":
+            # split 左文：CONTENT_AREA 放副标题纯文本（无 bullet 前缀）
+            reps["{{CONTENT_AREA}}"] = esc(page.get("subtitle", "")[:60])
 
     # 多行标题：找到包含 __TITLE_MULTILINE__ 的 text，展开为多行
     title_lines = reps.pop("__TITLE_LINES__", [])
     _cover_v2_flag = reps.pop("__COVER_V2__", False)
+    _cover_cw = reps.pop("__COVER_CW__", None)
+    _cover_fontcap = reps.pop("__COVER_FONTCAP__", None)
     _table_svg = reps.pop("__TABLE_SVG__", "")
     for k, v in reps.items():
         svg = svg.replace(k, v)
@@ -373,11 +398,11 @@ def render_page(page, images_dir):
             # Cover v2 (neo式): 每行字号自适应铺满
             _cover_v2 = _is_cover and HAS_COVER_V2 and _cover_v2_flag
             if _cover_v2:
-                # 容器宽度估算：从 attrs 或默认 1000
-                _cw = 1000
-                _wm = __import__("re").search(r'width="([0-9]+)"', attrs)
+                # 容器宽度：按 variant 规格（hero_full 1120 / split 480 / minimal 1088）
+                _cw = int(_cover_cw) if _cover_cw else 1000
+                _fcap = int(_cover_fontcap) if _cover_fontcap else 72
                 # 每行独立计算字号
-                _sizes = [fit_font_size(l, _cw) for l in title_lines[:3]]
+                _sizes = [fit_font_size(l, _cw, base_size=_fcap) for l in title_lines[:3]]
                 fs = _sizes[0] if _sizes else 96
                 _lh = fs + 10
                 _n = len(title_lines[:3])
