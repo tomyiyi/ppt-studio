@@ -43,7 +43,7 @@ def clamp(v: float) -> float:
     return max(0.0, min(100.0, v))
 
 
-def score_page(svg_path: Path, render_png: Path | None, ramp: set) -> dict:
+def score_page(svg_path: Path, render_png: Path | None, ramp: set, margin: int = 76) -> dict:
     root = ET.parse(str(svg_path)).getroot()
     checks = []
 
@@ -66,7 +66,7 @@ def score_page(svg_path: Path, render_png: Path | None, ramp: set) -> dict:
                    "score": clamp(100 - 50 * len(dups)),
                    "evidence": [f"重影: {d}" for d in dups] or ["无重影"]})
 
-    ov = check_overflow(root)
+    ov = check_overflow(root, margin=margin)
     checks.append({"name": "overflow", "weight": WEIGHTS["overflow"],
                    "score": clamp(100 - 20 * len(ov)),
                    "evidence": ov[:6] or ["无溢出"]})
@@ -110,6 +110,16 @@ def main(argv=None) -> int:
     project = svg_dir.parent
     ramp = load_ramp(str(project / "spec_lock.md"))
 
+    # 尝试从 spec_tokens 读取 margin
+    margin = 76  # 兜底
+    try:
+        import spec_tokens as ST
+        tok = ST.load(project / "spec_lock.md")
+        margin = tok.margin
+        ramp = set(tok.ramp)
+    except Exception:
+        pass
+
     def find_png(stem):
         if not args.render_dir:
             return None
@@ -123,7 +133,7 @@ def main(argv=None) -> int:
     report = {"threshold": args.threshold, "pages": [], "review_required": []}
     for svg in sorted(svg_dir.glob("*.svg")):
         stem = svg.stem
-        pg = score_page(svg, find_png(stem), ramp)
+        pg = score_page(svg, find_png(stem), ramp, margin=margin)
         pg["pass"] = pg["score"] >= args.threshold
         report["pages"].append(pg)
         mark = "OK " if pg["pass"] else "REVIEW"

@@ -23,8 +23,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cover_archetypes import title_font_size
 
-W, H, MARGIN = 1280, 720, 76
-RAMP = {11, 13, 16, 20, 24, 32, 44, 56, 96, 160}  # 兜底，正常从 spec_lock 读
+W, H, MARGIN = 1280, 720, 60
+RAMP = {11, 13, 16, 20, 24, 32, 44, 96}
 BG, FG, MUTED, ACCENT, DIV, CARD = "#08090C", "#F7F7F9", "#8E8F9A", "#6E7BFF", "#23242E", "#12131A"
 NL = chr(10)
 
@@ -292,22 +292,10 @@ LAYOUTS = {"cover": layout_cover, "bullets": layout_bullets,
 
 
 def main(argv=None):
-    global MARGIN, RAMP
     ap = argparse.ArgumentParser(description="分页计划 -> SVG")
     ap.add_argument("--pages", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args(argv)
-
-    # 尝试从 spec_tokens 读取版式常量
-    spec_path = args.pages.parent / "spec_lock.md"
-    try:
-        import spec_tokens as ST
-        tok = ST.load(spec_path)
-        MARGIN = tok.margin
-        RAMP = set(tok.ramp)
-        print(f"[tokens] margin={tok.margin} ramp={sorted(tok.ramp)}")
-    except Exception as e:
-        print(f"[tokens][警告] 未读到 spec_lock，用兜底 margin={MARGIN} ramp={sorted(RAMP)}：{e}")
 
     plan = json.loads(args.pages.read_text(encoding="utf-8"))
     args.out.mkdir(parents=True, exist_ok=True)

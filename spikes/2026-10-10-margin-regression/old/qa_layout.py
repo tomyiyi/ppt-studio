@@ -33,8 +33,7 @@ from PIL import Image
 
 NS = "{http://www.w3.org/2000/svg}"
 CANVAS_W, CANVAS_H = 1280, 720
-DEFAULT_MARGIN = 76
-MARGIN = DEFAULT_MARGIN
+MARGIN = 60
 WCAG_MIN = 4.5
 
 # ---------------------------------------------------------------- 文本测宽
@@ -76,7 +75,7 @@ def text_span(t, anc):
     return anchor_left(x, w, t.get("text-anchor", "start")), w, y, size, txt
 
 # ---------------------------------------------------------------- 溢出
-def check_overflow(root, margin=MARGIN):
+def check_overflow(root):
     issues = []
     for t, anc in _iter_with_parents(root):
         if t.tag != NS + "text":
@@ -92,14 +91,14 @@ def check_overflow(root, margin=MARGIN):
         w = text_width(txt, size, mono, ls)
         left = anchor_left(x, w, anchor)
         right = left + w
-        if right > CANVAS_W - margin + 1:
-            issues.append(f"右溢出 {right - (CANVAS_W - margin):.0f}px  «{txt[:24]}»")
-        if left < margin - 1:
-            issues.append(f"左溢出 {(margin - left):.0f}px  «{txt[:24]}»")
+        if right > CANVAS_W - MARGIN + 1:
+            issues.append(f"右溢出 {right - (CANVAS_W - MARGIN):.0f}px  «{txt[:24]}»")
+        if left < MARGIN - 1:
+            issues.append(f"左溢出 {(MARGIN - left):.0f}px  «{txt[:24]}»")
     return issues
 
 # ---------------------------------------------------------------- 面板
-DEFAULT_RAMP = {11, 13, 16, 20, 24, 32, 44, 56, 96, 160}
+DEFAULT_RAMP = {11, 13, 16, 20, 24, 32, 44, 96}
 
 
 def load_ramp(spec_lock_path):
@@ -381,24 +380,12 @@ def check_contrast(img, root):
 
 # ---------------------------------------------------------------- main
 def main():
-    global MARGIN, DEFAULT_RAMP
     if len(sys.argv) < 3:
         print(__doc__)
         sys.exit(1)
     svg_dir, render_dir = sys.argv[1], sys.argv[2]
     # spec_lock 在 <project>/spec_lock.md，svg_dir 是 <project>/svg_output
     spec = os.path.join(os.path.dirname(os.path.abspath(svg_dir)), "spec_lock.md")
-
-    # 尝试从 spec_tokens 读取版式常量
-    try:
-        import spec_tokens as ST
-        tok = ST.load(spec)
-        MARGIN = tok.margin
-        DEFAULT_RAMP = set(tok.ramp)
-        print(f"[tokens] margin={tok.margin} ramp={sorted(tok.ramp)}")
-    except Exception as e:
-        print(f"[tokens][警告] 未读到 spec_lock，用兜底 margin={MARGIN} ramp={sorted(DEFAULT_RAMP)}：{e}")
-
     ramp = load_ramp(spec)
     print(f"字号阶梯（来自 {os.path.basename(spec)}）: {sorted(ramp)}")
 
@@ -442,7 +429,7 @@ def main():
         else:
             print("  [重影] OK（每张源图仅一次）")
 
-        ov = check_overflow(root, margin=MARGIN)
+        ov = check_overflow(root)
         if ov:
             bad += len(ov)
             for i in ov:
