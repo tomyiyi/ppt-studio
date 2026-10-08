@@ -6,7 +6,38 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.12–3.14](https://img.shields.io/badge/Python-3.12%E2%80%933.14-3776AB?logo=python&logoColor=white)](scripts/)
 
+<p align="center">
+  <img src="docs/assets/demo_fw2026.png" width="80%" alt="ppt-studio 输出示例：封面 + 数据表">
+  <br><em>Markdown → 封面（AI 配图 + 衬线标题）+ 真数据表，一键生成</em>
+</p>
+
 ---
+
+## Features（已落地，如实）
+
+- **Markdown → PPTX 一键闭环**：`md_to_pptx.py` 七阶段（切页→AI 配图→SVG 渲染→版式契约→质检打分→vendor 门禁→转 PPTX）
+- **SVG 唯一真源**：所有出口（PPTX/HTML/传播卡片）都从同一套 SVG 画布派生，不漂移
+- **质检闸门**：vendor 的 `svg_quality_checker` 做 blocking 门禁，溢出/截断/对比度不达标不许转
+- **真表格版式**：Markdown 表格渲染为原生 SVG 表格（非截图），数据不丢失
+- **AI 配图**：每页按内容生成背景图（b64_json 直传），失败自动降级纯文字版
+- **封面引擎**：标题字号自适应铺满 + Noto Serif SC 衬线（杂志感）
+- **中文排版**：CJK 字体优先栈，不硬截断（不断句、不加 …）
+
+---
+
+## 和同类方案的区别（诚实版）
+
+| | ppt-studio | python-pptx 手写 | Gamma / Tome 类 AI |
+|---|---|---|---|
+| 输入 | Markdown 笔记 | Python 代码 | 提示词/文档 |
+| 版式控制 | 版式契约 + 模板库，可审计 | 完全手写 | 黑盒 |
+| 质检 | vendor 门禁（blocking） | 无 | 无 |
+| 中文排版 | CJK 优先，不断句 | 自己处理 | 一般 |
+| 配图 | AI 按页生成（可降级） | 自己贴图 | AI 生成 |
+| 输出 | PPTX + HTML + 传播卡片 | PPTX | 在线分享/PDF |
+| 适用 | 开发者/内容团队的自动化管线 | 定制化单页 | 快速起草 |
+
+> 不夸大：AI 配图质量看模型；复杂版式仍需手调模板；不是"输入一句话就出完美 PPT"。
 
 ## 架构
 
