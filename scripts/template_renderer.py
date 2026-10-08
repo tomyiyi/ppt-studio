@@ -302,6 +302,9 @@ def render_page(page, images_dir):
                                    max_y=_slot_bottom(svg, m.start()), accent=_accent)
             svg = svg.replace(m.group(0), multi)
         else:
+            if len(bullets) > 2:
+                print("[WARN] CONTENT_AREA 文本元素未被匹配，%d 条只并入前 2 条（模板属性顺序变了？）"
+                      % len(bullets), file=sys.stderr)
             reps["{{CONTENT_AREA}}"] = esc(" / ".join(bullets[:2]))
     if "{{BODY_TEXT}}" in svg and layout != "cover":
         m = re.search(r'<text[^>]*>\{\{BODY_TEXT\}\}</text>', svg)
