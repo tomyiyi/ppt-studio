@@ -114,6 +114,7 @@ def main(argv=None) -> int:
     run([sys.executable, str(SCRIPTS / "md_to_pages.py"),
          "--md", str(args.md), "--out", str(pages_path)])
 
+
     # 封面三选一：显式参数 > cover_choice.json > 默认 hero_full
     _choice = args.cover_choice
     _choice_file = out / "cover_choice.json"
