@@ -5,7 +5,17 @@ qa_layout.py — PPT Master SVG 版面客观复核（不看图也能判断）
 三项检查：
   1. overflow  : 文本是否超出画布安全区（正确处理 text-anchor=start/middle/end）
   2. panel     : 图片面板区域是否真的有内容（不为纯色/不为空白）
-  3. contrast  : 渲染后文字区域是否满足 WCAG 4.5:1（背景=区域20分位，笔画=99.5分位）
+  3. contrast  : 渲染后文字区域是否满足 WCAG 4.5:1
+                 （2026-10-08 起：Otsu 二分类定背景/笔画，不再用写死的 20/99.5 分位）
+
+2026-10-08 三处误判修正（用户授权，带回归对账）：
+  A. check_line_collisions 旧版拿 `x` 属性差 ≤24 当"同列"，既不解析 text-anchor
+     （middle/end 下 x 只是锚点不是左边界），也漏判长文本尾巴压邻段 → 改判"渲染盒
+     水平 + 垂直双向重叠"。
+  B. panels_of 旧版只认 clipPath 里的 `<rect>`；而 vendor 门禁明写"局部/偏移裁切必须
+     用 `<path>`/`<polygon>`，`<rect>` 只允许覆盖整幅" → 合规写法反被报"无独立图片面板"。
+  C. check_contrast 旧版用固定分位（背景=20 分位、笔画=99.5 分位）代理"背景 vs 笔画"，
+     大字号细笔画时墨量占比 <20%，两类同时落在背景上 → 96px «不等于设计» 被误判 1.4:1。
 
 用法：
   python3 qa_layout.py <svg_dir> <rendered_dir>
@@ -42,6 +52,28 @@ def text_width(s, size, mono=False, ls=0.0):
 def mono_family(style):
     return bool(re.search(r"Consolas|monospace|Mono", style or "", re.I))
 
+def anchor_left(x, w, anchor):
+    """text-anchor → 渲染盒左边界。三处检查共用，别再各写一遍。"""
+    if anchor == "middle":
+        return x - w / 2
+    if anchor == "end":
+        return x - w
+    return x
+
+def text_span(t, anc):
+    """一个 <text> 的渲染盒信息；空文本返回 None。
+    返回 (left, width, baseline_y, size, txt)。"""
+    txt = "".join(t.itertext()).strip()
+    if not txt:
+        return None
+    x = float(t.get("x", 0) or 0)
+    y = float(t.get("y", 0) or 0)
+    size = inherited_font_size(t, anc)
+    mono = mono_family(t.get("font-family", "") or t.get("style", ""))
+    ls = float(t.get("letter-spacing", 0) or 0)
+    w = text_width(txt, size, mono, ls)
+    return anchor_left(x, w, t.get("text-anchor", "start")), w, y, size, txt
+
 # ---------------------------------------------------------------- 溢出
 def check_overflow(root):
     issues = []
@@ -57,12 +89,8 @@ def check_overflow(root):
         anchor = t.get("text-anchor", "start")
         mono = mono_family(t.get("font-family", "") or t.get("style", ""))
         w = text_width(txt, size, mono, ls)
-        if anchor == "middle":
-            left, right = x - w / 2, x + w / 2
-        elif anchor == "end":
-            left, right = x - w, x          # 向左延伸，右边界就是 x
-        else:
-            left, right = x, x + w
+        left = anchor_left(x, w, anchor)
+        right = left + w
         if right > CANVAS_W - MARGIN + 1:
             issues.append(f"右溢出 {right - (CANVAS_W - MARGIN):.0f}px  «{txt[:24]}»")
         if left < MARGIN - 1:
@@ -167,15 +195,44 @@ def check_dup_images(root):
     return sorted(dup)
 
 
+def _bbox_of_numbers(s):
+    """从 path `d` / polygon `points` 取包围盒。
+    只对**绝对坐标的直角路径**（M/L/H/V/Z，面板裁切全是这一类）保证准确：
+    H/V 的单数字会与下一个值配对，但极值仍落在真包围盒内。
+    含曲线/弧命令时控制点可能越出实际轮廓 → 结果是**偏大**的保守盒。"""
+    vals = re.findall(r"[-+0-9.eE]+", s or "")
+    if len(vals) < 2:
+        return None
+    nums = [float(v) for v in vals]
+    xs, ys = nums[0::2], nums[1::2]
+    if not xs or not ys:
+        return None
+    return (min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys))
+
 def panels_of(root):
     """返回 (id, x, y, w, h) —— 带 clip-path 的 <image>，即独立图片面板"""
     out = []
     clips = {}
     for cp in root.iter(NS + "clipPath"):
         cid = cp.get("id")
+        if not cid:
+            continue
         r = cp.find(NS + "rect")
-        if cid and r is not None:
-            clips[cid] = tuple(float(r.get(k, 0)) for k in ("x", "y", "width", "height"))
+        if r is not None:
+            clips[cid] = tuple(float(r.get(k, 0) or 0) for k in ("x", "y", "width", "height"))
+            continue
+        # 2026-10-08 修正 B：vendor 门禁要求局部裁切必须用 <path>/<polygon>
+        # （<rect> 只允许覆盖整幅），旧版只认 rect → 合规写法反被报"无独立图片面板"。
+        for el in list(cp):
+            tag = el.tag.rsplit("}", 1)[-1]
+            src = el.get("d") if tag == "path" else (
+                el.get("points") if tag == "polygon" else None)
+            if src is None:
+                continue
+            bb = _bbox_of_numbers(src)
+            if bb:
+                clips[cid] = bb
+                break
     for im in root.iter(NS + "image"):
         ref = im.get("clip-path", "")
         m = re.search(r"url\(#([^)]+)\)", ref)
@@ -184,6 +241,18 @@ def panels_of(root):
         geo = clips.get(m.group(1))
         if not geo:
             continue
+        # 与 <image> 自身矩形求交：裁切盒越界（曲线控制点外扩）时收敛回真实可见区
+        cx, cy, cw, ch = geo
+        try:
+            ix = float(im.get("x", 0) or 0); iy = float(im.get("y", 0) or 0)
+            iw = float(im.get("width", 0) or 0); ih = float(im.get("height", 0) or 0)
+        except ValueError:
+            iw = ih = 0
+        if iw > 0 and ih > 0:
+            x0, y0 = max(cx, ix), max(cy, iy)
+            x1, y1 = min(cx + cw, ix + iw), min(cy + ch, iy + ih)
+            if x1 > x0 and y1 > y0:
+                geo = (x0, y0, x1 - x0, y1 - y0)
         out.append(("panel:" + m.group(1),) + geo)
     return out
 
@@ -219,73 +288,89 @@ def lum(v):
     return 0.2126 * lin(v[0]) + 0.7152 * lin(v[1]) + 0.0722 * lin(v[2])
 
 def check_line_collisions(root):
-    """改版式挪动文字后，同一列里相邻两行可能压到一起。
-    按 x 相近（±24px）归为同一列，按 y 排序，检查行框是否重叠。
-    行框 = [baseline - 0.80*size, baseline + 0.25*size]。"""
-    rows = []
+    """改版式挪动文字后，相邻两行可能压到一起。
+    2026-10-08 修正 A：判据从"`x` 属性差 ≤24 视为同列"换成"**渲染盒**双向重叠"。
+    旧判据不解析 text-anchor（middle/end 下 x 只是锚点），实测把徽标圆内的
+    middle 数字与旁边的节点名误判成压行；同时它还会漏判
+    "x 差得远但长文本尾巴压到邻段"。workflow_full 18 页里这类误报共 29 条。
+    行框 = [baseline - 0.80*size, baseline + 0.25*size]；列框 = 按 anchor 展开后的 [left, left+w]。
+    同一基线（|Δbaseline| ≤ 0.30×字号）的两段是**行内并排**（项目符号 + 正文、
+    数字 + 单位），本就应当首尾相接，且测宽是启发式、有几像素误差 → 这一类要求
+    横向重叠 ≥8px 才算撞；跨行堆叠的仍是 ≥4px。"""
+    boxes = []
     for t, anc in _iter_with_parents(root):
         if t.tag != NS + "text":
             continue
-        txt = "".join(t.itertext()).strip()
-        if not txt:
+        sp = text_span(t, anc)
+        if sp is None:
             continue
-        x = float(t.get("x", 0) or 0); y = float(t.get("y", 0) or 0)
-        rows.append((x, y, inherited_font_size(t, anc), txt))
-    rows.sort(key=lambda r: (r[0], r[1]))
+        left, w, y, size, txt = sp
+        boxes.append((left, left + w, y - 0.80 * size, y + 0.25 * size, y, size, txt))
     out = []
-    for i in range(len(rows)):
-        for j in range(i + 1, len(rows)):
-            x1, y1, s1, t1 = rows[i]
-            x2, y2, s2, t2 = rows[j]
-            if abs(x1 - x2) > 24:
-                continue
-            a0, a1 = y1 - 0.80 * s1, y1 + 0.25 * s1
-            b0, b1 = y2 - 0.80 * s2, y2 + 0.25 * s2
-            ov = min(a1, b1) - max(a0, b0)
-            if ov > 2:
-                out.append(f"压行 {ov:.0f}px «{t1[:14]}» × «{t2[:14]}»")
+    for i in range(len(boxes)):
+        for j in range(i + 1, len(boxes)):
+            a_l, a_r, a_t, a_b, a_y, a_s, a_x = boxes[i]
+            b_l, b_r, b_t, b_b, b_y, b_s, b_x = boxes[j]
+            hov = min(a_r, b_r) - max(a_l, b_l)
+            ov = min(a_b, b_b) - max(a_t, b_t)
+            same_line = abs(a_y - b_y) <= 0.30 * max(a_s, b_s)
+            if hov >= (8.0 if same_line else 4.0) and ov > 2:
+                out.append(f"压行 横向{hov:.0f}px×纵向{ov:.0f}px «{a_x[:14]}» × «{b_x[:14]}»")
     return out
 
 
+def _otsu_threshold(vals):
+    """Otsu 二分类阈值（只用 numpy，不引 scipy）。返回灰度值。"""
+    hist, edges = np.histogram(vals, bins=64, range=(0.0, 256.0))
+    centers = (edges[:-1] + edges[1:]) / 2
+    p = hist / max(1, int(hist.sum()))
+    w = np.cumsum(p)
+    s = np.cumsum(p * centers)
+    denom = w * (1.0 - w)
+    np.seterr(invalid="ignore")
+    var = np.where(denom > 0, (s[-1] * w - s) ** 2 / np.where(denom > 0, denom, 1), -1.0)
+    return float(centers[int(np.argmax(var))])
+
 def check_contrast(img, root):
-    """对每段文本，取渲染图中文字包围盒：背景=20分位亮度，笔画=99.5分位亮度"""
+    """对每段文本，取渲染图中文字包围盒，判 WCAG 对比度。
+    2026-10-08 修正 C：背景/笔画改用 Otsu 二分类 + 少数类"核心端"取色。
+    旧版写死 背景=20 分位 / 笔画=99.5 分位，隐含假设墨量占比 ≈20%；
+    大字号细笔画（96px 中文）墨量只有百分之几，两个分位同时落在背景上 →
+    «不等于设计» 被误判 1.4:1（像素统计证明底是 242、字是 6）。"""
     rgb = np.asarray(img.convert("RGB"), dtype=np.float64)
     g = rgb.mean(axis=2)
     rows = []
     for t, anc in _iter_with_parents(root):
         if t.tag != NS + "text":
             continue
-        txt = "".join(t.itertext()).strip()
-        if not txt:
+        sp = text_span(t, anc)
+        if sp is None:
             continue
-        x = float(t.get("x", 0) or 0)
-        y = float(t.get("y", 0) or 0)
-        size = inherited_font_size(t, anc)
-        anchor = t.get("text-anchor", "start")
-        mono = mono_family(t.get("font-family", "") or t.get("style", ""))
-        ls = float(t.get("letter-spacing", 0) or 0)
-        w = text_width(txt, size, mono, ls)
-        if anchor == "middle":
-            left = x - w / 2
-        elif anchor == "end":
-            left = x - w
-        else:
-            left = x
+        left, w, y, size, txt = sp
         x0 = int(max(0, left)); x1 = int(min(img.width, left + w))
         y0 = int(max(0, y - size * 0.85)); y1 = int(min(img.height, y + size * 0.25))
         if x1 - x0 < 4 or y1 - y0 < 4:
             continue
         reg = g[y0:y1, x0:x1]
-        if reg.size < 30:
+        area = rgb[y0:y1, x0:x1]
+        if reg.size < 30 or (reg.max() - reg.min()) < 2:
+            continue                      # 区域几乎单色：没有字，或框没套住字
+        thr = _otsu_threshold(reg)
+        lo, hi = reg <= thr, reg > thr
+        if not lo.any() or not hi.any():
             continue
-        bg_t = np.percentile(reg, 20)
-        gl_t = np.percentile(reg, 99.5)
-        bgm = reg <= bg_t
-        glm = reg >= gl_t
-        if not bgm.any() or not glm.any():
+        if lo.sum() > hi.sum():           # 暗像素占多数 → 暗底亮字
+            bg_m = lo
+            q = np.quantile(reg[hi], 0.75)
+            st_m = hi & (reg >= q)        # 最亮的一档才是笔画核心，抗锯齿边缘不计入
+        else:                             # 亮底暗字
+            bg_m = hi
+            q = np.quantile(reg[lo], 0.25)
+            st_m = lo & (reg <= q)
+        if not st_m.any():
             continue
-        bg = rgb[y0:y1, x0:x1][bgm].mean(axis=0)
-        gl = rgb[y0:y1, x0:x1][glm].mean(axis=0)
+        bg = area[bg_m].mean(axis=0)
+        gl = area[st_m].mean(axis=0)
         L1, L2 = lum(gl), lum(bg)
         if L1 < L2:
             L1, L2 = L2, L1
