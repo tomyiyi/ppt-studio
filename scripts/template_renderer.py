@@ -30,6 +30,37 @@ TEMPLATE_ROOT = Path(
     "/Volumes/3TB_DATA/05-开发项目/ppt/tools/ppt-master/skills/ppt-master/templates/layouts"
 )
 
+# 无底图页面的正文字色必须在浅色底上达到 WCAG AA 4.5:1。
+# presentation_core 系列模板的 carrier 写的是 #94A3B8（对白底仅 2.6:1），
+# 带图页放不下内容会回退成纯文字版式，沿用它就直接糊成一片浅灰，这里收口。
+MIN_TEXT_CONTRAST = 4.5
+BODY_ON_LIGHT = "#475569"   # 与 presentation_core_43 系列正文色一致，对 #F4F6F8 约 7:1
+
+
+def _rel_lum(hex_fill):
+    m = re.match(r"#([0-9A-Fa-f]{6})$", hex_fill.strip())
+    if not m:
+        return -1.0
+    ch = lambda v: v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+    r, g, b = (int(m.group(1)[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
+    return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b)
+
+
+def contrast_ratio(a, b):
+    la, lb = _rel_lum(a), _rel_lum(b)
+    if la < 0 or lb < 0:
+        return 1.0          # 非十六进制色（渐变 / url 引用）不判定
+    hi, lo = max(la, lb), min(la, lb)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def readable_fill(fill, on_dark):
+    """带底图时文字走白色、由遮罩保对比度；纯文字页在这里兜底。"""
+    if on_dark:
+        return fill
+    return fill if contrast_ratio(fill, "#FFFFFF") >= MIN_TEXT_CONTRAST else BODY_ON_LIGHT
+
+
 LAYOUT_MAP = {
     "cover": {
         "with_image": ("editorial_bleed", "01_hero_full.svg"),
@@ -419,6 +450,8 @@ def render_page(page, images_dir):
             _sx, _sy, _sw, _sh = _slot_bounds(svg, m.start())
             if has_img:
                 fill = "#FFFFFF"   # 底图上浅灰字对比度不够，纯白可让遮罩少压 ~15%
+            else:
+                fill = readable_fill(fill, False)
             multi = bullets_to_svg(bullets, x, y, fs, fill, fs + 16,
                                    max_y=_sy + _sh, accent=_accent, slot_w=_sw)
             if multi is None:
@@ -438,7 +471,7 @@ def render_page(page, images_dir):
             if cm:
                 x, y, fs = int(cm.group(1)), int(cm.group(2)), int(cm.group(3))
                 fillm = re.search(r'fill="([^"]+)"', m.group(0))
-                fill = fillm.group(1) if fillm else "#334155"
+                fill = readable_fill(fillm.group(1) if fillm else "#334155", False)
                 multi = bullets_to_svg(bullets, x, y, fs, fill, fs + 16, max_chars=26,
                                        max_y=_slot_bottom(svg, m.start()), accent=_accent)
                 svg = svg.replace(m.group(0), multi)
@@ -654,6 +687,11 @@ def render_page(page, images_dir):
                              lambda mm: '%s%s %s %s %d%s' % (mm.group(1), mm.group(2), mm.group(3),
                                                              mm.group(4), _need_h, mm.group(6)),
                              svg, count=1)
+    # 每页补一个根 <title>：plan_contract 用它做页面标题，无障碍朗读也依赖它。
+    if _raw_title and "<title>" not in svg:
+        svg = re.sub(r"(<svg[^>]*>)",
+                     lambda mm: mm.group(1) + "<title>%s</title>" % esc(_raw_title.strip()),
+                     svg, count=1)
     svg = re.sub(r"\{\{[A-Z_0-9]+\}\}", "", svg)
     return svg
 
