@@ -398,6 +398,7 @@ def render_page(page, images_dir):
         else:
             reps["__TITLE_LINES__"] = split_title(_hook, max_chars=10)
         reps["{{SUPPORT_TEXT}}"] = esc(_cover_sub)
+        reps["{{SUBTITLE}}"] = esc(_cover_sub)  # hero_full 模板用 {{SUBTITLE}}
         if _variant == "split":
             # split 左文：CONTENT_AREA 放副标题纯文本（无 bullet 前缀）
             reps["{{CONTENT_AREA}}"] = esc(_cover_sub[:60])

@@ -218,6 +218,8 @@ def generate_cover_copy(title: str, mood: str = "", hook=None, subtitle: str = "
     core = re.sub(r"^(19|20)\d{2}\s*", "", core).strip()
     # 主标题：<=8 字直接用；超长按语义断点压缩（取信息量最大的块，不取首块）
     if len(core) > 8:
+        # 数字+量词先黏合（"5 条" -> "5条"），避免数字被单独切出来
+        core = re.sub(r"(\d)\s*([条个章节款步])", r"\1\2", core)
         cands = [core]
         for sep in ["，", "、", "之", "与", "和", " "]:
             nxt = []
@@ -230,7 +232,7 @@ def generate_cover_copy(title: str, mood: str = "", hook=None, subtitle: str = "
             if not c:
                 continue
             score = len(c)
-            if re.search(r"\d", c):
+            if len(c) >= 2 and re.search(r"\d", c):
                 score += 10  # 数字制造具体感（extract_hook 规则2）
             if 4 <= len(c) <= 10:
                 score += 5
