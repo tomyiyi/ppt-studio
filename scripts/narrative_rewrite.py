@@ -138,26 +138,32 @@ def visual_concept(slide_title: str, bullets: list | None = None,
 # === 风格 / 光照 / 环境：按领域，不再按单字关键词 ===
 
 STYLE_BY_DOMAIN = {
-    "fashion": "fashion editorial photography, elegant studio lighting, high fashion magazine aesthetic",
+    "fashion": "fashion editorial photography on a dark set, low-key lighting, high fashion magazine aesthetic",
     "tech": "dark tech editorial, deep navy black gradient, cinematic lighting, minimalist",
-    "finance": "editorial report style, clean composition, muted professional palette",
-    None: "clean editorial background, soft directional lighting, generous whitespace, minimalist",
+    "finance": "editorial report style, dark composition, muted professional palette",
+    None: "dark editorial background, low-key directional lighting, generous negative space, minimalist",
 }
 LIGHTING_BY_DOMAIN = {
-    "fashion": "soft diffused studio lighting",
+    "fashion": "low-key diffused studio lighting, deep shadows",
     "tech": "dramatic rim lighting",
-    "finance": "even soft lighting",
-    None: "soft directional lighting",
+    "finance": "dim even lighting, deep shadows",
+    None: "rim lighting from the right, left side in shadow",
 }
 ENV_BY_DOMAIN = {
-    "fashion": "elegant neutral studio backdrop",
+    "fashion": "charcoal studio backdrop",
     "tech": "deep navy black void with subtle grid",
-    "finance": "light neutral gradient backdrop",
-    None: "clean neutral gradient backdrop",
+    "finance": "graphite gradient backdrop",
+    None: "deep graphite gradient backdrop",
 }
 
 NEGATIVE_PROMPT = ("text, words, letters, watermark, logo, people, face, "
                    "blurry, low quality, cluttered, oversaturated")
+
+# 这些图是文字底板（白色文字直接压在图上），亮底会被遮罩压成一片黑，等于白生图。
+# 实测中性/时尚/财经三档环境词都偏亮（文字带亮度 0.48~0.76，遮罩要压到 0.62~0.76），
+# 所以统一在 prompt 末尾钉死暗调，让底图在遮罩之后仍然看得见。
+DARK_PLATE = ("dark low-key backdrop, deep shadows, underexposed left half for text overlay, "
+              "overall luminance below 0.25")
 
 
 def get_style_suffix(slide_title: str, bullets: list | None = None) -> str:
@@ -187,6 +193,7 @@ def build_image_prompt(concept: dict, slide_title: str = "",
         concept.get("action", "soft ambient presence"),
         env, lighting, style,
         "highly detailed, professional quality",
+        DARK_PLATE,
     ])
     return positive, NEGATIVE_PROMPT
 
