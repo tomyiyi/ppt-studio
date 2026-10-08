@@ -5,7 +5,7 @@ import html
 import re
 
 try:
-    from cover_v2 import fit_font_size, split_cover_title, disp_width, get_cover_font_family, detect_mood, COVER_VARIANTS
+    from cover_v2 import fit_font_size, split_cover_title, disp_width, get_cover_font_family, detect_mood, COVER_VARIANTS, generate_cover_copy
     HAS_COVER_V2 = True
 except ImportError:
     HAS_COVER_V2 = False
@@ -364,18 +364,23 @@ def render_page(page, images_dir):
         reps["{{CHAPTER_TITLE}}"] = "__TITLE_MULTILINE__"
         reps["{{CHAPTER_DESC}}"] = esc(" / ".join(bullets[:1])[:30])
     if layout == "closing":
-        # 收束页：标题是金句，CONTACT_LINE 放完整总结（不断章）
+        # 收束页：CLOSING_MESSAGE 是标题，CONTACT_LINE 放金句+总结
         reps["{{CLOSING_MESSAGE}}"] = esc(_raw_title[:24])
-        _cl = bullets[0][:36] if bullets else ""
-        # 第二条总结放到 SUPPORT（如果模板有）
+        # 两条合成一句，不断章：取第一条金句 + 第二条前40字
+        _parts = []
+        if bullets:
+            _parts.append(bullets[0][:20])
         if len(bullets) > 1:
-            reps["{{SUPPORT_TEXT}}"] = esc(bullets[1][:60])
+            _parts.append(bullets[1][:40])
+        _cl = "——".join(_parts)[:36]
         reps["{{CONTACT_LINE}}"] = esc(_cl)
     if layout == "cover":
-        # 封面是钩子：取冒号前的核心标题，避免长标题堆砌溢出
-        _hook = re.split(r"[：:——]", _raw_title)[0].strip()
-        if len(_hook) > 20:
-            _hook = _hook[:20]
+        # 封面文案：agnes copy_templates 公式（hook > 公式改写 > 原标题）
+        _mood = detect_mood(_raw_title, page.get("subtitle", ""))
+        _copy = generate_cover_copy(_raw_title, _mood, page.get("hook"),
+                                    page.get("subtitle", "")) if HAS_COVER_V2 else None
+        _hook = _copy["title"] if _copy else re.split(r"[：:——]", _raw_title)[0].strip()[:20]
+        _cover_sub = _copy["subtitle"] if _copy else page.get("subtitle", "")[:30]
         reps["{{KEY_MESSAGE}}"] = "__TITLE_MULTILINE__"
         _variant = page.get("cover_variant", "hero_full")
         if HAS_COVER_V2:
@@ -392,10 +397,10 @@ def render_page(page, images_dir):
                              r'\1x="640" text-anchor="middle"', svg, count=1)
         else:
             reps["__TITLE_LINES__"] = split_title(_hook, max_chars=10)
-        reps["{{SUPPORT_TEXT}}"] = esc(page.get("subtitle", "")[:30])
+        reps["{{SUPPORT_TEXT}}"] = esc(_cover_sub)
         if _variant == "split":
             # split 左文：CONTENT_AREA 放副标题纯文本（无 bullet 前缀）
-            reps["{{CONTENT_AREA}}"] = esc(page.get("subtitle", "")[:60])
+            reps["{{CONTENT_AREA}}"] = esc(_cover_sub[:60])
 
     # 多行标题：找到包含 __TITLE_MULTILINE__ 的 text，展开为多行
     title_lines = reps.pop("__TITLE_LINES__", [])
@@ -416,7 +421,7 @@ def render_page(page, images_dir):
             _bx = [int(v) for v in _tm.group(1).split()]
             # bounds: x y w h -> 规线在 y+h+16 处，宽 64px
             _rx, _ry = _bx[0], _bx[1] + _bx[3] + 16
-            _rule = ('<rect x="%d" y="%d" width="64" height="4" fill="%s" '
+            _rule = ('<rect id="agnes-accent-rule" x="%d" y="%d" width="64" height="4" fill="%s" '
                      'data-pptx-role="decoration" data-agnes-accent="true"/>'
                      % (_rx, _ry, _accent))
             svg = svg.replace("</svg>", _rule + "\n</svg>", 1)
