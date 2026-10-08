@@ -58,7 +58,7 @@ def render_table_svg(header: list[str], rows: list[list[str]],
         parts.append(
             f'<text x="{x}" y="120" '
             f'font-family="Noto Sans SC, PingFang SC, sans-serif" '
-            f'font-size="36" font-weight="700" fill="#1a1d29">'
+            f'font-size="32" font-weight="700" fill="#1a1d29">'
             f'{html.escape(title)}</text>'
         )
 

@@ -482,6 +482,17 @@ def render_page(page, images_dir):
                 _lh_i = _sz + 10 if _cover_v2 else _lh
                 multi.append('<text%s y="%d">%s</text>' % (_sync, y + i * _lh_i, esc(line)))
             svg = svg.replace(m.group(0), "\n".join(multi))
+            if len(multi) > 1:
+                # 多行标题：id 去重 + 把标题槽 bounds 扩到能装下（下方 object 槽从 176 起，封顶 136）
+                for _i in range(1, len(multi)):
+                    multi[_i] = multi[_i].replace('id="title-content-title-carrier"',
+                                                  'id="title-content-title-carrier-%d"' % (_i + 1))
+                _need_h = (y + _lh * (len(multi) - 1)) + int(fs * 0.35) - 40
+                _need_h = max(72, min(136, int(_need_h)))
+                svg = re.sub(r'(<g id="[^"]*title-slot"[^>]*data-pptx-bounds=")(\d+) (\d+) (\d+) (\d+)(")',
+                             lambda mm: '%s%s %s %s %d%s' % (mm.group(1), mm.group(2), mm.group(3),
+                                                             mm.group(4), _need_h, mm.group(6)),
+                             svg, count=1)
     svg = re.sub(r"\{\{[A-Z_0-9]+\}\}", "", svg)
     return svg
 
