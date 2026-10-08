@@ -8,6 +8,7 @@
 3. 中文：Noto Serif SC 标题 + Noto Sans SC 正文
 """
 from __future__ import annotations
+from pathlib import Path
 
 import re
 
@@ -89,12 +90,41 @@ def split_cover_title(title: str, max_lines: int = 3) -> list[str]:
 
 # 字体栈：把系统实际装有的字体放前面，避免依赖未安装的字体。
 # 与 pages_to_svg.py / template_renderer.py 保持一致的回退策略。
-def get_cover_font_family() -> str:
-    """封面标题字体：优先衬线（气质），逐级回退到系统一定有的字体。
+_AGNES_TOKENS = None
 
-    注意：旧版首位是 'Noto Serif SC'——本机未安装时会静默回退到
-    Songti SC / serif，与项目其他渲染器的 PingFang SC 观感割裂。
+def _load_agnes_tokens() -> dict:
+    """加载 agnes_tokens.json（无文件时返回空）。"""
+    global _AGNES_TOKENS
+    if _AGNES_TOKENS is None:
+        try:
+            import json
+            tp = Path(__file__).parent / "agnes_tokens.json"
+            _AGNES_TOKENS = json.loads(tp.read_text(encoding="utf-8")) if tp.exists() else {}
+        except Exception:
+            _AGNES_TOKENS = {}
+    return _AGNES_TOKENS
+
+
+def detect_mood(title: str = "", subtitle: str = "") -> str:
+    """从标题推断气质：gaoding（高定/时尚）/ dashi（大气/科技）/ wenyi（文艺）。"""
+    t = (title + subtitle).lower()
+    if any(k in t for k in ["时尚", "fashion", "高定", "品牌", "奢侈", "vogue", "美妆", "穿搭"]):
+        return "gaoding"
+    if any(k in t for k in ["文艺", "诗", "治愈", "散文", "文学"]):
+        return "wenyi"
+    return "dashi"
+
+
+def get_cover_font_family(mood: str = "") -> str:
+    """封面标题字体：agnes 字体配方驱动。
+    gaoding -> 典雅宋 | dashi -> 势能黑 | wenyi -> 诗意楷
     """
+    tokens = _load_agnes_tokens()
+    fonts = tokens.get("fonts", {})
+    if mood and mood in fonts:
+        stack = fonts[mood].get("cn_display", [])
+        if stack:
+            return ", ".join('"%s"' % f if " " in f else f for f in stack)
     return "Songti SC, STSong, Noto Serif SC, serif"
 
 

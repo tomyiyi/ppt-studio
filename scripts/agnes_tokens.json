@@ -1,0 +1,162 @@
+{
+  "source": "agnes-studio-work",
+  "version": "2026-10-08",
+  "fonts": {
+    "gaoding": {
+      "name": "典雅宋 · 高定/品牌",
+      "cn_display": [
+        "Songti SC",
+        "STSong",
+        "Noto Serif SC",
+        "serif"
+      ],
+      "cn_body": [
+        "LXGWWenKai",
+        "PingFang SC",
+        "sans-serif"
+      ],
+      "latin_display": [
+        "Bodoni 72",
+        "Didot",
+        "Baskerville",
+        "serif"
+      ],
+      "display_size": "88–120px @1080",
+      "display_tracking": "0.06em",
+      "layout_hint": "负空间一角或中轴竖排；主标独占视觉；细规线 1px；印章小而偏",
+      "avoid": [
+        "得意黑斜体当唯一主标",
+        "多彩字",
+        "阴影描边",
+        "大圆角装饰框"
+      ]
+    },
+    "dashi": {
+      "name": "势能黑 · 大气/电影",
+      "cn_display": [
+        "SmileySans",
+        "思源黑 Heavy",
+        "sans-serif"
+      ],
+      "cn_body": [
+        "PingFang",
+        "思源黑 Regular",
+        "sans-serif"
+      ],
+      "latin_display": [
+        "Futura",
+        "Helvetica Neue",
+        "serif"
+      ],
+      "display_size": "110–160px",
+      "display_tracking": "0.06em",
+      "layout_hint": "压图巨字或对角拆字；scrim 只压字侧；装饰=细线/极小编号",
+      "avoid": [
+        "字挤在一起",
+        "英文与中文同号",
+        "花边/色块框"
+      ]
+    },
+    "wenyi": {
+      "name": "诗意楷 · 文艺/治愈",
+      "cn_display": [
+        "LXGWWenKai",
+        "sans-serif"
+      ],
+      "cn_body": [
+        "LXGWWenKai Light",
+        "sans-serif"
+      ],
+      "latin_display": [
+        "Baskerville Italic",
+        "Georgia Italic",
+        "serif"
+      ],
+      "display_size": "64–88px",
+      "display_tracking": "0.06em",
+      "layout_hint": "负空间一角；主标可两行诗行；细线分隔；无印章或极小印章",
+      "avoid": [
+        "卡通手写乱用",
+        "拥挤信息",
+        "高饱和撞色"
+      ]
+    },
+    "_micro": {
+      "optical_margin": "文本块左边距 ≥7% 画幅；主标基线与图像重心成张力",
+      "hairline": "1px 规线长度 40–64px，弱于字",
+      "seal": "≤48px，色 #B4232A 或金 #C4A57C，位置右下/主标侧",
+      "vertical_title": "writing-mode: vertical-rl；字距 0.15em；适合中式",
+      "pangu": "0.25em；中文大标通常不夹英文",
+      "contrast": "亮图→墨字+浅帘；暗图→米白字；禁止亮底浅黄字"
+    }
+  },
+  "layout": {
+    "negative_space": {
+      "min": 0.35,
+      "sweet": 0.45,
+      "max": 0.6
+    },
+    "type_scale": {
+      "min": 8,
+      "sweet": 10,
+      "max": 16
+    },
+    "spacing_rhythm": [
+      8,
+      16,
+      24,
+      32,
+      48,
+      64,
+      96
+    ]
+  },
+  "cover_rules": [
+    "形：莫兰迪色块打底隔离复杂背景",
+    "斜：8° 窄斜体得意黑建立动势",
+    "比：主标题与微标 10:1 极端字阶对比",
+    "空：对角避让保留人物视觉焦点",
+    "形：莫兰迪色块打底隔离复杂背景",
+    "斜：8° 窄斜体得意黑建立动势",
+    "比：主标题与微标 10:1 极端字阶对比",
+    "空：对角避让保留人物视觉焦点",
+    "形：莫兰迪色块打底隔离复杂背景",
+    "斜：8° 窄斜体得意黑建立动势",
+    "比：主标题与微标 10:1 极端字阶对比",
+    "空：对角避让保留人物视觉焦点",
+    "大气=留白≥35%（甜点45–60%）+ 字阶8–10:1 + 装饰≤10% + 色角色≤3"
+  ],
+  "palette_strategies": [
+    "ink+gold",
+    "low-sat-field+one-pop",
+    "mono+accent"
+  ],
+  "copy_themes": [
+    "beauty",
+    "tech",
+    "cinematic",
+    "grand"
+  ],
+  "copy_rules": {
+    "title_a_chars": [
+      2,
+      4
+    ],
+    "title_b_chars": [
+      2,
+      4
+    ],
+    "slogan_max_chars": 18,
+    "pangu_required": true,
+    "forbid_chars": [
+      "“",
+      "”",
+      "‘",
+      "’"
+    ],
+    "prefer_quotes": [
+      "「",
+      "」"
+    ]
+  }
+}

@@ -5,7 +5,7 @@ import html
 import re
 
 try:
-    from cover_v2 import fit_font_size, split_cover_title, disp_width, get_cover_font_family, COVER_VARIANTS
+    from cover_v2 import fit_font_size, split_cover_title, disp_width, get_cover_font_family, detect_mood, COVER_VARIANTS
     HAS_COVER_V2 = True
 except ImportError:
     HAS_COVER_V2 = False
@@ -409,7 +409,8 @@ def render_page(page, images_dir):
                 if _n > 1:
                     y = y - (_n - 1) * _lh // 2
                 # 衬线字体
-                _serif = get_cover_font_family()
+                _mood = detect_mood(page.get("title", ""), page.get("subtitle", ""))
+                _serif = get_cover_font_family(_mood)
             if not _cover_v2 and _n == 3:
                 fs = 44 if _is_cover else 24
                 _lh = fs + 6
