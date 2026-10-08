@@ -86,8 +86,16 @@ def detect_reading_function(sec_title: str, sec_body: str, bullets: list) -> str
     # 大数字页：数字必须在标题中突出（如"41% 失败率"），正文中的数字不算
     if re.search(r"\d+\s*[%％倍]", sec_title):
         return "fact"
-    # 对比页
-    if TABLE_RE.search(sec_body) or "对比" in t or " vs " in t.lower():
+    # 数据表 vs 对比页：3列以上或4行以上是数据表，用 table 真表格
+    if TABLE_RE.search(sec_body):
+        _tbl_lines = [l for l in sec_body.split("\n") if l.strip().startswith("|") and "---" not in l.strip()]
+        if _tbl_lines:
+            _ncols = len(_tbl_lines[0].strip("|").split("|"))
+            _nrows = len(_tbl_lines) - 1  # 去表头
+            if _ncols >= 3 or _nrows >= 4:
+                return "table"
+        return "compare"
+    if "对比" in t or " vs " in t.lower():
         return "compare"
     # 步骤页
     if re.search(r"第[一二三四五六七八九\d]+步|步骤", t):
@@ -95,9 +103,12 @@ def detect_reading_function(sec_title: str, sec_body: str, bullets: list) -> str
     return "bullets"
 
 
-def needs_split(bullets: list, max_bullets: int = 4) -> bool:
+def needs_split(bullets: list, max_bullets: int = 4, layout: str = "") -> bool:
     """Slidev 铁律：溢出就拆页，绝不缩小硬塞。"""
-    if len(bullets) > max_bullets:
+    # table 版式：表头+7行内单页，真表格比拆页好
+    _is_tbl = any(b.strip().startswith("|") for b in bullets)
+    _limit = 8 if (layout == "table" or _is_tbl) else max_bullets
+    if len(bullets) > _limit:
         return True
     return sum(len(b) for b in bullets) > 200
 
@@ -217,8 +228,10 @@ def md_to_pages(md_path: Path, max_bullets: int = 5) -> dict:
             if bm:
                 bullets.append(strip_md(bm.group(1))[:80])
             elif ls.startswith("|") and "---" not in ls:
-                # 表格行：保留原始，供 compare 解析
+                # 表格行：完整收集，不受 max_bullets 截断（丢一行就是丢数据）
+                # 表格的分页由 needs_split 统一处理
                 bullets.append(ls[:100])
+                continue
             if len(bullets) >= max_bullets:
                 break
         # 无列表项时，取前两句正文
@@ -236,7 +249,7 @@ def md_to_pages(md_path: Path, max_bullets: int = 5) -> dict:
                      "needs_review": _flags,
                      "image_prompt": page_image_prompt(sec_title, lay, bullets)}
         # 溢出拆分：绝不缩小硬塞
-        if needs_split(bullets):
+        if needs_split(bullets, layout=lay):
             for j in range(0, len(bullets), 4):
                 chunk = bullets[j:j + 4]
                 sp = base_page.copy()

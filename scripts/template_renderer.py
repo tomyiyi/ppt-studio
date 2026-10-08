@@ -9,6 +9,11 @@ try:
     HAS_COVER_V2 = True
 except ImportError:
     HAS_COVER_V2 = False
+try:
+    from table_layout import parse_md_table, render_table_svg
+    HAS_TABLE = True
+except ImportError:
+    HAS_TABLE = False
 
 TEMPLATE_ROOT = Path(
     "/Volumes/3TB_DATA/05-开发项目/ppt/tools/ppt-master/skills/ppt-master/templates/layouts"
@@ -26,6 +31,10 @@ LAYOUT_MAP = {
     "compare": {
         "with_image": ("presentation_core", "05_comparison.svg"),
         "without_image": ("presentation_core", "05_comparison.svg"),
+    },
+    "table": {  # 数据表：空白底，标题+真表格全自绘
+        "with_image": ("presentation_core", "07_blank.svg"),
+        "without_image": ("presentation_core", "07_blank.svg"),
     },
     "steps": {
         "with_image": ("presentation_core", "14_process_timeline.svg"),
@@ -118,22 +127,29 @@ def split_title(title, max_chars=14):
     return lines
 
 
-def bullets_to_svg(bullets, x, y, font_size, fill, line_h, max_chars=18, max_items=2):
+def bullets_to_svg(bullets, x, y, font_size, fill, line_h, max_chars=28, max_items=5,
+                   max_y=640):
+    """Bullets 渲染：不硬截断，换行显示，垂直空间内尽量放。
+    max_chars=28（中文14字/行），max_y 防止溢出槽位。"""
     out = []
     cy = y
     for b in bullets[:max_items]:
         b = b.strip()
-        if len(b) > 44:
-            b = b[:41] + "…"
+        # 不再用 … 截断：换行显示完整内容
         lines = wrap_text(b, max_chars)
-        for li, line in enumerate(lines[:2]):
+        for li, line in enumerate(lines[:4]):  # 单条最多4行
+            if cy > max_y:
+                break
             prefix = "• " if li == 0 else "  "
             out.append(
-                '<text x="%d" y="%d" fill="%s" font-family="Arial, Microsoft YaHei, sans-serif" '
+                '<text x="%d" y="%d" fill="%s" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" '
                 'font-size="%d">%s</text>'
                 % (x, cy, fill, font_size, esc(prefix + line))
             )
             cy += line_h
+        if cy > max_y:
+            break
+        cy += line_h // 2  # 条目间距
         cy += 8
     return "\n".join(out)
 
@@ -267,6 +283,16 @@ def render_page(page, images_dir):
                 "{{RIGHT_CONTENT}}": esc(" / ".join(r.get("items", [])[:2])[:60]),
             }
         )
+    if layout == "table" and HAS_TABLE:
+        # 数据表：解析 Markdown 表格，生成真表格 SVG
+        _th, _trs = parse_md_table(bullets)
+        if _th and _trs:
+            reps["__TABLE_SVG__"] = render_table_svg(_th, _trs, title=page.get("title", ""))
+            # 清空 bullets，避免模板再画一遍
+            reps["{{BULLETS}}"] = ""
+            reps["{{LEFT_CONTENT}}"] = ""
+            reps["{{RIGHT_CONTENT}}"] = ""
+    
     if layout == "steps":
         steps = page.get("steps", bullets)
         for i in range(1, 5):
@@ -299,9 +325,9 @@ def render_page(page, images_dir):
         reps["{{CHAPTER_TITLE}}"] = "__TITLE_MULTILINE__"
         reps["{{CHAPTER_DESC}}"] = esc(" / ".join(bullets[:1])[:30])
     if layout == "closing":
+        # 收束页：标题是金句，CONTACT_LINE 放完整总结（不断章）
         reps["{{CLOSING_MESSAGE}}"] = esc(_raw_title[:24])
-        # CONTACT_LINE 槽位窄，只放第一条且截到 24 字
-        _cl = bullets[0][:24] if bullets else ""
+        _cl = " / ".join(bullets[:2])[:80] if bullets else ""
         reps["{{CONTACT_LINE}}"] = esc(_cl)
     if layout == "cover":
         # 封面是钩子：取冒号前的核心标题，避免长标题堆砌溢出
@@ -319,8 +345,12 @@ def render_page(page, images_dir):
     # 多行标题：找到包含 __TITLE_MULTILINE__ 的 text，展开为多行
     title_lines = reps.pop("__TITLE_LINES__", [])
     _cover_v2_flag = reps.pop("__COVER_V2__", False)
+    _table_svg = reps.pop("__TABLE_SVG__", "")
     for k, v in reps.items():
         svg = svg.replace(k, v)
+    if _table_svg:
+        # 表格注入到内容区（</svg> 前）
+        svg = svg.replace("</svg>", _table_svg + "\n</svg>", 1)
     if "__TITLE_MULTILINE__" in svg and title_lines:
         m = re.search(r'<text([^>]*?)>__TITLE_MULTILINE__</text>', svg, re.DOTALL)
         if m:
