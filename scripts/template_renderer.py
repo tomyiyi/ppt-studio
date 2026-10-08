@@ -127,8 +127,8 @@ def split_title(title, max_chars=14):
     return lines
 
 
-def bullets_to_svg(bullets, x, y, font_size, fill, line_h, max_chars=28, max_items=5,
-                   max_y=640):
+def bullets_to_svg(bullets, x, y, font_size, fill, line_h, max_chars=22, max_items=4,
+                   max_y=540):
     """Bullets 渲染：不硬截断，换行显示，垂直空间内尽量放。
     max_chars=28（中文14字/行），max_y 防止溢出槽位。"""
     out = []
@@ -136,10 +136,12 @@ def bullets_to_svg(bullets, x, y, font_size, fill, line_h, max_chars=28, max_ite
     for b in bullets[:max_items]:
         b = b.strip()
         # 不再用 … 截断：换行显示完整内容
-        lines = wrap_text(b, max_chars)
-        for li, line in enumerate(lines[:4]):  # 单条最多4行
-            if cy > max_y:
-                break
+        lines = wrap_text(b, max_chars)[:3]  # 单条最多3行
+        # 整条放不下就不放，避免断句
+        need_h = len(lines) * line_h + line_h // 2
+        if cy + need_h > max_y + line_h:
+            break
+        for li, line in enumerate(lines):
             prefix = "• " if li == 0 else "  "
             out.append(
                 '<text x="%d" y="%d" fill="%s" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" '
@@ -147,8 +149,6 @@ def bullets_to_svg(bullets, x, y, font_size, fill, line_h, max_chars=28, max_ite
                 % (x, cy, fill, font_size, esc(prefix + line))
             )
             cy += line_h
-        if cy > max_y:
-            break
         cy += line_h // 2  # 条目间距
         cy += 8
     return "\n".join(out)
@@ -167,6 +167,9 @@ def render_page(page, images_dir):
     family, tpl_file = mapping["with_image"] if has_img else mapping["without_image"]
 
     svg = (TEMPLATE_ROOT / family / "templates" / tpl_file).read_text(encoding="utf-8")
+    # CJK 字体优先：Noto Sans SC > PingFang SC > Microsoft YaHei > Arial
+    svg = svg.replace('font-family="Arial, Microsoft YaHei, sans-serif"',
+                      'font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, Arial, sans-serif"')
     svg = svg.replace('width="1280" height="720"', 'width="1920" height="1080"', 1)
 
     # 背景图 slot 的 bounds 会与文字重叠（设计使然），先去掉避免 QA 误报
@@ -327,7 +330,10 @@ def render_page(page, images_dir):
     if layout == "closing":
         # 收束页：标题是金句，CONTACT_LINE 放完整总结（不断章）
         reps["{{CLOSING_MESSAGE}}"] = esc(_raw_title[:24])
-        _cl = " / ".join(bullets[:2])[:80] if bullets else ""
+        _cl = bullets[0][:36] if bullets else ""
+        # 第二条总结放到 SUPPORT（如果模板有）
+        if len(bullets) > 1:
+            reps["{{SUPPORT_TEXT}}"] = esc(bullets[1][:60])
         reps["{{CONTACT_LINE}}"] = esc(_cl)
     if layout == "cover":
         # 封面是钩子：取冒号前的核心标题，避免长标题堆砌溢出
