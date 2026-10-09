@@ -3,6 +3,7 @@
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 import layout_recipes as LR
+import qa_layout as Q
 import xml.etree.ElementTree as ET
 
 PASS = FAIL = 0
@@ -23,6 +24,7 @@ NS = "{http://www.w3.org/2000/svg}"
 class MockTok:
     canvas_w = 1280; canvas_h = 720; margin = 76
     baseline_step = 8; ramp = frozenset({11, 13, 16, 20, 24, 32, 44, 56, 96, 160})
+    poster = 160
     colors = {"FIELD": "#F5F5F5", "SURF": "#FFFFFF", "STRUCT": "#CCCCCC",
               "INK": "#1A1A1A", "SUB": "#666666", "SUB2": "#999999",
               "FOCUS": "#2563EB", "CAUTION": "#DC2626"}
@@ -129,6 +131,21 @@ ok("14a. mech SVG 可解析", root12 is not None)
 svg12_lower = svg12.lower()
 found14 = [f for f in FORBIDDEN if f.lower() in svg12_lower]
 ok("14b. mech 无禁用标签", len(found14) == 0, f"found={found14}")
+
+# 15. cover_p1: 两行 160px 标题 → 不报一级标题（A-1 几何合并生效）
+pg15 = {"index": 0, "title": "封面", "role": "cover", "layout": "cover_p1",
+        "assertion": "主标题", "so_what": "副标题", "subtitle": "副",
+        "scope_note": "笔记", "bullets": [], "evidence": [],
+        "needs_review": [], "image_intent": "none",
+        "audience": "工程师", "date": "2026-10-09", "duration": "30min"}
+svg15 = LR.recipe_cover_p1(pg15, TOK)
+root15 = ET.fromstring(svg15)
+scale15 = Q.check_scale(root15, set(TOK.ramp))
+l1_hits = [s for s in scale15 if "一级标题" in s]
+ok("15. cover 两行 160 → 不报一级标题", len(l1_hits) == 0, f"scale={scale15}")
+
+# 16. cover_p1: 强调色块在 canvas 内
+ok("16. 强调色块不压页脚", 556 + 4 <= TOK.canvas_h - 46)
 
 print(f"\n{'='*56}")
 print(f"通过 {PASS} / 失败 {FAIL} / xfail {XFAIL}")

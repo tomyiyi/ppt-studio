@@ -7,6 +7,13 @@ import html
 import re
 import xml.etree.ElementTree as ET
 
+try:
+    from cover_v2 import split_cover_title
+except ImportError:
+    def split_cover_title(title: str, max_lines: int = 3) -> list[str]:
+        parts = re.split(r"[：:]|——|—", title, maxsplit=1)
+        return [p.strip() for p in parts if p.strip()][:max_lines]
+
 W, H = 1280, 720
 DEFAULT_SANS = "Noto Sans SC"
 HEI, MONO = "Noto Sans SC", "Menlo"
@@ -241,3 +248,43 @@ def recipe_mechanism_flow(pg, tok):
                   c["SUB2"], 1, dash="4 3"))
     out += footer(tok, source_line(pg), pg["index"], c)
     return page_doc(pg, "".join(out), "mechanism")
+
+
+def meta_line(pg: dict, i: int) -> str:
+    keys = ["audience", "date", "duration"]
+    if i >= len(keys):
+        return ""
+    return pg.get(keys[i], "")
+
+
+@recipe("cover_p1")
+def recipe_cover_p1(pg, tok):
+    c = _colors(tok)
+    lines = split_cover_title(pg.get("assertion", pg.get("title", "")))
+    for ln_ in lines:
+        assert cjk(ln_) * tok.poster <= tok.canvas_w * 0.66, \
+            f"封面行 {ln_!r} 超 0.66 画布宽：再拆行，禁止缩字号"
+    out = [_bg(tok, c)]
+    out.append(tx(tok.margin, 102, pg.get("scope_note", "")[:40], 13, c["MUTED"],
+                  family=MONO, ls=3))
+    out.append(ln(tok.margin, 128, tok.canvas_w - tok.margin, 128, c["RULE"], 1))
+    y = 330
+    for l in lines[:2]:
+        out.append(tx(tok.margin, y, l, tok.poster, c["INK"], weight="300", ls=0))
+        y += 176
+    if len(lines) > 2:
+        print(f"[警告] 封面三行以上，交人重断句")
+    out.append(rect(tok.margin, 556, 64, 4, fill=c["FOCUS"]))
+    out.append(tx(tok.margin, 610, pg.get("so_what") or pg.get("subtitle", ""), 32, c["SUB"]))
+    out.append(tx(tok.margin, 648, pg.get("subtitle", ""), 16, c["SUB2"]))
+    for i in range(3):
+        ml = meta_line(pg, i)
+        if ml:
+            out.append(tx(tok.canvas_w - tok.margin, 306 + i * 34, ml, 13,
+                          c["SUB"], family=MONO, anchor="end"))
+    out.append(ln(tok.canvas_w - 300, 274, tok.canvas_w - tok.margin, 274, c["RULE"], 1))
+    out.append(ln(tok.canvas_w - 300, 414, tok.canvas_w - tok.margin, 414, c["RULE"], 1))
+    out.append(tx(tok.margin, 676, pg.get("audience", ""), 13, c["MUTED"]))
+    out.append(tx(tok.margin, 702, pg.get("date", ""), 13, c["MUTED"], family=MONO))
+    assert 556 + 4 <= tok.canvas_h - 46, "强调色块压到页脚"
+    return page_doc(pg, "".join(out), "cover")
