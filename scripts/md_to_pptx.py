@@ -102,6 +102,8 @@ def main(argv=None) -> int:
     ap.add_argument("--name", default="deck")
     ap.add_argument("--no-images", action="store_true", help="跳过生图（纯文字版）")
     ap.add_argument("--skip-qa", action="store_true")
+    ap.add_argument("--narrative", type=Path, default=None,
+                    help="narrative.json 路径（接入 N1 结构器输出）")
     ap.add_argument("--cover-choice",
                     choices=["hero_full", "split", "minimal"],
                     help="封面构图三选一（默认 hero_full；out/cover_choice.json 存在时自动采用）")
@@ -119,8 +121,11 @@ def main(argv=None) -> int:
         shutil.copy(tmpl, out / "spec_lock.md")
 
     print("[1/7] 切页 md -> pages.json")
-    run([sys.executable, str(SCRIPTS / "md_to_pages.py"),
-         "--md", str(args.md), "--out", str(pages_path)])
+    cmd = [sys.executable, str(SCRIPTS / "md_to_pages.py"),
+           "--md", str(args.md), "--out", str(pages_path)]
+    if args.narrative:
+        cmd += ["--narrative", str(args.narrative)]
+    run(cmd)
 
 
     # 封面三选一：显式参数 > cover_choice.json > 默认 hero_full
@@ -153,15 +158,20 @@ def main(argv=None) -> int:
          "--images", str(out / "images")])
 
     if not args.skip_qa:
-        print("[4/7] planning 合同校验")
+        print("[4/7] qa_layout 版面复核")
+        render_dir = out / "qa_render"
+        render_dir.mkdir(parents=True, exist_ok=True)
+        run([sys.executable, str(SCRIPTS / "qa_layout.py"),
+             str(svg_dir), str(render_dir)])
+        print("[5/7] planning 合同校验")
         run([sys.executable, str(SCRIPTS / "plan_contract.py"), "--project", str(out)])
-        print("[5/7] 打分质检")
+        print("[6/7] 打分质检")
         run([sys.executable, str(SCRIPTS / "qa_score.py"), str(svg_dir)])
-        print("[6/7] vendor SVG 质检门禁")
+        print("[7/7] vendor SVG 质检门禁")
         run([PY, str(VENDOR / "svg_quality_checker.py"), str(out),
              "--canonical-authoring", "--stage", "final", "--json"])
 
-    print("[7/7] SVG -> PPTX")
+    print("[8/8] SVG -> PPTX")
     pptx = out / (args.name + ".pptx")
     run([PY, str(VENDOR / "svg_to_pptx.py"), str(out), "-o", str(pptx)])
 
