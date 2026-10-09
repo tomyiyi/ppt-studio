@@ -215,7 +215,37 @@ def page_image_prompt(title: str, layout: str, bullets: list = None) -> str:
             "generous whitespace, minimalist, no text, no words, no letters, no people")
 
 
-def md_to_pages(md_path: Path, max_bullets: int = 5) -> dict:
+def _project_from_narrative(plan: dict, nar: dict) -> dict:
+    """把 narrative.json 的 role 页转成现行 pages 结构。旧字段值与不传 --narrative 时一致。"""
+    try:
+        from layout_recipes import ROLE_TO_RECIPE
+    except Exception:
+        ROLE_TO_RECIPE = {"cover": "cover_p1", "section": "section_anchor",
+                          "claim": "assertion_evidence", "data": "three_line_table",
+                          "mechanism": "mechanism_flow", "teaching": "teaching_pair",
+                          "closing": "action_list"}
+    pages = []
+    for i, pg in enumerate(nar["pages"]):
+        role = pg["role"]
+        lay = ROLE_TO_RECIPE.get(role, "assertion_evidence")
+        bullets = [e["text"] for e in pg.get("evidence", [])]
+        if pg.get("so_what"):
+            bullets.append(pg["so_what"])
+        page = {"index": i, "title": pg.get("assertion") or pg.get("scope_note") or "",
+                "bullets": bullets, "layout": lay,
+                "needs_review": pg.get("_todo", []),
+                "role": role, "assertion": pg.get("assertion", ""),
+                "so_what": pg.get("so_what", ""), "evidence": pg.get("evidence", []),
+                "image_intent": pg.get("image_intent", "none")}
+        page["image_prompt"] = "" if page["image_intent"] == "none" else page_image_prompt(
+            page["title"], lay, bullets)
+        pages.append(page)
+    return {"source": plan["source"], "title": plan["title"],
+            "narrative_style": nar.get("governing_thought") or plan.get("narrative_style", ""),
+            "closing_hint": plan.get("closing_hint", "收束"), "pages": pages}
+
+
+def md_to_pages(md_path: Path, max_bullets: int = 5, narrative: dict | None = None) -> dict:
     raw = md_path.read_text(encoding="utf-8")
     body = FRONTMATTER_RE.sub("", raw).strip()
 
@@ -288,6 +318,8 @@ def md_to_pages(md_path: Path, max_bullets: int = 5) -> dict:
         sys.stderr.write("[WARN] %d 条内容超 %d 字被裁剪（原文->上屏），必要时拆条或精简：%s\n"
                          % (len(_truncated), MAX_BULLET_CHARS,
                             "; ".join("%s…(%d字)" % (a, b) for a, b in _truncated[:6])))
+    if narrative is not None:
+        plan = _project_from_narrative(plan, narrative)
     return plan
 
 
@@ -296,9 +328,14 @@ def main(argv=None) -> int:
     ap.add_argument("--md", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--max-bullets", type=int, default=5)
+    ap.add_argument("--narrative", type=Path, default=None,
+                    help="narrative.json 路径（可选，接入 N1 结构器输出）")
     args = ap.parse_args(argv)
 
-    plan = md_to_pages(args.md, args.max_bullets)
+    nar = None
+    if args.narrative:
+        nar = json.loads(args.narrative.read_text(encoding="utf-8"))
+    plan = md_to_pages(args.md, args.max_bullets, narrative=nar)
     args.out.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"标题：{plan['title'][:40]}")
     print(f"叙事风格：{plan['narrative_style']}（{NARRATIVE_STYLES[plan['narrative_style']]}）")

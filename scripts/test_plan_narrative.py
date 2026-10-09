@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""test_plan_narrative.py — 11 项。"""
+"""test_plan_narrative.py — 15 项。"""
 import json, os, sys, tempfile
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 import plan_narrative as PN
+import md_to_pages as MB
 
 PASS = FAIL = 0
 def ok(name, cond, detail=""):
@@ -101,6 +102,28 @@ text = json.dumps(nar11, ensure_ascii=False)
 back = json.loads(text)
 ok("11. JSON 回读页数一致", len(back["pages"]) == len(nar11["pages"]))
 md11.unlink()
+
+# 12. 不带 --narrative 时旧字段完整（向后兼容）
+md12 = make_md("# 标题\n\n## 第一节\n- 要点A\n- 要点B\n")
+plan_off = MB.md_to_pages(md12)
+pg_off = plan_off["pages"][1]
+old_keys = {"index", "title", "bullets", "layout", "needs_review", "image_prompt"}
+ok("12. 不带 narrative 旧字段完整", old_keys <= set(pg_off.keys()),
+   f"keys={sorted(pg_off.keys())}")
+md12.unlink()
+
+# 13. 带 --narrative 时旧字段仍在 + 新增 role/assertion/so_what/evidence/image_intent
+md13 = make_md("# 标题\n\n## 第一节\n- 要点A\n")
+nar13 = PN.build(md13)
+plan_on = MB.md_to_pages(md13, narrative=nar13)
+pg_on = plan_on["pages"][1]
+new_fields = {"role", "assertion", "so_what", "evidence", "image_intent"}
+ok("13a. 带 narrative 旧字段仍在", old_keys <= set(pg_on.keys()),
+   f"keys={sorted(pg_on.keys())}")
+ok("13b. 带 narrative 新增字段", new_fields <= set(pg_on.keys()),
+   f"keys={sorted(pg_on.keys())}")
+ok("13c. set(old) <= set(new)", set(pg_off.keys()) <= set(pg_on.keys()))
+md13.unlink()
 
 print(f"\n{'='*56}")
 print(f"通过 {PASS} / 失败 {FAIL}")
