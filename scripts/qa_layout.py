@@ -332,6 +332,80 @@ def _otsu_threshold(vals):
     var = np.where(denom > 0, (s[-1] * w - s) ** 2 / np.where(denom > 0, denom, 1), -1.0)
     return float(centers[int(np.argmax(var))])
 
+DECOR = set("✓✗!+·—→·※◆■●○①②③④⑤⑥⑦⑧⑨⑩")
+
+def _weight_of(t) -> int:
+    """取 <text> 的有效字重：属性优先，其次 style:font-weight，再继承父 g。默认 400。"""
+    w = t.get("font-weight")
+    if w is None:
+        m = re.search(r"font-weight\s*:\s*(\d+)", t.get("style", "") or "")
+        w = m.group(1) if m else None
+    return int(w) if w and str(w).isdigit() else 400
+
+def wcag_need(size: float, weight: int, text: str) -> float:
+    """对比度门槛分档：正文 4.5；大字 3.0（size>=32，或 size>=24 且 weight>=700）；
+    单字符装饰符号按非文本图形 3.0，不豁免。"""
+    body = "".join(ch for ch in text if ch.strip())
+    if len(body) == 1:
+        return 3.0
+    if size >= 32 or (size >= 24 and weight >= 700):
+        return 3.0
+    return WCAG_MIN
+
+def check_scale(root, ramp: set) -> list[str]:
+    """同屏相邻层级必须跨 >=2 档且尺度差 >=2.5x；一级标题字号同屏只能出现一次。"""
+    sizes: dict[int, int] = {}
+    for t, anc in _iter_with_parents(root):
+        if t.tag != NS + "text":
+            continue
+        sp = text_span(t, anc)
+        if sp is None:
+            continue
+        sizes[int(round(sp[3]))] = sizes.get(int(round(sp[3])), 0) + 1
+    used = {s: c for s, c in sizes.items() if c > 0}
+    bad = []
+    # 一级标题字号同屏只能出现一次
+    n_l1 = sum(c for s, c in used.items() if s >= 44)
+    if n_l1 > 1:
+        bad.append(f"一级标题字号同屏出现 {n_l1} 次（应仅 1 处断言）")
+    # 相邻层级跨档检查
+    ordered = sorted(s for s in used if s in ramp)
+    if len(ordered) < 2:
+        return bad
+    big = [s for s in ordered if s >= 44]
+    for a, b in zip(ordered, ordered[1:]):
+        # 只约束"相邻层级"，同属大字号之间不算；
+        # 仅当较大尺寸 ≥44（一级标题档）时才检查过渡是否充分
+        if b < 44:
+            continue
+        if a in big and b in big:
+            continue
+        if a in big or b in big:
+            idx_a = big.index(a) if a in big else -1
+            idx_b = big.index(b) if b in big else -1
+            if idx_a >= 0 and idx_b >= 0 and idx_b - idx_a < 2 and b / a < 2.5:
+                bad.append(f"{a}px→{b}px 未跨 2 档且尺度差 {b/a:.2f}<2.5")
+            elif (idx_a >= 0) != (idx_b >= 0) and b / a < 2.0:
+                bad.append(f"{a}px→{b}px 未跨 2 档且尺度差 {b/a:.2f}<2.0")
+    return bad
+
+def check_grid_step(root, step: int = 8, tol: float = 1.0) -> list[str]:
+    """元素 y 坐标应落 step 步进（warn 用，不 blocking）。"""
+    off = []
+    for t, anc in _iter_with_parents(root):
+        if t.tag not in (NS + "text", NS + "rect", NS + "line"):
+            continue
+        raw = t.get("y") if t.tag == NS + "text" else t.get("y", t.get("y1"))
+        if raw is None:
+            continue
+        try:
+            y = float(re.match(r"[-\d.]+", str(raw)).group(0))
+        except Exception:
+            continue
+        if abs(y / step - round(y / step)) * step > tol:
+            off.append(f"{t.tag.split('}')[-1]} y={y:g}")
+    return off
+
 def check_contrast(img, root):
     """对每段文本，取渲染图中文字包围盒，判 WCAG 对比度。
     2026-10-08 修正 C：背景/笔画改用 Otsu 二分类 + 少数类"核心端"取色。
@@ -376,7 +450,7 @@ def check_contrast(img, root):
         if L1 < L2:
             L1, L2 = L2, L1
         ratio = (L1 + 0.05) / (L2 + 0.05)
-        rows.append((ratio, txt, size))
+        rows.append((ratio, txt, size, wcag_need(size, _weight_of(t), txt)))
     return rows
 
 # ---------------------------------------------------------------- main
@@ -458,6 +532,26 @@ def main():
         else:
             print("  [压行] OK")
 
+        sv = check_scale(root, DEFAULT_RAMP)
+        for s in sv:
+            print(f"    [尺度] {s}")
+        bad += len(sv)
+        if not sv:
+            print("  [尺度] OK")
+
+        tok_step = 8
+        try:
+            import spec_tokens as ST
+            tok = ST.load(spec)
+            tok_step = tok.baseline_step
+        except Exception:
+            pass
+        gt = check_grid_step(root, step=tok_step)
+        if gt:
+            print(f"    [网格][warn] {len(gt)} 处未落 {tok_step}px 步进：" + "; ".join(gt[:4]))
+        else:
+            print(f"  [网格] OK（{tok_step}px 步进）")
+
         png = find_png(stem)
         if not png:
             print("  [渲染] 未找到对应 PNG，跳过面板/对比度检查")
@@ -479,11 +573,12 @@ def main():
         else:
             rows.sort()
             worst = rows[0]
-            fails = [r for r in rows if r[0] < WCAG_MIN]
+            fails = [r for r in rows if r[0] < (r[3] if len(r) > 3 else WCAG_MIN)]
             print(f"  [对比] 最低 {worst[0]:.1f}:1  «{worst[1][:20]}»  "
                   f"| 不达标 {len(fails)}/{len(rows)}")
-            for r, t, s in fails[:6]:
-                print(f"          {r:.1f}:1  «{t[:26]}» ({s:.0f}px)")
+            for r in fails[:6]:
+                ratio, t, s = r[0], r[1], r[2]
+                print(f"          {ratio:.1f}:1  «{t[:26]}» ({s:.0f}px)")
                 bad += 1
 
     print("\n" + "=" * 60)

@@ -1,0 +1,36 @@
+  [尺度] OK
+    [网格][warn] 2 处未落 8px 步进：text y=518; text y=606
+  [尺度] OK
+    [网格][warn] 7 处未落 8px 步进：text y=300; text y=398; text y=398; text y=426
+  [尺度] OK
+    [网格][warn] 5 处未落 8px 步进：text y=300; text y=398; text y=398; text y=498
+  [尺度] OK
+    [网格][warn] 5 处未落 8px 步进：text y=398; text y=398; text y=476; text y=526
+  [尺度] OK
+    [网格][warn] 8 处未落 8px 步进：text y=300; text y=398; text y=398; text y=426
+  [尺度] OK
+    [网格][warn] 4 处未落 8px 步进：text y=300; text y=398; text y=398; text y=476
+  [尺度] OK
+    [网格][warn] 8 处未落 8px 步进：text y=300; text y=398; text y=398; text y=418
+  [尺度] OK
+    [网格][warn] 12 处未落 8px 步进：rect y=252; text y=285; rect y=252; text y=285
+  [尺度] OK
+    [网格][warn] 7 处未落 8px 步进：text y=90; text y=214; text y=214; text y=292
+  [尺度] OK
+    [网格][warn] 4 处未落 8px 步进：text y=300; text y=398; text y=398; text y=426
+  [尺度] OK
+    [网格][warn] 8 处未落 8px 步进：rect y=252; text y=285; rect y=252; text y=285
+  [尺度] OK
+    [网格][warn] 8 处未落 8px 步进：rect y=252; text y=285; rect y=252; text y=285
+  [尺度] OK
+    [网格][warn] 7 处未落 8px 步进：text y=398; text y=398; text y=418; text y=476
+  [尺度] OK
+    [网格][warn] 5 处未落 8px 步进：text y=300; text y=398; text y=398; text y=418
+  [尺度] OK
+    [网格][warn] 12 处未落 8px 步进：rect y=252; text y=285; rect y=252; text y=285
+  [尺度] OK
+    [网格][warn] 12 处未落 8px 步进：rect y=252; text y=285; rect y=252; text y=285
+  [尺度] OK
+    [网格][warn] 12 处未落 8px 步进：rect y=252; text y=285; rect y=252; text y=285
+  [尺度] OK
+    [网格][warn] 6 处未落 8px 步进：rect y=252; text y=285; rect y=252; text y=285

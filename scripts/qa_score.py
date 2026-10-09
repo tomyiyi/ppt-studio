@@ -29,13 +29,15 @@ from qa_layout import (
 
 # 检查项权重（总和 100）
 WEIGHTS = {
-    "typescale": 20,    # 字号阶梯
-    "backdrop": 15,     # 底图覆盖
-    "dup_images": 15,   # 重影
-    "overflow": 20,     # 溢出
-    "collisions": 10,   # 压行
-    "contrast": 20,     # 对比度
+    "typescale": 14,    # 字号阶梯（尺度跨档由 hierarchy 抓更本质的问题）
+    "hierarchy": 12,    # 跨档与唯一 L1（新维度）
+    "backdrop": 12,     # 底图覆盖
+    "dup_images": 12,   # 重影
+    "overflow": 18,     # 溢出
+    "collisions": 8,    # 压行
+    "contrast": 24,     # 对比度（唯一上调项，可读性是底线）
 }
+# 14+12+12+12+18+8+24 = 100
 THRESHOLD_DEFAULT = 80
 
 
@@ -51,6 +53,12 @@ def score_page(svg_path: Path, render_png: Path | None, ramp: set, margin: int =
     checks.append({"name": "typescale", "weight": WEIGHTS["typescale"],
                    "score": clamp(100 - 25 * len(off)),
                    "evidence": [f"越出阶梯: {s}px" for s in off] or [f"用 {len(used)} 档字号"]})
+
+    from qa_layout import check_scale
+    sv = check_scale(root, ramp)
+    checks.append({"name": "hierarchy", "weight": WEIGHTS["hierarchy"],
+                   "score": clamp(100 - 34 * len(sv)),
+                   "evidence": sv[:6] or ["层级跨档合规"]})
 
     cov = check_backdrop(root)
     if cov is None:
