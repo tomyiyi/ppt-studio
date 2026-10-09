@@ -111,6 +111,18 @@ if rows12:
 else:
     ok("12. 大字 3:1 分档生效", False, "无可测文本")
 
+# 13. A-1 验收：两行 160px 多行标题（dy=1.1×size）→ 不报
+s13 = svg('<text x="640" y="330" font-size="160" text-anchor="middle">主标题</text>'
+          '<text x="640" y="506" font-size="160" text-anchor="middle">副行</text>')
+r13 = Q.check_scale(parse(s13), {160})
+ok("13. 两行 160px dy=1.1×size → 不报", len(r13) == 0, f"bad={r13}")
+
+# 14. A-1 验收：两处 44px dy=2.27×size（用例 8 几何）→ 仍命中
+s14 = svg('<text x="100" y="100" font-size="44">A</text>'
+          '<text x="100" y="200" font-size="44">B</text>')
+r14 = Q.check_scale(parse(s14), {44})
+ok("14. 两处 44px dy=2.27×size → 仍报", any("一级标题" in x for x in r14), f"bad={r14}")
+
 print(f"\n{'='*56}")
 print(f"通过 {PASS} / 失败 {FAIL}")
 sys.exit(1 if FAIL else 0)

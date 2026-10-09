@@ -353,19 +353,38 @@ def wcag_need(size: float, weight: int, text: str) -> float:
     return WCAG_MIN
 
 def check_scale(root, ramp: set) -> list[str]:
-    """同屏相邻层级必须跨 >=2 档且尺度差 >=2.5x；一级标题字号同屏只能出现一次。"""
+    """同屏相邻层级必须跨 >=2 档且尺度差 >=2.5x；一级标题字号同屏只能出现一次。
+    多行标题合并：同字号、同 x(±1px)、dy ∈ size×[1.05,1.35] 的连续行算 1 处。"""
     sizes: dict[int, int] = {}
+    l1_pos: list[tuple[int, float, float]] = []
     for t, anc in _iter_with_parents(root):
         if t.tag != NS + "text":
             continue
         sp = text_span(t, anc)
         if sp is None:
             continue
-        sizes[int(round(sp[3]))] = sizes.get(int(round(sp[3])), 0) + 1
+        sz = int(round(sp[3]))
+        sizes[sz] = sizes.get(sz, 0) + 1
+        if sz >= 44:
+            l1_pos.append((sz, float(t.get("x", 0) or 0), float(t.get("y", 0) or 0)))
     used = {s: c for s, c in sizes.items() if c > 0}
     bad = []
-    # 一级标题字号同屏只能出现一次
-    n_l1 = sum(c for s, c in used.items() if s >= 44)
+    l1_pos.sort(key=lambda p: (p[0], p[1], p[2]))
+    n_l1, i = 0, 0
+    while i < len(l1_pos):
+        n_l1 += 1
+        sz, xi, cur_y = l1_pos[i]
+        j = i + 1
+        while j < len(l1_pos):
+            sj, xj, yj = l1_pos[j]
+            if sj != sz or abs(xj - xi) > 1:
+                break
+            if sz * 1.05 <= (yj - cur_y) <= sz * 1.35:
+                cur_y = yj
+                j += 1
+            else:
+                break
+        i = j
     if n_l1 > 1:
         bad.append(f"一级标题字号同屏出现 {n_l1} 次（应仅 1 处断言）")
     # 相邻层级跨档检查
