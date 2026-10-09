@@ -214,3 +214,53 @@ unzip -q output/xxx.pptx -d /tmp/chk
 | 卡片上的图看不见 | scrim 压太狠 | 降到 0.78/0.28/0.05/0.16 |
 | 卡片圆牌里塞了中文短语 | 徽章抽取取到了标签 | 取徽章组里 y 最小的那段（数字） |
 | 质检阈值和生成器打架 | 两边各写各的常量 | 阈值对齐生成器下限并注明理由 |
+| `grep -c '[ERROR]'` 计数口径不一致 | vendor 输出含 `[ERROR]` 前缀的 warning 与 blocking 混计 | 统一用 `--json` 的 `introduced` 字段 |
+| 圆徽与文本 x 距离 ≤24 | vendor 门禁误报压行 | 圆徽 cx 与文本 x 间距保持 >24px |
+
+---
+
+## 设计层（2026-10-09 新增）
+
+### 11 步链
+
+```
+1) plan_narrative.py --md ... --out narrative.json        （N1 结构器）
+2) 人工/LLM 填 _todo（无人值守期不自动做）
+3) check_narrative.py narrative.json                       （N2 门禁）
+4) md_to_pages.py --narrative ...                           → pages.json
+5) 每页：role ∈ RECIPES → layout_recipes.render(page, tok)
+           否则 → template_renderer，fallback=true
+6) render_svg（Chrome headless + sips）
+7) qa_layout.py pages/ render/
+8) plan_contract.py（含 check_spec_parity + check_narrative_landing）
+9) qa_score.py pages/ render/ --threshold 80
+10) vendor svg_quality_checker --stage final --json
+11) svg_to_pptx.py → .pptx
+```
+
+### 7 role ↔ 7 配方
+
+| role | 配方 | 说明 |
+|---|---|---|
+| cover | cover_p1 | 纯排版封面，poster 160 两行，无图 |
+| section | section_anchor | 章节锚点页 |
+| claim | assertion_evidence | 断言 + 证据卡片 |
+| data | three_line_table | 三线表（0 竖线、0 外框） |
+| mechanism | mechanism_flow | 机制流（≤6 节点） |
+| teaching | teaching_pair | 对照双栏 |
+| closing | action_list | 行动清单（≤5 条） |
+
+### image_intent 四值
+
+| 值 | 含义 |
+|---|---|
+| none | 不出图（封面默认值） |
+| background | 铺底图（1792×1024） |
+| panel | 面板图（1536×1024） |
+| hero | 主图（1024×1536） |
+
+### 真相源
+
+- 模板：`patterns/spec_lock.template.md`
+- 解析器：`scripts/spec_tokens.py`（唯一常量解析器）
+- **禁止工程实例兼任 SSOT**
