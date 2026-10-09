@@ -64,6 +64,45 @@ ok("d. REQUIRED_SPEC_SECTIONS 含 ## grid", "## grid" in PC.REQUIRED_SPEC_SECTIO
 src = (ROOT / "scripts" / "md_to_pptx.py").read_text(encoding="utf-8")
 ok("e. md_to_pptx 不再复制工程实例", "agentflow-os-launch/spec_lock" not in src)
 
+# --- Task 8 追加：叙事落点校验 ---
+print("\n[B] check_narrative_landing")
+
+# (f) 无 narrative.json → 返回 [] 且打印 [兼容]
+with tempfile.TemporaryDirectory() as td:
+    proj = Path(td)
+    svg_dir = proj / "svg_output"
+    svg_dir.mkdir()
+    errs = PC.check_narrative_landing(proj, svg_dir)
+    ok("f. 无 narrative.json → []", len(errs) == 0, f"errs={errs}")
+
+# (g) narrative 有断言、SVG 里确实含该断言前 8 字 → []
+with tempfile.TemporaryDirectory() as td:
+    proj = Path(td)
+    svg_dir = proj / "svg_output"
+    svg_dir.mkdir()
+    svg_content = '<svg><text>核心论点需要充分证据支撑才能成立</text></svg>'
+    (svg_dir / "01_claim.svg").write_text(svg_content, encoding="utf-8")
+    nar = {"pages": [{"index": 1, "role": "claim", "assertion": "核心论点需要充分证据支撑才能成立",
+                       "evidence": [], "so_what": ""}]}
+    (proj / "narrative.json").write_text(json.dumps(nar, ensure_ascii=False), encoding="utf-8")
+    errs = PC.check_narrative_landing(proj, svg_dir)
+    ok("g. 断言落入 SVG → []", len(errs) == 0, f"errs={errs}")
+
+# (h) 断言在 SVG 里不存在 → 出 1 条 blocking
+with tempfile.TemporaryDirectory() as td:
+    proj = Path(td)
+    svg_dir = proj / "svg_output"
+    svg_dir.mkdir()
+    svg_content = '<svg><text>完全不相关的内容</text></svg>'
+    (svg_dir / "01_claim.svg").write_text(svg_content, encoding="utf-8")
+    nar = {"pages": [{"index": 1, "role": "claim", "assertion": "核心论点需要充分证据支撑才能成立",
+                       "evidence": [], "so_what": ""}]}
+    (proj / "narrative.json").write_text(json.dumps(nar, ensure_ascii=False), encoding="utf-8")
+    errs = PC.check_narrative_landing(proj, svg_dir)
+    blocking = [e for e in errs if e.startswith("[blocking]")]
+    ok("h. 断言未落入 SVG → blocking", len(blocking) == 1 and "01" in blocking[0],
+       f"blocking={blocking}")
+
 print(f"\n{'='*56}")
 print(f"通过 {PASS} / 失败 {FAIL}")
 sys.exit(1 if FAIL else 0)

@@ -90,6 +90,39 @@ def check_spec_parity(project: Path, template: Path) -> list[str]:
     return out
 
 
+def check_narrative_landing(project: Path, svg_dir: Path) -> list[str]:
+    """narrative.json 的每条断言必须真的落在对应 SVG 上。缺 narrative.json 走兼容分支。"""
+    nar = project / "narrative.json"
+    if not nar.exists():
+        print("[兼容] 无 narrative.json，跳过落点校验（历史工程路径不变）")
+        return []
+    plan = json.loads(nar.read_text(encoding="utf-8"))
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from check_narrative import resolve_source
+    ROLES = ("cover", "section", "claim", "data", "mechanism", "teaching", "closing")
+    out = []
+    base_dir = project
+    for pg in plan.get("pages", []):
+        idx, role = pg["index"], pg.get("role", "")
+        if role not in ROLES:
+            out.append(f"[blocking] 页 {idx:02d} role 非法: {role}")
+            continue
+        hit = sorted(svg_dir.glob(f"{idx:02d}_{role}.svg")) or \
+              sorted(svg_dir.glob(f"{idx:02d}_*.svg"))
+        if not hit:
+            out.append(f"[blocking] 页 {idx:02d} 无对应 SVG")
+            continue
+        text = _flat(hit[0].read_text(encoding="utf-8"))
+        for f in ("assertion", "so_what"):
+            v = (pg.get(f) or "").strip()
+            if v and _flat(v)[:8] not in text:
+                out.append(f"[blocking] 页 {idx:02d} {f} 未落进 {hit[0].name}: {v[:20]}")
+        for ev in pg.get("evidence", []):
+            if not resolve_source(ev.get("source", ""), base_dir):
+                out.append(f"[blocking] 页 {idx:02d} evidence 回指解析失败: {ev.get('source')}")
+    return out
+
+
 def build_plan(project: Path) -> dict:
     svg_dir = project / "svg_output"
     images_dir = project / "images"
@@ -133,6 +166,11 @@ def build_plan(project: Path) -> dict:
     # 内容完整性（blocking）：静默丢条目比排版瑕疵严重得多
     for e in check_content_loss(project, svg_dir):
         plan["errors"].append(e)
+
+    # 叙事落点校验（缺 narrative.json 走兼容分支）
+    for e in check_narrative_landing(project, svg_dir):
+        if e.startswith("[blocking]"):
+            plan["errors"].append(e)
     return plan
 
 
