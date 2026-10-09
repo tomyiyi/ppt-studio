@@ -44,13 +44,20 @@ def run(cmd, **kw):
 
 
 def gen_images(out: Path, pages_path: Path) -> int:
-    """按 pages.json 生成配图 manifest，调 agnes_ppt_bridge 生图。返回成功数。"""
+    """按 pages.json 生成配图 manifest，调 agnes_ppt_bridge 生图。返回成功数。
+    image_intent=none 的页跳过生图。"""
     plan = json.loads(pages_path.read_text(encoding="utf-8"))
     images_dir = out / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
 
     items = []
+    skipped = 0
     for pg in plan["pages"]:
+        intent = pg.get("image_intent", "background")
+        if intent == "none":
+            skipped += 1
+            print(f"  p{pg['index']:02d} image_intent=none，跳过生图")
+            continue
         fn = "p%02d_bg.png" % pg["index"]
         items.append({
             "filename": fn,
