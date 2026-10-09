@@ -49,13 +49,10 @@ FORBIDDEN = ["<style", "class=", "<mask", "textPath", "@font-face", "<animate", 
 
 print("[A] layout_recipes 配方底座 + 三线表 + 机制流")
 
-# 1. RECIPES 的 7 个 value 全部在 RECIPE_FUNCS 里（Task 13 完成后才转绿）
+# 1. RECIPES 的 7 个 value 全部在 RECIPE_FUNCS 里
 registered = set(LR.RECIPE_FUNCS.keys())
 missing = [v for v in LR.RECIPES.values() if v not in registered]
-if missing:
-    xfail("1. RECIPES 7 值 ∈ RECIPE_FUNCS", f"待批 3 完成，缺: {missing}")
-else:
-    ok("1. RECIPES 7 值 ∈ RECIPE_FUNCS", True)
+ok("1. RECIPES 7 值 ∈ RECIPE_FUNCS", len(missing) == 0, f"missing={missing}")
 
 # 2. 输出可被 ET.fromstring 解析
 pg2 = make_data_pg()
@@ -146,6 +143,29 @@ ok("15. cover 两行 160 → 不报一级标题", len(l1_hits) == 0, f"scale={sc
 
 # 16. cover_p1: 强调色块在 canvas 内
 ok("16. 强调色块不压页脚", 556 + 4 <= TOK.canvas_h - 46)
+
+# 17. render() 对未注册 role 返回 None
+pg17 = {"index": 0, "role": "unknown_role", "title": "t", "assertion": "a",
+        "so_what": "", "bullets": [], "evidence": [], "needs_review": [],
+        "image_intent": "none"}
+ok("17. render() 未注册 role → None", LR.render(pg17, TOK) is None)
+
+# 18. 4 配方各出合法 SVG
+for role, recipe_name in [("claim", "assertion_evidence"), ("teaching", "teaching_pair"),
+                           ("section", "section_anchor"), ("closing", "action_list")]:
+    ev = [{"text": f"条目{i}", "kind": "text", "source": f"t.md#L{i}"} for i in range(3)]
+    pg18 = {"index": 3, "title": f"{role}页", "role": role, "layout": recipe_name,
+            "assertion": "断言", "so_what": "所以怎样", "bullets": [],
+            "evidence": ev, "needs_review": [], "image_intent": "none",
+            "scope_note": "笔记", "audience": "工程师", "date": "2026-10-09"}
+    fn = LR.RECIPE_FUNCS.get(recipe_name)
+    if fn:
+        svg_out = fn(pg18, TOK)
+        root_out = ET.fromstring(svg_out)
+        ok(f"18. {recipe_name} 合法 SVG", root_out is not None and
+           root_out.get("data-pptx-page-role") is not None)
+    else:
+        ok(f"18. {recipe_name} 已注册", False, "未注册")
 
 print(f"\n{'='*56}")
 print(f"通过 {PASS} / 失败 {FAIL} / xfail {XFAIL}")

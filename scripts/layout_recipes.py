@@ -288,3 +288,88 @@ def recipe_cover_p1(pg, tok):
     out.append(tx(tok.margin, 702, pg.get("date", ""), 13, c["MUTED"], family=MONO))
     assert 556 + 4 <= tok.canvas_h - 46, "强调色块压到页脚"
     return page_doc(pg, "".join(out), "cover")
+
+
+@recipe("assertion_evidence")
+def recipe_assertion_evidence(pg, tok):
+    c = _colors(tok)
+    ev = pg.get("evidence", [])
+    y0 = 252
+    out = [_bg(tok, c)]
+    out += list(header(tok, "CLAIM · " + str(pg["index"]).zfill(2),
+                       sheet_title(pg), pg.get("assertion", ""),
+                       pg.get("so_what", ""), c))
+    for i, e in enumerate(ev):
+        txt = e.get("text", "") if isinstance(e, dict) else str(e)
+        kind = e.get("kind", "text") if isinstance(e, dict) else "text"
+        bar_color = {"number": c["FOCUS"], "image": c["SUB2"]}.get(kind, c["STRUCT"])
+        y = y0 + i * 48
+        out.append(rect(tok.margin, y, tok.content_w, 40, fill=c["SURF"], rx=4))
+        out.append(rect(tok.margin, y, 3, 40, fill=bar_color))
+        out.append(tx(tok.margin + 16, y + 28, txt[:60], 20, c["INK"]))
+    so_y = y0 + len(ev) * 48 + 16
+    if pg.get("so_what"):
+        out.append(tx(tok.margin, so_y, pg["so_what"], 24, c["INK"], weight="700"))
+    out += footer(tok, source_line(pg), pg["index"], c)
+    return page_doc(pg, "".join(out), "claim")
+
+
+@recipe("teaching_pair")
+def recipe_teaching_pair(pg, tok):
+    c = _colors(tok)
+    ev = pg.get("evidence", [])
+    left = ev[0].get("text", "错") if ev else "错"
+    right = ev[1].get("text", "对") if len(ev) > 1 else "对"
+    col_w = 340
+    gap = (tok.content_w - 2 * col_w) // 3
+    x1 = tok.margin + gap
+    x2 = x1 + col_w + gap
+    out = [_bg(tok, c)]
+    out += list(header(tok, "TEACHING · " + str(pg["index"]).zfill(2),
+                       sheet_title(pg), pg.get("assertion", ""),
+                       pg.get("so_what", ""), c))
+    for x, label, txt, color in [(x1, "✗ 错", left, c["CAUTION"]),
+                                  (x2, "✓ 对", right, c["FOCUS"])]:
+        out.append(rect(x, 200, col_w, 230, fill=c["SURF"], rx=6, stroke=color, sw=2))
+        out.append(tx(x + 20, 240, label, 20, color, weight="700"))
+        out.append(rect(x + 20, 260, col_w - 40, 150, fill=c["FIELD"], rx=4))
+        out.append(tx(x + 20, 420, txt[:40], 16, c["INK"]))
+    out += footer(tok, source_line(pg), pg["index"], c)
+    return page_doc(pg, "".join(out), "teaching")
+
+
+@recipe("section_anchor")
+def recipe_section_anchor(pg, tok):
+    # 新几何：无 spike 实测依据，仅靠 qa 门禁 + 人读确认
+    c = _colors(tok)
+    out = [_bg(tok, c)]
+    out.append(tx(tok.margin, 96, pg.get("scope_note", "")[:40], 13, c["MUTED"],
+                  family=MONO, ls=3))
+    out.append(ln(tok.margin, 116, tok.canvas_w - tok.margin, 116, c["RULE"], 1))
+    out.append(tx(tok.margin, 360, pg.get("assertion", pg.get("title", "")),
+                  56, c["INK"], weight="600"))
+    out.append(rect(tok.margin, 380, 80, 4, fill=c["FOCUS"]))
+    out.append(tx(tok.margin, 430, pg.get("so_what", ""), 20, c["SUB"]))
+    out += footer(tok, source_line(pg), pg["index"], c)
+    return page_doc(pg, "".join(out), "section")
+
+
+@recipe("action_list")
+def recipe_action_list(pg, tok):
+    c = _colors(tok)
+    ev = pg.get("evidence", [])
+    y0 = 252
+    out = [_bg(tok, c)]
+    out += list(header(tok, "ACTION · " + str(pg["index"]).zfill(2),
+                       sheet_title(pg), pg.get("assertion", ""),
+                       pg.get("so_what", ""), c))
+    for i, e in enumerate(ev[:5]):
+        txt = e.get("text", "") if isinstance(e, dict) else str(e)
+        y = y0 + i * 56
+        cx0 = tok.margin + 24
+        out.append(rect(tok.margin, y, tok.content_w, 48, fill=c["SURF"], rx=6))
+        out.append(f'<circle cx="{cx0}" cy="{y + 24}" r="12" fill="{c["FOCUS"]}"/>')
+        out.append(tx(cx0, y + 29, str(i + 1), 13, c["FIELD"], anchor="middle", weight="700"))
+        out.append(tx(tok.margin + 52, y + 32, txt[:50], 24, c["INK"]))
+    out += footer(tok, source_line(pg), pg["index"], c)
+    return page_doc(pg, "".join(out), "closing")
