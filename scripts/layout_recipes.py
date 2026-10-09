@@ -116,6 +116,22 @@ def source_line(pg: dict) -> str:
     return pg.get("scope_note", "") or ""
 
 
+def mechanism_nodes(pg: dict) -> list:
+    """从 evidence 文本按 →/然后/再 切分成节点；切不出 ≥2 个时返回空。"""
+    ev = pg.get("evidence", [])
+    texts = [e.get("text", "") if isinstance(e, dict) else str(e) for e in ev]
+    raw = " → ".join(t for t in texts if t)
+    if not raw:
+        return []
+    parts = re.split(r"[→➜]|然后|再|接着", raw)
+    nodes = []
+    for p in parts:
+        p = p.strip()
+        if p:
+            nodes.append({"label": p[:12], "note": p[12:30] if len(p) > 12 else ""})
+    return nodes if len(nodes) >= 2 else []
+
+
 RECIPE_FUNCS: dict[str, callable] = {}
 
 
@@ -187,3 +203,41 @@ def recipe_three_line_table(pg, tok):
     out.append(rect(x0, ty + hh + 2 + len(body) * rh, w, 2, fill=c["INK"]))
     out += footer(tok, pg.get("scope_note", "") or source_line(pg), pg["index"], c)
     return page_doc(pg, "".join(out), "data")
+
+
+@recipe("mechanism_flow")
+def recipe_mechanism_flow(pg, tok):
+    c = _colors(tok)
+    nodes = mechanism_nodes(pg)
+    assert len(nodes) <= 6, f"节点 {len(nodes)} > 6，交人拆图"
+    n = len(nodes)
+    if n < 2:
+        print(f"[退化] mechanism_flow 节点不足 2 个，退化为 claim 页")
+        return page_doc(pg, "", "mechanism")
+    ny = 268
+    cy = ny + 56
+    nh = 34 + n * 32 + 12
+    total_w = tok.content_w
+    nw = min(320, (total_w - (n - 1) * 24) // n)
+    gap = (total_w - n * nw) // max(n - 1, 1)
+    out = [_bg(tok, c)]
+    out += list(header(tok, "MECHANISM · " + str(pg["index"]).zfill(2),
+                       sheet_title(pg), pg.get("assertion", ""),
+                       pg.get("so_what", ""), c))
+    for i, nd in enumerate(nodes):
+        x = tok.margin + i * (nw + gap)
+        out.append(rect(x, ny, nw, nh, fill=c["SURF"], rx=6))
+        out.append(tx(x + 44, cy + 5, nd["label"], 16, c["INK"], weight="600"))
+        cx0 = x + 24
+        assert cx0 + 12 < x + 44, "圆徽与文本重叠"
+        out.append(f'<circle cx="{cx0}" cy="{cy}" r="12" fill="{c["FOCUS"]}"/>')
+        out.append(tx(cx0, cy + 5, str(i + 1), 13, c["FIELD"], anchor="middle", weight="700"))
+        out.append(tx(x + 44, cy + 28, nd.get("note", ""), 13, c["SUB"]))
+        if i:
+            out.append(ln(x - gap + 4, cy, x - 6, cy, c["INK"], 3))
+            out.append(f'<path d="M{x - 6} {cy} l-8 -4 v8 z" fill="{c["INK"]}"/>')
+    top_bottom = ny + nh
+    out.append(ln(tok.margin, top_bottom + 40, tok.canvas_w - tok.margin, top_bottom + 40,
+                  c["SUB2"], 1, dash="4 3"))
+    out += footer(tok, source_line(pg), pg["index"], c)
+    return page_doc(pg, "".join(out), "mechanism")

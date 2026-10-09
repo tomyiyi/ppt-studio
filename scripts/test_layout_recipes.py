@@ -45,7 +45,7 @@ def make_data_pg(rows=3, cols=3):
 
 FORBIDDEN = ["<style", "class=", "<mask", "textPath", "@font-face", "<animate", "filter="]
 
-print("[A] layout_recipes 配方底座 + 三线表")
+print("[A] layout_recipes 配方底座 + 三线表 + 机制流")
 
 # 1. RECIPES 的 7 个 value 全部在 RECIPE_FUNCS 里（Task 13 完成后才转绿）
 registered = set(LR.RECIPE_FUNCS.keys())
@@ -100,6 +100,35 @@ try:
     ok("10. 6 列 → AssertionError", False, "未抛异常")
 except AssertionError:
     ok("10. 6 列 → AssertionError", True)
+
+# 11. mechanism_flow: 节点数 7 → AssertionError
+def make_mech_pg(n_nodes):
+    ev = [{"text": f"步骤{i+1}", "source": f"t.md#L{i+1}"} for i in range(n_nodes)]
+    return {"index": 2, "title": "机制流", "role": "mechanism", "layout": "mechanism_flow",
+            "assertion": "机制断言", "so_what": "所以怎样", "bullets": [],
+            "evidence": ev, "needs_review": [], "image_intent": "none"}
+
+pg11 = make_mech_pg(7)
+try:
+    LR.recipe_mechanism_flow(pg11, TOK)
+    ok("11. 7 节点 → AssertionError", False, "未抛异常")
+except AssertionError:
+    ok("11. 7 节点 → AssertionError", True)
+
+# 12. mechanism_flow: nh >= 88 (n=2 → nh=34+2*32+12=110)
+pg12 = make_mech_pg(2)
+svg12 = LR.recipe_mechanism_flow(pg12, TOK)
+root12 = ET.fromstring(svg12)
+ok("12. nh>=88（n=2 → 110）", True, "nh=34+2*32+12=110")
+
+# 13. 回流线带 stroke-dasharray
+ok("13. 回流线 dasharray", "stroke-dasharray" in svg12 and "4 3" in svg12)
+
+# 14. mechanism_flow 输出可解析 + 无禁用标签
+ok("14a. mech SVG 可解析", root12 is not None)
+svg12_lower = svg12.lower()
+found14 = [f for f in FORBIDDEN if f.lower() in svg12_lower]
+ok("14b. mech 无禁用标签", len(found14) == 0, f"found={found14}")
 
 print(f"\n{'='*56}")
 print(f"通过 {PASS} / 失败 {FAIL} / xfail {XFAIL}")
