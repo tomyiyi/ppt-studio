@@ -16,24 +16,25 @@
   </linearGradient>
 </defs>
 <g id="card-image">
-  <rect width="1080" height="540" fill="#08090C"/>
-  <image href="../images/tension_bg.png" x="0" y="0" width="1080" height="540" preserveAspectRatio="xMidYMid slice"/>
-  <rect width="1080" height="540" fill="url(#band-scrim)"/>
-  <rect x="0" y="410" width="1080" height="130" fill="url(#band-fade)"/>
+  <rect width="1080" height="585" fill="#08090C"/>
+  <image href="../images/tension_bg.png" x="0" y="0" width="1080" height="585" preserveAspectRatio="xMidYMid slice"/>
+  <rect width="1080" height="585" fill="url(#band-scrim)"/>
+  <rect x="0" y="455" width="1080" height="130" fill="url(#band-fade)"/>
 </g>
   <text x="80" y="112" font-size="28" fill="#A8A9B4" letter-spacing="6">THE TENSION · 02</text>
 <g id="card-panel">
-  <rect x="0" y="540" width="1080" height="810" fill="url(#panel-grad)"/>
-      <text x="124" y="701" font-size="72" fill="#F7F7F9" font-weight="bold"><tspan fill="#F7F7F9">流程跑通了 </tspan><tspan fill="#6E7BFF">97%</tspan><tspan fill="#F7F7F9">剩下</tspan></text>
-      <text x="124" y="798" font-size="72" fill="#F7F7F9" font-weight="bold"><tspan fill="#F7F7F9"> </tspan><tspan fill="#6E7BFF">3%</tspan><tspan fill="#F7F7F9"> 吃掉全部人力</tspan></text>
-      <text x="124" y="905" font-size="36" fill="#A8A9B4"><tspan fill="#8E8F9A">凌晨两点，第三次跑批失败。日志里没有报错，</tspan></text>
-      <text x="124" y="1063" font-size="96" font-weight="bold" font-family='Arial, Helvetica, sans-serif' fill="#6E7BFF">41%</text>
-      <text x="124" y="1107" font-size="28" fill="#7F8090">自动化项目最终被…</text>
-      <text x="416" y="1063" font-size="96" font-weight="bold" font-family='Arial, Helvetica, sans-serif' fill="#6E7BFF">6.2h</text>
-      <text x="416" y="1107" font-size="28" fill="#7F8090">工程师每周花在修…</text>
-      <text x="708" y="1063" font-size="96" font-weight="bold" font-family='Arial, Helvetica, sans-serif' fill="#6E7BFF">3.4x</text>
-      <text x="708" y="1107" font-size="28" fill="#7F8090">分支数每翻一倍，…</text>
-  <rect x="80" y="652" width="6" height="177" rx="3" fill="#6E7BFF"/>
+  <rect x="0" y="585" width="1080" height="765" fill="url(#panel-grad)"/>
+      <text x="124" y="715" font-size="72" fill="#F7F7F9" font-weight="bold"><tspan fill="#F7F7F9">流程跑通了 </tspan><tspan fill="#6E7BFF">97%</tspan><tspan fill="#F7F7F9">剩下</tspan></text>
+      <text x="124" y="811" font-size="72" fill="#F7F7F9" font-weight="bold"><tspan fill="#F7F7F9"> </tspan><tspan fill="#6E7BFF">3%</tspan><tspan fill="#F7F7F9"> 吃掉全部人力</tspan></text>
+      <text x="124" y="919" font-size="36" fill="#A8A9B4"><tspan fill="#8E8F9A">凌晨两点，第三次跑批失败。日志里没有报错，只有一</tspan></text>
+      <text x="124" y="973" font-size="36" fill="#A8A9B4"><tspan fill="#8E8F9A">个没人预料到的字段格式。</tspan></text>
+      <text x="124" y="1130" font-size="96" font-weight="bold" font-family='Arial, Helvetica, sans-serif' fill="#6E7BFF">41%</text>
+      <text x="124" y="1174" font-size="28" fill="#7F8090">自动化项目最终被…</text>
+      <text x="416" y="1130" font-size="96" font-weight="bold" font-family='Arial, Helvetica, sans-serif' fill="#6E7BFF">6.2h</text>
+      <text x="416" y="1174" font-size="28" fill="#7F8090">工程师每周花在修…</text>
+      <text x="708" y="1130" font-size="96" font-weight="bold" font-family='Arial, Helvetica, sans-serif' fill="#6E7BFF">3.4x</text>
+      <text x="708" y="1174" font-size="28" fill="#7F8090">分支数每翻一倍，…</text>
+  <rect x="80" y="665" width="6" height="177" rx="3" fill="#6E7BFF"/>
   <line x1="80" y1="1206" x2="1000" y2="1206" stroke="#23242E" stroke-width="1"/>
   <text x="1000" y="1250" text-anchor="end" font-size="28" fill="#7F8090">02 / 07</text>
   <text x="80" y="1250" font-size="28" fill="#7F8090">智流 OS</text>
