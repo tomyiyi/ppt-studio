@@ -107,7 +107,7 @@ def _source_note(claim: dict) -> str:
         parts.append(domain)
     if not parts:
         return ""
-    return "（" + "、".join(parts) + ")"
+    return "（" + "、".join(parts) + "）"
 
 
 def expand_claim(claim: dict) -> str:
@@ -196,7 +196,7 @@ def write_article(research: dict, outline: dict, verified: list[dict],
         else:
             lines.append(
                 f"本篇基于 {len(verified)} 条双源验证的结论写成，"
-                f"覆盖{len(outline['sections'])} 个方面。"
+                f"覆盖 {len(outline['sections'])} 个方面。"
                 "更多未经验证的发现见附录。"
             )
         lines.append("")
