@@ -1,0 +1,158 @@
+{
+  "source": "article.md",
+  "governing_thought": "",
+  "audience": "",
+  "duration_min": null,
+  "pages": [
+    {
+      "index": 0,
+      "role": "cover",
+      "assertion": "远程交付团队的周会节奏（测试夹具）",
+      "evidence": [],
+      "so_what": "",
+      "visual_protagonist": "",
+      "image_intent": "none",
+      "scope_note": "本次研究通过双源验证的核心发现有 5 条，具体判断见正文各节。",
+      "_todo": [
+        "assertion"
+      ]
+    },
+    {
+      "index": 1,
+      "role": "claim",
+      "assertion": "",
+      "evidence": [],
+      "so_what": "",
+      "visual_protagonist": "",
+      "image_intent": "none",
+      "scope_note": "",
+      "_todo": [
+        "assertion",
+        "so_what",
+        "visual_protagonist",
+        "evidence"
+      ],
+      "_src": "article.md#L5"
+    },
+    {
+      "index": 2,
+      "role": "claim",
+      "assertion": "",
+      "evidence": [],
+      "so_what": "",
+      "visual_protagonist": "",
+      "image_intent": "none",
+      "scope_note": "",
+      "_todo": [
+        "assertion",
+        "so_what",
+        "visual_protagonist",
+        "evidence"
+      ],
+      "_src": "article.md#L9"
+    },
+    {
+      "index": 3,
+      "role": "claim",
+      "assertion": "",
+      "evidence": [],
+      "so_what": "",
+      "visual_protagonist": "",
+      "image_intent": "none",
+      "scope_note": "",
+      "_todo": [
+        "assertion",
+        "so_what",
+        "visual_protagonist",
+        "evidence"
+      ],
+      "_src": "article.md#L13"
+    },
+    {
+      "index": 4,
+      "role": "claim",
+      "assertion": "",
+      "evidence": [],
+      "so_what": "",
+      "visual_protagonist": "",
+      "image_intent": "none",
+      "scope_note": "",
+      "_todo": [
+        "assertion",
+        "so_what",
+        "visual_protagonist",
+        "evidence"
+      ],
+      "_src": "article.md#L17"
+    },
+    {
+      "index": 5,
+      "role": "claim",
+      "assertion": "",
+      "evidence": [],
+      "so_what": "",
+      "visual_protagonist": "",
+      "image_intent": "none",
+      "scope_note": "",
+      "_todo": [
+        "assertion",
+        "so_what",
+        "visual_protagonist",
+        "evidence"
+      ],
+      "_src": "article.md#L21"
+    },
+    {
+      "index": 6,
+      "role": "claim",
+      "assertion": "",
+      "evidence": [],
+      "so_what": "",
+      "visual_protagonist": "",
+      "image_intent": "none",
+      "scope_note": "",
+      "_todo": [
+        "assertion",
+        "so_what",
+        "visual_protagonist",
+        "evidence"
+      ],
+      "_src": "article.md#L25"
+    },
+    {
+      "index": 7,
+      "role": "claim",
+      "assertion": "",
+      "evidence": [
+        {
+          "kind": "number",
+          "text": "- 七成受访团队保留了每日站会这一形式，但把单次日站时长从 25 分钟压缩到了 10 分钟以内（example.net）",
+          "baseline": null,
+          "source": "article.md#L32"
+        },
+        {
+          "kind": "text",
+          "text": "- 书面状态更新工具普及以来，大约两成低价值同步会被异步文档取代，替代过程集中在近两年完成（example.net）",
+          "baseline": null,
+          "source": "article.md#L33"
+        },
+        {
+          "kind": "number",
+          "text": "- 纯异步流程下的新入职成员，首次提问到获得有效回复的等待时间中位数增加了 6 个小时（example.org）",
+          "baseline": null,
+          "source": "article.md#L34"
+        }
+      ],
+      "so_what": "",
+      "visual_protagonist": "",
+      "image_intent": "none",
+      "scope_note": "",
+      "_todo": [
+        "assertion",
+        "so_what",
+        "visual_protagonist"
+      ],
+      "_src": "article.md#L31"
+    }
+  ]
+}

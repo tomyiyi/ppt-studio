@@ -1,0 +1,42 @@
+{
+  "topic": "远程交付团队的周会节奏（测试夹具）",
+  "generated_at": "2026-10-15T16:02:32.106701+00:00",
+  "n_verified": 5,
+  "sections": [
+    {
+      "perspective": "现状",
+      "title": "是什么",
+      "claim_ids": [
+        "c001"
+      ]
+    },
+    {
+      "perspective": "变化",
+      "title": "变了什么",
+      "claim_ids": [
+        "c003"
+      ]
+    },
+    {
+      "perspective": "动因",
+      "title": "为什么",
+      "claim_ids": [
+        "c005"
+      ]
+    },
+    {
+      "perspective": "影响",
+      "title": "意味着什么",
+      "claim_ids": [
+        "c006"
+      ]
+    },
+    {
+      "perspective": "反例",
+      "title": "反例与边界",
+      "claim_ids": [
+        "c008"
+      ]
+    }
+  ]
+}

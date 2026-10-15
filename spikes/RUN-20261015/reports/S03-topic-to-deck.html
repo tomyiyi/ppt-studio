@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RUN-20261015 · S3 单入口编排 topic_to_deck</title>
+<style>
+  :root { --bg:#0f1115; --card:#171b22; --ink:#e8ebf0; --dim:#9aa4b2; --line:#282f3a; --ok:#3ddc84; --warn:#ffb454; --bad:#ff6b6b; --mono:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.75 -apple-system,"PingFang SC","Helvetica Neue",sans-serif; }
+  main { max-width:860px; margin:0 auto; padding:20px 16px 80px; }
+  h1 { font-size:24px; line-height:1.35; margin:8px 0 4px; }
+  h2 { font-size:19px; margin:34px 0 10px; padding-bottom:6px; border-bottom:1px solid var(--line); }
+  .meta { color:var(--dim); font-size:15px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin:14px 0; }
+  pre { background:#0b0d11; border:1px solid var(--line); border-radius:10px; padding:12px; overflow-x:auto; font:13px/1.6 var(--mono); white-space:pre-wrap; word-break:break-word; margin:10px 0; }
+  pre.nowrap { white-space:pre; }
+  code { font-family:var(--mono); font-size:14px; }
+  table { width:100%; border-collapse:collapse; margin:12px 0; font-size:15px; }
+  th, td { border:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:#12161d; color:var(--dim); font-weight:600; }
+  .ok { color:var(--ok); font-weight:600; } .warn { color:var(--warn); font-weight:600; } .bad { color:var(--bad); font-weight:600; }
+  ul { margin:8px 0 8px 20px; padding:0; } li { margin:6px 0; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>S3 · 单入口编排：<code>topic_to_deck.py</code></h1>
+<p class="meta">RUN-20261015 ｜ 阶段 3 / 13 ｜ 2026-10-16 00:08 (+0800) ｜ 仓库 <code>ppt-studio</code></p>
+
+<div class="card">
+<strong>结果：</strong>"一个主题进 → 一套 deck 出"现在是一条命令了，六段全接上、<span class="ok">每段可独立重跑</span>、<span class="ok">断电可续</span>。
+同一次真实跑里，<strong>叙事门禁拦下来了</strong>：<span class="warn">blocking 16 条，进程退出码 3，deck 段没有被调用</span>。
+我<span class="bad">没有</span>跳过门禁、<span class="bad">没有</span>改任何判据。这个 16 就是 S4 要打的靶子，也是本期最真实的进度信号。
+</div>
+
+<h2>1. 六段链与新增文件</h2>
+<pre>topic_to_deck.py
+  brief      主题 → topic_brief.json（T-01：core_questions ≥2 才放行，本进程内完成）
+  research   auto_research.py   （--injected 或 TAVILY_API_KEY；两者都没有就拒跑，不伪造检索）
+  article    write_article.py   （可选 --hook）
+  narrative  plan_narrative.py  --md article/article.md
+  gate       check_narrative.py （blocking&gt;0 即停 + 写 gate_report.json）
+  deck       md_to_pptx.py      （--no-images 出纯文字版）</pre>
+
+<table>
+<tr><th>文件</th><th>动作</th></tr>
+<tr><td><code>scripts/topic_to_deck.py</code></td><td>新建（纯标准库；<code>--stage/--from/--resume/--dry-run/--no-images</code>）</td></tr>
+<tr><td><code>scripts/test_topic_to_deck.py</code></td><td>新建，27 条自检，全部<strong>桩函数计数</strong>，不打 API、不起真子进程</td></tr>
+<tr><td><code>spikes/RUN-20261015/make_index.py</code></td><td>新建，生成接力报告索引（仓库 + iCloud 桌面两处）</td></tr>
+<tr><td><code>spikes/RUN-20261015/e2e/run1/*</code></td><td>本次真实跑的产物留档（含 <code>state.json</code>、<code>gate_report.json</code>）</td></tr>
+</table>
+
+<h2>2. 实际命令与实际输出</h2>
+
+<pre class="nowrap">$ python3 scripts/test_topic_to_deck.py
+...
+通过 27 / 失败 0
+
+$ python3 scripts/topic_to_deck.py --topic "远程交付团队的周会节奏（测试夹具）" \
+    --workdir spikes/RUN-20261015/e2e/run1 \
+    --brief spikes/RUN-20261015/fixtures/topic_brief.json \
+    --injected spikes/RUN-20261015/fixtures/injected.json --no-images --dry-run
+[dry-run] brief 校验通过：2 条核心问题
+[dry-run] .../auto_research.py --brief .../topic_brief.json --injected .../injected.json --out .../research.json
+[dry-run] .../write_article.py --research .../research.json --out .../article --name article
+[dry-run] .../plan_narrative.py --md .../article/article.md --out .../narrative.json
+[dry-run] .../check_narrative.py .../narrative.json .../article
+[dry-run] .../md_to_pptx.py --md .../article/article.md --out .../deck --name deck --narrative .../narrative.json --no-images
+{"stages": {"research": "planned", "article": "planned", "narrative": "planned", "gate": "planned", "deck": "planned"}}</pre>
+
+<p>真实执行（去掉 <code>--dry-run</code>），尾部原样：</p>
+<pre class="nowrap">  BLOCKING  [W-07] 页 01 [claim] 缺 evidence
+  BLOCKING  [W-24] 页 01 缺 so_what
+  ...
+blocking 16 条 / 需人读 10 条
+FAIL(部分)：可机械判定的 W-xx 有 blocking。
+[停] 叙事门禁 blocking 16 条——按纪律不跳过、不放宽，已写 gate_report.json
+{"stages": {"research": "done", "article": "done", "narrative": "done", "gate": "failed"},
+ "stopped_at": "gate", "blocking": 16}
+exit=3</pre>
+
+<h2>3. 一次真实的集成缺陷：修完之后 blocking 19 → 16</h2>
+<div class="card">
+<code>plan_narrative.py</code> 给每条证据写的回指是 <code>article.md#L32</code>（只有文件名），
+而 <code>check_narrative.py</code> 按<strong>第二个位置参数=素材根目录</strong>去解析这个相对路径。
+编排层原本把根目录传成了 <code>workdir</code>，但 <code>article.md</code> 实际落在 <code>workdir/article/</code> 下 ⇒
+<span class="bad">6 条 <code>[W-19] evidence 回指解析失败</code>全是编排层造成的假阳性</span>。
+把根目录改成 <code>article.md</code> 所在目录后，回指类 blocking 归零，实测总数 <strong>19 → 16</strong>。
+这条契约已固化成自检 <code>C6</code>（断言 gate 段的素材根必须是 <code>article/</code>，且 narrative 的 <code>--md</code> 指向 <code>article/article.md</code>）。
+</div>
+
+<h2>4. 剩下 16 条的真实构成（原样统计，未动判据）</h2>
+<table>
+<tr><th>编号</th><th>命中</th><th>性质</th><th>谁来解</th></tr>
+<tr><td>W-24</td><td>8 条：各页<strong>缺 so_what</strong></td><td>要写文案（含义/行动句）</td><td><span class="bad">停等点</span>：无人值守期禁止自动写文案，需你给 <code>--hook</code> 或人工补</td></tr>
+<tr><td>W-07</td><td>6 条：claim 页<strong>缺 evidence</strong></td><td><strong>结构性缺口</strong>：文章正文是散文段落，而 <code>plan_narrative</code> 只从 bullet/表格抽证据</td><td>S4 的主活：确定性地把 claim 段落带行号喂进 evidence</td></tr>
+<tr><td>W-12</td><td>2 条：数字证据缺 baseline</td><td>文章段里数字有值无比较基准</td><td>S4 记录命中面；补基准属内容判断，不自动编</td></tr>
+<tr><td>W-29 / W-03 / W-04 / W-09</td><td>需人读 10 条（scope_note、论点是否成立等）</td><td>本就不可机械化</td><td>人读；报告如实列出</td></tr>
+</table>
+
+<h2>5. 断电可续（这台机器 13 天 panic 过两次，这条不是锦上添花）</h2>
+<pre class="nowrap">$ cat spikes/RUN-20261015/e2e/run1/state.json
+{"stages": {"brief": {"status":"done","at":"2026-10-16T00:02:31+08:00"},
+            "research": {"status":"done","rc":0}, "article": {"status":"done","rc":0},
+            "narrative": {"status":"done","rc":0}, "gate": {"status":"failed","rc":1}},
+ "topic": "远程交付团队的周会节奏（测试夹具）"}</pre>
+<p><code>--resume</code> 会跳过"状态 done 且产物仍在盘"的阶段；自检 E3 实测：预置 research 完成后，子进程调用从 5 次降到 4 次。</p>
+
+<h2>6. 纪律核查</h2>
+<pre>桩测试：test_topic_to_deck.py 全部用 Stub 记录 argv，零真实网络调用、零子进程
+无新增第三方依赖（argparse/json/re/subprocess/pathlib 全是标准库）
+未修改任何阈值：qa_score 80 / WCAG_MIN / 照抄率 40% / 列数 ≤5 / 节点数 ≤6 / W-xx 判据原样
+命令行与产物无密钥字面量（自检 E5）
+未推送、未合并 10-06 分支；git add 逐文件名</pre>
+
+<h2>7. 下一步（S4）</h2>
+<ul>
+<li>把"文章散文 → narrative evidence"做成确定性抽取（带行号回指），并把 <code>image_intent</code> 在文章入叙事时对账 —— 判据<strong>只加不松</strong>。</li>
+<li>W-24 缺 so_what 属文案，仍然留作停等点，我只把命中面数出来给你。</li>
+</ul>
+
+</main>
+</body>
+</html>
