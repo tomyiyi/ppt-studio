@@ -45,8 +45,8 @@ def run(cmd, **kw):
 
 def gen_images(out: Path, pages_path: Path) -> int:
     """三级配图路由：agnes（background/panel/hero 走生图桥）/ asset（本地图库选图）/
-    vector（矢量旁路，S7 交付，未接线前如实缓办）。返回成功配图页数。
-    image_intent=none 的页跳过。"""
+    vector（S7 起走 vector_illustration 本地生成，cairosvg 旁路栅格化；环境缺失如实缓办）。
+    返回成功配图页数。image_intent=none 的页跳过。"""
     plan = json.loads(pages_path.read_text(encoding="utf-8"))
     images_dir = out / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
@@ -60,9 +60,28 @@ def gen_images(out: Path, pages_path: Path) -> int:
             print(f"  p{pg['index']:02d} image_intent=none，跳过生图")
             continue
         if intent == "vector":
-            deferred += 1
-            print(f"  p{pg['index']:02d} image_intent=vector：矢量生成链路（S7 render_svg_cairo）"
-                  "未接线，本期缓办，不调 Agnes、不硬塞")
+            # S7 接线：本地确定性矢量配图（无浏览器/无 Agnes 调用）；环境缺失如实缓办
+            import vector_illustration as VI
+            svg_fn = "p%02d_vector.svg" % pg["index"]
+            fn = "p%02d_vector.png" % pg["index"]
+            svg_path = images_dir / svg_fn
+            svg_path.write_text(
+                VI.make_svg(pg.get("image_prompt") or pg.get("title") or "",
+                            seed=pg["index"] + 1, spec_lock=out / "spec_lock.md"),
+                encoding="utf-8")
+            if not VI.rasterize(svg_path, images_dir / fn):
+                svg_path.unlink(missing_ok=True)
+                print(f"  p{pg['index']:02d} image_intent=vector：cairosvg 旁路不可用，"
+                      "如实缓办（不硬塞半成品）")
+                deferred += 1
+                continue
+            pg["image_file"] = fn
+            (images_dir / ("p%02d_vector.prov.json" % pg["index"])).write_text(
+                json.dumps({"generator": "vector_illustration", "motif_seed": pg["index"] + 1,
+                            "prompt": pg.get("image_prompt", ""), "engine": "cairosvg-py311",
+                            "text_in_image": False},
+                           ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"  p{pg['index']:02d} vector 本矢生成 {fn}（未调 Agnes）")
             continue
         if intent == "asset":
             import source_illustration as SI
@@ -100,7 +119,8 @@ def gen_images(out: Path, pages_path: Path) -> int:
     manifest.write_text(json.dumps({"items": items}, ensure_ascii=False, indent=2),
                         encoding="utf-8")
 
-    done = sum(1 for pg in plan["pages"] if str(pg.get("image_file", "")).endswith("_asset.png"))
+    done = sum(1 for pg in plan["pages"]
+               if str(pg.get("image_file", "")).endswith(("_asset.png", "_vector.png")))
     if items:
         print("  生图 %d 张（经 prompt 安全拦截）..." % len(items))
         r = subprocess.run(

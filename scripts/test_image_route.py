@@ -113,7 +113,8 @@ with tempfile.TemporaryDirectory() as td:
     finally:
         SI.REPO_INDEX = _orig
 
-# D4. vector 未接线：如实缓办，不进 Agnes manifest
+# D4.（S7 接线后重写）vector 走本地矢量：绝不进 Agnes manifest；
+#     cairosvg 可用则产 pXX_vector.png+prov，不可用则如实缓办不产半成品。
 with tempfile.TemporaryDirectory() as td:
     out = Path(td); (out / "images").mkdir()
     pages_path = out / "pages.json"
@@ -123,7 +124,15 @@ with tempfile.TemporaryDirectory() as td:
     import md_to_pptx as MP
     n = MP.gen_images(out, pages_path)
     mf = json.loads((out / "images" / "image_prompts.json").read_text(encoding="utf-8"))
-    ok("D4. vector 缓办不进 Agnes", n == 0 and mf["items"] == [])
+    png = out / "images" / "p00_vector.png"
+    if mf["items"] != []:
+        good = False
+    elif png.exists():
+        prov = (out / "images" / "p00_vector.prov.json")
+        good = n == 1 and prov.exists() and "vector_illustration" in prov.read_text(encoding="utf-8")
+    else:
+        good = n == 0 and not (out / "images" / "p00_vector.svg").exists()
+    ok("D4. vector 本地生成且绝不进 Agnes", good)
 
 # D5. 回写按 page_index 对位（旧 zip 在有 none 跳过页时错位）
 class _FakeSP:
@@ -157,6 +166,32 @@ with tempfile.TemporaryDirectory() as td:
            plan_after["pages"][1].get("image_file") == "p01_bg.png")
     finally:
         MP.subprocess = _origsp
+
+# D6.（S7）矢量生成器：确定性、无文字、配色取自 spec_lock 兜底集
+import vector_illustration as VI
+svg_a = VI.make_svg("系统架构分层", seed=3)
+svg_b = VI.make_svg("系统架构分层", seed=3)
+svg_c = VI.make_svg("节点协作网络", seed=8)
+ok("D6. make_svg 确定性+无文字", svg_a == svg_b and "<text" not in svg_a
+   and all(tok in svg_a for tok in ("#08090C", "#6E7BFF"))
+   and svg_a != svg_c)
+
+# D7.（S7）render_svg_cairo：字体族名规范化 + cairosvg 旁路真实出图
+import render_svg_cairo as RC
+fixed = RC.normalize_fonts('<text font-family="SmileySans, \'思源黑 Heavy\', sans-serif">中</text>')
+ok("D7a. SmileySans→Smiley Sans / 思源黑→Noto Sans SC",
+   "Smiley Sans" in fixed and "思源黑" not in fixed and "Noto Sans SC" in fixed)
+with tempfile.TemporaryDirectory() as td:
+    svgp = Path(td) / "v.svg"
+    svgp.write_text(VI.make_svg("测试", seed=5), encoding="utf-8")
+    pngp = Path(td) / "v.png"
+    try:
+        RC.render_one(svgp, pngp, 640)
+        from PIL import Image as _PI
+        im = _PI.open(pngp)
+        ok("D7b. cairo 旁路出图 640 宽", im.size == (640, 360))
+    except Exception as e:
+        ok("D7b. cairo 旁路出图 640 宽（环境缺 cairosvg/PIL，如实记失败）", False)
 
 print(f"\n{'='*56}")
 print(f"通过 {PASS} / 失败 {FAIL}")

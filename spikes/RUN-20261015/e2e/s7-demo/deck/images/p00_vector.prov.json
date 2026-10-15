@@ -1,0 +1,7 @@
+{
+  "generator": "vector_illustration",
+  "motif_seed": 1,
+  "prompt": "系统架构分层",
+  "engine": "cairosvg-py311",
+  "text_in_image": false
+}

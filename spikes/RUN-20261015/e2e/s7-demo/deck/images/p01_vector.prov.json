@@ -1,0 +1,7 @@
+{
+  "generator": "vector_illustration",
+  "motif_seed": 2,
+  "prompt": "节点协作网络",
+  "engine": "cairosvg-py311",
+  "text_in_image": false
+}

@@ -1,0 +1,5 @@
+{"pages": [
+ {"index": 0, "title": "矢量旁路演示", "bullets": ["vector 页：本地确定性矢量配图，不调 Agnes 不开浏览器"], "layout": "cover", "needs_review": [], "image_intent": "vector", "image_intent_source": "demo", "image_prompt": "系统架构分层"},
+ {"index": 1, "title": "三种意图同框", "bullets": ["vector 生成 pXX_vector.png 并留 prov.json", "栅格化走 render_svg_cairo（unsafe+字体规范化）", "cairosvg 不可用时如实缓办，不产半成品"], "layout": "bullets", "needs_review": [], "image_intent": "vector", "image_intent_source": "demo", "image_prompt": "节点协作网络"},
+ {"index": 2, "title": "收束", "bullets": ["none 页跳过"], "layout": "closing", "needs_review": [], "image_intent": "none", "image_intent_source": "demo", "image_prompt": ""}
+]}
