@@ -1,0 +1,10 @@
+spec_tokens exit=0 通过 17 / 失败 0
+plan_narrative exit=0 通过 34 / 失败 0
+check_narrative exit=0 通过 26 / 失败 0
+qa_layout_fixes exit=0 自检全部通过 ✅
+qa_scale_and_contrast exit=0 通过 17 / 失败 0
+plan_contract_sections exit=0 通过 9 / 失败 0
+layout_recipes exit=0 通过 24 / 失败 0 / xfail 0
+image_route exit=0 通过 9 / 失败 0
+write_article exit=0 通过 26 / 失败 0
+topic_to_deck exit=0 通过 29 / 失败 0

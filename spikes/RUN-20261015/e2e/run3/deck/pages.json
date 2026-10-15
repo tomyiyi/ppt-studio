@@ -1,0 +1,129 @@
+{
+  "source": "article.md",
+  "title": "远程交付团队的周会节奏（测试夹具）",
+  "narrative_style": "listicle",
+  "closing_hint": "要点回顾",
+  "pages": [
+    {
+      "index": 0,
+      "title": "远程交付团队的周会节奏（测试夹具）",
+      "bullets": [
+        "本次研究通过双源验证的核心发现有 5 条，具体判断见正文各节。"
+      ],
+      "layout": "cover",
+      "needs_review": [],
+      "image_intent": "background",
+      "image_intent_source": "legacy-default",
+      "image_prompt": "concentric circles converging to center, hero wide composition, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "cover_variant": "hero_full"
+    },
+    {
+      "index": 1,
+      "title": "是什么",
+      "bullets": [
+        "受访的 42 个远程交付团队平均每周召开 4.5 小时同步会议，其中约三分之一没有形成任何可执行的决议",
+        "（example.com、example.org）"
+      ],
+      "layout": "bullets",
+      "needs_review": [
+        "标题过短（3字），可能是被截断的半句"
+      ],
+      "image_intent": "background",
+      "image_intent_source": "legacy-default",
+      "image_prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25"
+    },
+    {
+      "index": 2,
+      "title": "变了什么",
+      "bullets": [
+        "把每周例会从 60 分钟改成 25 分钟之后，会后书面纪要的平均字数不降反升，增加了约四成",
+        "（example.com、example.org）"
+      ],
+      "layout": "bullets",
+      "needs_review": [],
+      "image_intent": "background",
+      "image_intent_source": "legacy-default",
+      "image_prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25"
+    },
+    {
+      "index": 3,
+      "title": "为什么",
+      "bullets": [
+        "跨时区协作使固定时间的同步会议成本显著上升，参与方不得不在会议之外补齐上下文，异步文档因此成为默认选择",
+        "（example.org、example.net）"
+      ],
+      "layout": "bullets",
+      "needs_review": [
+        "标题过短（3字），可能是被截断的半句"
+      ],
+      "image_intent": "background",
+      "image_intent_source": "legacy-default",
+      "image_prompt": "subtle abstract geometric depth, soft ambient presence, graphite gradient backdrop, dim even lighting, deep shadows, editorial report style, dark composition, muted professional palette, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25"
+    },
+    {
+      "index": 4,
+      "title": "意味着什么",
+      "bullets": [
+        "会议时长压缩之后，一线工程师单次不被打断的连续编码时长中位数从 1.8 小时提高到 2.6 小时",
+        "（example.com、example.net）"
+      ],
+      "layout": "bullets",
+      "needs_review": [],
+      "image_intent": "background",
+      "image_intent_source": "legacy-default",
+      "image_prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25"
+    },
+    {
+      "index": 5,
+      "title": "反例与边界",
+      "bullets": [
+        "有两家团队在完全取消周会之后的两个月内交付事故数量翻倍，随后恢复了每周一次的同步会议并保留书面纪要",
+        "（example.net、example.com）"
+      ],
+      "layout": "bullets",
+      "needs_review": [],
+      "image_intent": "background",
+      "image_intent_source": "legacy-default",
+      "image_prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25"
+    },
+    {
+      "index": 6,
+      "title": "写在最后",
+      "bullets": [
+        "本篇基于 5 条双源验证的结论写成，覆盖 5 个方面",
+        "更多未经验证的发现见附录"
+      ],
+      "layout": "closing",
+      "needs_review": [],
+      "image_intent": "background",
+      "image_intent_source": "legacy-default",
+      "image_prompt": "subtle abstract geometric depth, horizon resolution, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25"
+    },
+    {
+      "index": 7,
+      "title": "附录：待验证（未通过双源验证，不进正文）",
+      "bullets": [
+        "七成受访团队保留了每日站会这一形式，但把单次日站时长从 25 分钟压缩到了 10 分钟以内（example.net）",
+        "书面状态更新工具普及以来，大约两成低价值同步会被异步文档取代，替代过程集中在近两年完成（example.net）",
+        "纯异步流程下的新入职成员，首次提问到获得有效回复的等待时间中位数增加了 6 个小时（example.org）"
+      ],
+      "layout": "bullets",
+      "needs_review": [],
+      "image_intent": "background",
+      "image_intent_source": "legacy-default",
+      "image_prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25"
+    }
+  ],
+  "review_flags": [
+    {
+      "page": 1,
+      "source_title": "是什么",
+      "issue": "标题过短（3字），可能是被截断的半句"
+    },
+    {
+      "page": 3,
+      "source_title": "为什么",
+      "issue": "标题过短（3字），可能是被截断的半句"
+    }
+  ]
+}

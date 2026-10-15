@@ -564,6 +564,11 @@ def render_page(page, images_dir):
                                     page.get("subtitle", "")) if HAS_COVER_V2 else None
         _hook = _copy["title"] if _copy else re.split(r"[：:——]", _raw_title)[0].strip()[:20]
         _cover_sub = _copy["subtitle"] if _copy else page.get("subtitle", "")[:30]
+        # md_to_pages 把导语引文放进 bullets[0]（不写 subtitle 键），旧版这里接不到，
+        # 封面丢掉引文且 plan_contract 判「条目未画出」。引文是实内容，优先于公式副标题。
+        _b0 = (page.get("bullets") or [""])[0].strip()
+        if _b0:
+            _cover_sub = _b0
         reps["{{KEY_MESSAGE}}"] = "__TITLE_MULTILINE__"
         _variant = page.get("cover_variant", "hero_full")
         if HAS_COVER_V2:
@@ -696,6 +701,39 @@ def render_page(page, images_dir):
     return svg
 
 
+def _align_to_spec_lock(svg, spec_path):
+    """把渲染输出拉回 spec_lock 声明的字号阶梯与页边距（只下取整、不放宽判据）。
+
+    历史模板自带的 22 / 72 档与 x=64 起排早于 2026-09-23 的 8 档收紧，
+    qa_layout 按现行阶梯判越级与左溢出；这里是真实违规的修正点，
+    改档位/边距本身属于判据变更，归主控，不在这里做。"""
+    try:
+        import spec_tokens as ST
+        tok = ST.load(str(spec_path))
+    except Exception:
+        return svg                       # 无 spec_lock（如单测裸渲染）保持原行为
+    ramp = sorted(tok.ramp)
+
+    def _snap(m):
+        size = int(m.group(2))
+        if size in tok.ramp:
+            return m.group(0)
+        lower = [s for s in ramp if s <= size] or [ramp[0]]
+        return "%s%d%s" % (m.group(1), lower[-1], m.group(3))
+
+    svg = re.sub(r'(font-size=")(\d+)(")', _snap, svg)
+
+    def _fixx(m):
+        tag = m.group(0)
+        xm = re.search(r'x="(\d+)"', tag)
+        if xm and int(xm.group(1)) < tok.margin and "text-anchor" not in tag:
+            tag = tag[:xm.start(1)] + str(tok.margin) + tag[xm.end(1):]
+        return tag
+
+    svg = re.sub(r"<text\b[^>]*>", _fixx, svg)
+    return svg
+
+
 def main():
     import argparse
     import json
@@ -731,6 +769,7 @@ def main():
             else:
                 failed.append("p%02d %s" % (i, e))
                 continue
+        svg = _align_to_spec_lock(svg, out.parent / "spec_lock.md")
         (out / name).write_text(svg, encoding="utf-8")
     if failed:
         print("[FAIL] %d 页条目溢出，请回 md_to_pages 拆页或精简原文：" % len(failed),

@@ -1,0 +1,10 @@
+[OK ] 00_cover: 100
+[OK ] 01_bullets: 100
+[OK ] 02_bullets: 100
+[OK ] 03_bullets: 100
+[OK ] 04_bullets: 100
+[OK ] 05_bullets: 100
+[OK ] 06_closing: 100
+[OK ] 07_bullets: 100
+
+8 页，0 页需复核（阈值 80）
