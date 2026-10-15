@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RUN-20261015 · S2 写作 skill：主题→成文法规与自检</title>
+<style>
+  :root { --bg:#0f1115; --card:#171b22; --ink:#e8ebf0; --dim:#9aa4b2; --line:#282f3a; --ok:#3ddc84; --warn:#ffb454; --bad:#ff6b6b; --mono:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.75 -apple-system,"PingFang SC","Helvetica Neue",sans-serif; }
+  main { max-width:860px; margin:0 auto; padding:20px 16px 80px; }
+  h1 { font-size:24px; line-height:1.35; margin:8px 0 4px; }
+  h2 { font-size:19px; margin:34px 0 10px; padding-bottom:6px; border-bottom:1px solid var(--line); }
+  .meta { color:var(--dim); font-size:15px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin:14px 0; }
+  pre { background:#0b0d11; border:1px solid var(--line); border-radius:10px; padding:12px; overflow-x:auto; font:13px/1.6 var(--mono); white-space:pre-wrap; word-break:break-word; margin:10px 0; }
+  pre.nowrap { white-space:pre; }
+  code { font-family:var(--mono); font-size:14px; }
+  table { width:100%; border-collapse:collapse; margin:12px 0; font-size:15px; }
+  th, td { border:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:#12161d; color:var(--dim); font-weight:600; }
+  .ok { color:var(--ok); font-weight:600; } .warn { color:var(--warn); font-weight:600; } .bad { color:var(--bad); font-weight:600; }
+  ul { margin:8px 0 8px 20px; padding:0; } li { margin:6px 0; }
+  .before { border-left:3px solid var(--bad); } .after { border-left:3px solid var(--ok); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>S2 · 写作 skill：主题 → 成文法规 + 自检</h1>
+<p class="meta">RUN-20261015 ｜ 阶段 2 / 13 ｜ 2026-10-15 23:58 (+0800) ｜ 仓库 <code>ppt-studio</code></p>
+
+<div class="card">
+<strong>这一阶段做了什么：</strong>把"我给一个主题，系统能写出一篇文章"从<span class="bad">只有机制、没有法规</span>变成
+<span class="ok">有可判定的成文法规（T-01…T-12）+ 26 条自检 + 可离线复跑的夹具</span>。
+过程中改掉 3 个真实缺陷，并<span class="warn">如实记录 4 项已知限制</span>（其中两项我不擅自修，交你裁决）。
+</div>
+
+<h2>1. 新增与改动的文件</h2>
+<table>
+<tr><th>文件</th><th>动作</th><th>说明</th></tr>
+<tr><td><code>skills/article-writing-from-topic/SKILL.md</code></td><td>新建</td><td>T-01…T-12 成文法规 + 已知限制表 + 与 W-xx（幻灯片文案）的分工边界</td></tr>
+<tr><td><code>patterns/writing/extract_hook.md</code></td><td>扩充</td><td>加"成文版"：文章标题 ≤20 字断言、导语 ≤80 字必须说出<strong>验证条数 + 最大分歧点</strong>，禁止编造分歧</td></tr>
+<tr><td><code>scripts/test_write_article.py</code></td><td>新建</td><td>26 条自检，标准库 + <code>ok()</code> + 退出码，无 pytest</td></tr>
+<tr><td><code>scripts/write_article.py</code></td><td>改 4 处</td><td>段末标点、导语取料"宁缺不切"、附录措辞按实际来源数、<code>--hook</code> 入口</td></tr>
+<tr><td><code>spikes/RUN-20261015/fixtures/</code></td><td>新建</td><td><code>make_fixture.py</code>（可重生成）、<code>topic_brief.json</code>、<code>injected.json</code>、<code>research_fixture.json</code>、<code>out/article.md</code></td></tr>
+</table>
+
+<div class="card">
+<span class="warn">夹具是假数据，而且写明了是假数据。</span>主题"远程交付团队的周会节奏（测试夹具）"，来源域名全部 <code>example.com/org/net</code> 占位，
+每个 JSON 都带 <code>_note</code> 字段声明"不得作为任何事实来源引用"。它的作用只有一个：在<strong>没有检索 API key、不创建 .env</strong> 的前提下，
+让 <code>主题 → 检索 → 双源门禁 → 大纲 → 成文</code> 这条链能离线复跑。<strong>这不是真实研究结论。</strong>
+</div>
+
+<h2>2. 实际命令与实际输出（原样）</h2>
+
+<pre class="nowrap">$ /usr/local/bin/python3.11 spikes/RUN-20261015/fixtures/make_fixture.py
+perspectives: ['现状', '变化', '动因', '影响', '反例'] queries: 11
+
+$ python3 scripts/auto_research.py --brief .../topic_brief.json --injected .../injected.json --out .../research_fixture.json
+检索源：InjectedProvider
+[round 1] 新增 8 条，累计 8 条
+[round 2] 新增 0 条，累计 8 条
+收敛：新增比例 0.0% &lt; 10%，停止
+完成：8 条 claims（verified 5 / unverified 3），2 轮
+
+$ python3 scripts/write_article.py --research .../research_fixture.json --out .../fixtures/out
+verified=5 unverified=3 sections=5
+-&gt; .../fixtures/out/article.md
+-&gt; .../fixtures/out/article_outline.json
+
+$ python3 scripts/test_write_article.py; echo exit=$?
+...
+通过 26 / 失败 0
+exit=0</pre>
+
+<p>回归：改动 <code>write_article.py</code> 之后重跑原有 8 个套件，<span class="ok">全部 exit=0，无一条判据被动过</span>：</p>
+<pre class="nowrap">spec_tokens exit=0 通过 17 / 失败 0
+plan_narrative exit=0 通过 17 / 失败 0
+check_narrative exit=0 通过 22 / 失败 0
+qa_layout_fixes exit=0 自检全部通过 ✅
+qa_scale_and_contrast exit=0 通过 17 / 失败 0
+plan_contract_sections exit=0 通过 9 / 失败 0
+layout_recipes exit=0 通过 24 / 失败 0 / xfail 0
+image_route exit=0 通过 9 / 失败 0</pre>
+
+<h2>3. 改掉的真缺陷（都是实测出来的，不是想象出来的）</h2>
+
+<h3>缺陷 ① 导语按 36 字硬切，切出半截数字</h3>
+<p class="before">修复前实测（我第一次跑夹具时它真实产出的样子）：</p>
+<pre class="before">&gt; …核心发现有 5 条：受访的 42 个远程交付团队平均每周召开 4.5 小时同步会议；把每周例会从 60 分钟改成 25 分钟之后；
+&gt; 跨时区协作使固定时间的同步会议成本显著上升；会议时长压缩之后，一线工程师单次不被打断的连续编码时长中位数从 1.8 。</pre>
+<p>结尾"中位数从 1.8 。"——数字被切掉单位，语义已经错了。代码注释写着"不断半词"，但 <code>for/else</code> 分支的兜底就是 <code>first[:36]</code>。</p>
+<p class="after">修复后：改成<strong>宁缺不切</strong>——首句超过 36 字就整条不取，绝不裁剪；一条都装不下时只报条数。</p>
+<pre class="after">&gt; 本次研究通过双源验证的核心发现有 5 条，具体判断见正文各节。</pre>
+<p class="meta">能装下的句子原样并列，逐字可回指 claims（E6 实测）：</p>
+<pre class="after">本次研究通过双源验证的核心发现有 2 条：周会砍半之后事故翻倍；纪要字数反而增加四成。</pre>
+
+<h3>缺陷 ② 正文段落没有句末标点</h3>
+<p class="before">修复前：<code>…没有形成任何可执行的决议（example.com、example.org）</code>（claim 是按句切分的，切分时句号被丢掉，来源直接贴在半句后面）</p>
+<p class="after">修复后：<code>…没有形成任何可执行的决议。（example.com、example.org）</code>　锁在自检 D1/D2。</p>
+
+<h3>缺陷 ③ 把"未达双源"一律写成"仅有单源支撑"</h3>
+<p>附录首句原本硬编码"以下 N 条发现仅有单源支撑"。但 <code>unverified</code> 的真实判据是 <code>域名数 &lt; 2</code>，包含<strong>零来源</strong>和<strong>同域多来源</strong>两种情况——这句话在夹具里恰好成立，换个输入就是错的。
+现在由 <code>_appendix_lead()</code> 按实际来源数分开陈述：</p>
+<pre class="after">以下 3 条发现（3 条仅单源）未通过双源验证，供进一步核实，暂不作为结论引用。</pre>
+
+<h2>4. 如实记录、但我不擅自改的 4 项</h2>
+<table>
+<tr><th>发现</th><th>证据</th><th>为什么不擅自改</th></tr>
+<tr><td><strong>来源分级白名单是服饰行业专用</strong>：非服饰主题一律落 <code>tertiary</code></td><td><code>scripts/auto_research.py</code> 的 <code>PRIMARY_DOMAINS</code>/<code>SECONDARY_DOMAINS</code> 全是 apparel/时尚媒体域名（wwd.com、businessoffashion.com 等）</td><td>换表等于改判据口径，且这是从别的项目带过来的资产，怎么收敛归你裁决</td></tr>
+<tr><td><strong>同注册域被当成双源</strong>：<code>blog.x.com</code> + <code>x.com</code> 会判 verified</td><td><code>domain_of()</code> 只剥 <code>www.</code>，不合并子域</td><td>收紧判据是"变严"，但仍属门禁变更；已写成 T-05 要求人工复核一次</td></tr>
+<tr><td><strong>规则版导语只能报条数，提炼不出判断</strong></td><td>自检 E5 把该退化行为锁死</td><td>要好导语必须走 <code>--hook</code> 显式产出；<strong>无人值守期禁止自动写文案</strong>是 10-09 就定下的停等点，我遵守它，所以默认产物导语偏弱是已知代价</td></tr>
+<tr><td><strong>10-06 两个 <code>fix/blackapple-review-20261006</code> 分支从未合并</strong></td><td>PPT 侧相对其 main <code>246 files / +38773 / -2072</code>，含整套 <code>tests/</code></td><td>授权口径是 main 本地提交不推送、不合并；只留档</td></tr>
+</table>
+
+<h2>5. 现在这条链长什么样</h2>
+<pre>一个主题
+  └─ topic_brief.json（T-01：core_questions ≥2 才许开写）
+      └─ auto_research.py（STORM：视角→检索→提取→<strong>双源门禁</strong>→收敛）
+          └─ research.json（verified / unverified 已分流）
+              └─ write_article.py（T-06 大纲先行 → T-08 一条一段 → T-11 收尾不引新断言）
+                  ├─ article_outline.json   ← 可单独检查
+                  └─ article.md             ← 826 字，空词命中 0
+                        └─ S3 起接 plan_narrative → check_narrative → md_to_pptx</pre>
+
+<p>夹具成文产物全文（826 字，5 节正文 + 3 条附录）已入库：<code>spikes/RUN-20261015/fixtures/out/article.md</code>。</p>
+
+<h2>6. 卫生与安全</h2>
+<pre>新增文件密钥字面量扫描 → 0
+git status --porcelain | grep -c '\._' → 0
+夹具与产物无任何真实 URL、无凭据；未创建/修改 .env；未新增第三方依赖（标准库 + 已有 pillow/numpy）</pre>
+
+<h2>7. 下一步</h2>
+<ul>
+<li><strong>S3</strong>：<code>scripts/topic_to_deck.py</code> 单入口编排（<code>--stage/--dry-run/--no-images/--resume</code>），把上面这张图变成一条命令；自检用桩函数计数，不打 API。</li>
+<li>然后 S4 才动 <code>image_intent</code> 对账（判据只加不松）。</li>
+</ul>
+
+</main>
+</body>
+</html>

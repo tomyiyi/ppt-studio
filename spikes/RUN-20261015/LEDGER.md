@@ -32,4 +32,5 @@
 
 | 开工 | 收工 | 阶段 | commit | Verify 摘要 | 产物 | 下一步 | 未决 |
 |---|---|---|---|---|---|---|---|
-| 2026-10-15 23:05 | — | S1 现场自证+台账 | 进行中 | 8 套件基线全绿（见上表）；现场自证已贴 | `LEDGER.md` + `S01-baseline.html` | 提交 S1，测 qoder_cron 兜底能力，转 S2 | 无 |
+| 2026-10-15 23:05 | 2026-10-15 23:46 | S1 现场自证+台账 | `1dcd971` | 8 套件 exit=0（17/17/22/自检通过/17/9/24/9），输出留档 `baseline-suites.txt`；卫生扫描 cards=0 junk=0；`qoder_cron` 兜底任务**实测可建**，id `9bd5eb3b-57a2-49d1-ad0d-1fc549f7d9eb`，每 2h、`expiresAt` 2026-10-16 20:00、含"判活"防踩踏逻辑 | `LEDGER.md` + `reports/S01-baseline.html` + `baseline-suites.txt` | **S2 写作 skill**：`skills/article-writing-from-topic/SKILL.md`(T-01…T-12) + `scripts/test_write_article.py` | 兜底任务以 `bypassPermissions` 落盘，若需收敛权限由主控裁决 |
+| 2026-10-15 23:50 | — | S2 写作 skill | 待补 | 夹具链离线跑通（verified 5 / unverified 3 / sections 5）；`test_write_article.py` 26/0；原 8 套件回归全 exit=0 且未动任何判据 | `skills/article-writing-from-topic/SKILL.md`、`patterns/writing/extract_hook.md`（成文版）、`scripts/test_write_article.py`、`scripts/write_article.py`（4 处缺陷修正）、`spikes/RUN-20261015/fixtures/*`、`reports/S02-writing-skill.html` | S3 `topic_to_deck.py` | 导语规则版只能报条数（走 `--hook` 需显式产出，无人值守禁自动写）；同注册域算双源、服饰白名单失真——两项门禁口径变更交主控裁决 |

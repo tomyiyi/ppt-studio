@@ -111,51 +111,98 @@ def _source_note(claim: dict) -> str:
 
 
 def expand_claim(claim: dict) -> str:
-    """一条 claim -> 一个段落：主张 + 转述 + 来源。"""
+    """一条 claim -> 一个段落：主张 + 转述 + 来源。
+
+    段末必须有句末标点，来源标注跟在标点之后（成文层 T-08/T-04）。
+    """
     text = claim.get("claim", "").strip()
     evidence = claim.get("evidence", "").strip()
     para = text
     extra = _paraphrase_evidence(text, evidence)
     if extra:
         para += extra if para.endswith(("。", "！", "？")) else "。" + extra
+    elif not para.endswith(("。", "！", "？", "；")):
+        # claim 按句切分时丢掉了句末标点，这里补回来
+        para += "。"
     note = _source_note(claim)
     if note:
         para += note
     return para
 
 
+# 导语取料上限：单条首句超过 LEDE_CLAUSE_MAX 字就整条不取（宁缺不切），拼接后再受总长约束
+LEDE_CLAUSE_MAX = 36
+LEDE_TOTAL_MAX = 120
+
+
+def _first_clause(text: str) -> str:
+    return re.split(r"[。！？；]", text.strip())[0].strip()
+
+
 def distill_lede(research: dict, verified: list[dict]) -> str:
     """导语：从 verified claims 提炼核心观点。
 
-    规则版：取前 2 条 verified 的核心主张，找对立/并列关系。
-    不编造超出 claims 的判断。
+    规则版：并列呈现前 4 条里**能整句装下**的核心主张。
+    两条纪律：
+    1. 绝不裁剪句子（旧实现按 36 字硬切，会切出"中位数从 1.8"这种半截数字）——超限的整条不取；
+    2. 不编造超出 claims 的判断；一条都装不下时只报条数，不硬凑。
+    research.hook.lede 存在时优先采用（由 patterns/writing/extract_hook.md 显式产出）。
     """
     topic = research.get("topic", "")
     if not verified:
         return f"本次研究的主题是{topic}，但暂无通过双源验证的结论，正文从缺。以下为研究过程记录。"
 
-    # 提炼：把 claims 压缩成 1-2 句核心判断
+    hook = research.get("hook") or {}
+    if hook.get("lede"):
+        return hook["lede"].strip()
+
+    generic = (f"本次研究通过双源验证的核心发现有 {len(verified)} 条，"
+               "具体判断见正文各节。")
+
     cores = []
     for c in verified[:4]:
-        cl = c.get("claim", "").strip()
-        # 取第一句；太长则在标点处断，不断半词
-        first = re.split(r"[。！？]", cl)[0]
-        if len(first) > 36:
-            # 找最后一个逗号/顿号/冒号处断开
-            for sep in ("，", "、", "：", "；"):
-                idx = first.rfind(sep, 0, 36)
-                if idx > 12:
-                    first = first[:idx]
-                    break
-            else:
-                first = first[:36]
-        cores.append(first)
+        first = _first_clause(c.get("claim", ""))
+        if first and len(first) <= LEDE_CLAUSE_MAX:
+            cores.append(first)
 
-    if len(cores) == 1:
+    if not cores:
+        return generic
+    if len(verified) == 1 and len(cores) == 1:
         return f"{cores[0]}。这是本次研究中唯一通过双源验证的结论。"
-    # 多条：并列呈现，不强行找对立
-    joined = "；".join(cores)
-    return f"本次研究通过双源验证的核心发现有 {len(verified)} 条：{joined}。"
+
+    # 总长受控：从后往前丢，剩下的每条都仍是完整首句
+    while len(cores) > 1 and len("；".join(cores)) > LEDE_TOTAL_MAX:
+        cores.pop()
+    if len(cores) == 1:
+        return f"本次研究通过双源验证的核心发现有 {len(verified)} 条，其中最直接的一条：{cores[0]}。"
+    return f"本次研究通过双源验证的核心发现有 {len(verified)} 条：{'；'.join(cores)}。"
+
+
+def _domain_count(claim: dict) -> int:
+    """一条 claim 的独立域名数（与 auto_research.verify_claims 同口径：剥协议剥 www）。"""
+    doms = set()
+    for s in claim.get("sources", []):
+        url = s.get("url", "")
+        if not url:
+            continue
+        doms.add(re.sub(r"^https?://(www\.)?", "", url.lower()).split("/")[0])
+    return len(doms)
+
+
+def _appendix_lead(unverified: list[dict]) -> str:
+    """附录首句按实际来源数说话，不把 unverified 一律说成"仅有单源"。"""
+    single = sum(1 for c in unverified if _domain_count(c) == 1)
+    zero = sum(1 for c in unverified if _domain_count(c) == 0)
+    multi = len(unverified) - single - zero
+    bits = []
+    if single:
+        bits.append(f"{single} 条仅单源")
+    if zero:
+        bits.append(f"{zero} 条无可标注来源")
+    if multi:
+        bits.append(f"{multi} 条未达双源判据")
+    return (f"以下 {len(unverified)} 条发现（{'、'.join(bits)}）未通过双源验证，"
+            "供进一步核实，暂不作为结论引用。")
 
 
 def write_article(research: dict, outline: dict, verified: list[dict],
@@ -167,7 +214,10 @@ def write_article(research: dict, outline: dict, verified: list[dict],
 
     claim_by_id = {c["id"]: c for c in verified}
 
-    lines = [f"# {topic}", ""]
+    hook = research.get("hook") or {}
+    title = (hook.get("title") or topic).strip()
+
+    lines = [f"# {title}", ""]
     lines.append(f"> {distill_lede(research, verified)}")
     lines.append("")
 
@@ -207,10 +257,7 @@ def write_article(research: dict, outline: dict, verified: list[dict],
         lines.append("")
         lines.append("## 附录：待验证（未通过双源验证，不进正文）")
         lines.append("")
-        lines.append(
-            f"以下 {len(unverified)} 条发现仅有单源支撑，"
-            "供进一步核实，暂不作为结论引用。"
-        )
+        lines.append(_appendix_lead(unverified))
         lines.append("")
         # 按 perspective 分组
         by_p: dict[str, list[dict]] = {}
@@ -235,12 +282,16 @@ def main() -> None:
     ap.add_argument("--research", required=True, help="research.json 路径")
     ap.add_argument("--out", required=True, help="输出目录")
     ap.add_argument("--name", default="article", help="输出名前缀")
+    ap.add_argument("--hook", default=None,
+                    help="extract_hook 产出的 JSON（{title,lede}）；无人值守期禁止自动生成")
     args = ap.parse_args()
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
     research = load_research(Path(args.research))
+    if args.hook:
+        research["hook"] = json.loads(Path(args.hook).read_text(encoding="utf-8"))
     verified, unverified = split_claims(research.get("claims", []))
 
     # 阶段 2：大纲（独立产物，可检查）
