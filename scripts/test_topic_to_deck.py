@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """test_topic_to_deck.py — 编排层自检（全部用桩函数，**不打任何 API、不起子进程**）
 
-27 项：阶段选择 4、T-01 入口门禁 3、argv 组装 6、执行与停等 8、续跑与卫生 6。
+29 项：阶段选择 4、T-01 入口门禁 3、argv 组装 8、执行与停等 8、续跑与卫生 6。
 判据来自 scripts/topic_to_deck.py 的实现契约与 RUN-20261015 计划的硬约束。
 """
 import sys, os, json, tempfile
@@ -105,6 +105,17 @@ with tempfile.TemporaryDirectory() as td:
        Path(argv["gate"][-1]).name == "article" and
        argv["narrative"][argv["narrative"].index("--md") + 1].endswith("article/article.md"),
        argv["gate"][-1])
+
+    # C7/C8：配图意图只能显式传入，编排器不自动生成（S4 对账）
+    ip = Path(td) / "intent_plan.json"
+    ip.write_text('{"第一节": "panel"}', encoding="utf-8")
+    cfg3, _ = cfg_of(["--injected", str(inj), "--intent-plan", str(ip)], wd=td)
+    nv = TD.stage_argv(cfg3)["narrative"]
+    ok("C7 --intent-plan 显式透传给 narrative 段",
+       "--intent-plan" in nv and nv[nv.index("--intent-plan") + 1] == str(ip), "")
+    ok("C8 未传 --intent-plan 时 narrative 段不带该参数"
+       "（默认由 check_narrative W-30 登记未声明）",
+       "--intent-plan" not in TD.stage_argv(cfg2)["narrative"], "")
 
 print("\n[D] 执行、停等与 dry-run")
 with tempfile.TemporaryDirectory() as td:

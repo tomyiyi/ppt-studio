@@ -1,0 +1,240 @@
+{
+  "topic": "远程交付团队的周会节奏（测试夹具）",
+  "brief": {
+    "audience": "带 6-15 人交付团队的项目负责人",
+    "purpose": "判断周会该开多长、多久一次、哪些环节可以用异步文档替代",
+    "core_questions": [
+      "远程团队的周会时长与交付缺陷率之间有没有可量化的关系？",
+      "哪些会议内容已经被异步文档替代，替代之后出了什么问题？"
+    ],
+    "_note": "本文件是测试夹具（fixture）：域名为 example-* 占位假数据，句子为编造示例文本，仅用于验证 检索→双源门禁→大纲→成文 链路的分流与结构，不得作为任何事实来源引用。"
+  },
+  "perspectives": [
+    {
+      "name": "现状",
+      "questions": [
+        "远程团队的周会时长与交付缺陷率之间有没有可量化的关系？",
+        "哪些会议内容已经被异步文档替代，替代之后出了什么问题？",
+        "远程交付团队的周会节奏（测试夹具）：目前的核心事实是什么？有哪些可量化的数据？"
+      ]
+    },
+    {
+      "name": "变化",
+      "questions": [
+        "远程交付团队的周会节奏（测试夹具）：相比过去发生了什么变化？新出现了什么、消失了什么？",
+        "远程交付团队的周会节奏（测试夹具） 变化方面有哪些值得关注的具体案例或数据？"
+      ]
+    },
+    {
+      "name": "动因",
+      "questions": [
+        "远程交付团队的周会节奏（测试夹具）：为什么会发生这些变化？背后的驱动因素是什么？",
+        "远程交付团队的周会节奏（测试夹具） 动因方面有哪些值得关注的具体案例或数据？"
+      ]
+    },
+    {
+      "name": "影响",
+      "questions": [
+        "远程交付团队的周会节奏（测试夹具）：对从业者/用户产生了什么影响？",
+        "远程交付团队的周会节奏（测试夹具） 影响方面有哪些值得关注的具体案例或数据？"
+      ]
+    },
+    {
+      "name": "反例",
+      "questions": [
+        "远程交付团队的周会节奏（测试夹具）：有哪些争议、反面案例？什么条件下结论不成立？",
+        "远程交付团队的周会节奏（测试夹具） 反例方面有哪些值得关注的具体案例或数据？"
+      ]
+    }
+  ],
+  "claims": [
+    {
+      "id": "c001",
+      "claim": "受访的 42 个远程交付团队平均每周召开 4.5 小时同步会议，其中约三分之一没有形成任何可执行的决议",
+      "evidence": "受访的 42 个远程交付团队平均每周召开 4.5 小时同步会议，其中约三分之一没有形成任何可执行的决议",
+      "sources": [
+        {
+          "url": "https://example.com/report/现状-0",
+          "title": "现状样本 A0",
+          "level": "tertiary",
+          "retrieved_at": "2026-10-15T16:21:57+00:00"
+        },
+        {
+          "url": "https://example.org/mirror/现状-0",
+          "title": "现状样本 B0",
+          "level": "tertiary",
+          "retrieved_at": "2026-10-15T16:21:57+00:00"
+        }
+      ],
+      "perspectives": [
+        "现状"
+      ],
+      "verification": "verified"
+    },
+    {
+      "id": "c002",
+      "claim": "七成受访团队保留了每日站会这一形式，但把单次日站时长从 25 分钟压缩到了 10 分钟以内",
+      "evidence": "七成受访团队保留了每日站会这一形式，但把单次日站时长从 25 分钟压缩到了 10 分钟以内",
+      "sources": [
+        {
+          "url": "https://example.net/report/现状-1",
+          "title": "现状样本 A1",
+          "level": "tertiary",
+          "retrieved_at": "2026-10-15T16:21:57+00:00"
+        }
+      ],
+      "perspectives": [
+        "现状"
+      ],
+      "verification": "unverified"
+    },
+    {
+      "id": "c003",
+      "claim": "把每周例会从 60 分钟改成 25 分钟之后，会后书面纪要的平均字数不降反升，增加了约四成",
+      "evidence": "把每周例会从 60 分钟改成 25 分钟之后，会后书面纪要的平均字数不降反升，增加了约四成",
+      "sources": [
+        {
+          "url": "https://example.com/report/变化-0",
+          "title": "变化样本 A0",
+          "level": "tertiary",
+          "retrieved_at": "2026-10-15T16:21:57+00:00"
+        },
+        {
+          "url": "https://example.org/mirror/变化-0",
+          "title": "变化样本 B0",
+          "level": "tertiary",
+          "retrieved_at": "2026-10-15T16:21:57+00:00"
+        }
+      ],
+      "perspectives": [
+        "变化"
+      ],
+      "verification": "verified"
+    },
+    {
+      "id": "c004",
+      "claim": "书面状态更新工具普及以来，大约两成低价值同步会被异步文档取代，替代过程集中在近两年完成",
+      "evidence": "书面状态更新工具普及以来，大约两成低价值同步会被异步文档取代，替代过程集中在近两年完成",
+      "sources": [
+        {
+          "url": "https://example.net/report/变化-1",
+          "title": "变化样本 A1",
+          "level": "tertiary",
+          "retrieved_at": "2026-10-15T16:21:57+00:00"
+        }
+      ],
+      "perspectives": [
+        "变化"
+      ],
+      "verification": "unverified"
+    },
+    {
+      "id": "c005",
+      "claim": "跨时区协作使固定时间的同步会议成本显著上升，参与方不得不在会议之外补齐上下文，异步文档因此成为默认选择",
+      "evidence": "跨时区协作使固定时间的同步会议成本显著上升，参与方不得不在会议之外补齐上下文，异步文档因此成为默认选择",
+      "sources": [
+        {
+          "url": "https://example.org/report/动因-0",
+          "title": "动因样本 A0",
+          "level": "tertiary",
+          "retrieved_at": "2026-10-15T16:21:57+00:00"
+        },
+        {
+          "url": "https://example.net/mirror/动因-0",
+          "title": "动因样本 B0",
+          "level": "tertiary",
+          "retrieved_at": "2026-10-15T16:21:57+00:00"
+        }
+      ],
+      "perspectives": [
+        "动因"
+      ],
+      "verification": "verified"
+    },
+    {
+      "id": "c006",
+      "claim": "会议时长压缩之后，一线工程师单次不被打断的连续编码时长中位数从 1.8 小时提高到 2.6 小时",
+      "evidence": "会议时长压缩之后，一线工程师单次不被打断的连续编码时长中位数从 1.8 小时提高到 2.6 小时",
+      "sources": [
+        {
+          "url": "https://example.com/report/影响-0",
+          "title": "影响样本 A0",
+          "level": "tertiary",
+          "retrieved_at": "2026-10-15T16:21:57+00:00"
+        },
+        {
+          "url": "https://example.net/mirror/影响-0",
+          "title": "影响样本 B0",
+          "level": "tertiary",
+          "retrieved_at": "2026-10-15T16:21:57+00:00"
+        }
+      ],
+      "perspectives": [
+        "影响"
+      ],
+      "verification": "verified"
+    },
+    {
+      "id": "c007",
+      "claim": "纯异步流程下的新入职成员，首次提问到获得有效回复的等待时间中位数增加了 6 个小时",
+      "evidence": "纯异步流程下的新入职成员，首次提问到获得有效回复的等待时间中位数增加了 6 个小时",
+      "sources": [
+        {
+          "url": "https://example.org/report/影响-1",
+          "title": "影响样本 A1",
+          "level": "tertiary",
+          "retrieved_at": "2026-10-15T16:21:57+00:00"
+        }
+      ],
+      "perspectives": [
+        "影响"
+      ],
+      "verification": "unverified"
+    },
+    {
+      "id": "c008",
+      "claim": "有两家团队在完全取消周会之后的两个月内交付事故数量翻倍，随后恢复了每周一次的同步会议并保留书面纪要",
+      "evidence": "有两家团队在完全取消周会之后的两个月内交付事故数量翻倍，随后恢复了每周一次的同步会议并保留书面纪要",
+      "sources": [
+        {
+          "url": "https://example.net/report/反例-0",
+          "title": "反例样本 A0",
+          "level": "tertiary",
+          "retrieved_at": "2026-10-15T16:21:57+00:00"
+        },
+        {
+          "url": "https://example.com/mirror/反例-0",
+          "title": "反例样本 B0",
+          "level": "tertiary",
+          "retrieved_at": "2026-10-15T16:21:57+00:00"
+        }
+      ],
+      "perspectives": [
+        "反例"
+      ],
+      "verification": "verified"
+    }
+  ],
+  "rounds": [
+    {
+      "round": 1,
+      "new_claims": 8,
+      "total": 8,
+      "new_ratio": 1.0
+    },
+    {
+      "round": 2,
+      "new_claims": 0,
+      "total": 8,
+      "new_ratio": 0.0
+    }
+  ],
+  "stats": {
+    "total_claims": 8,
+    "verified": 5,
+    "unverified": 3,
+    "primary_sources": 0,
+    "rounds_run": 2
+  },
+  "generated_at": "2026-10-15T16:21:57+00:00"
+}

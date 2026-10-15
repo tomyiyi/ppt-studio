@@ -1,0 +1,6 @@
+   8   BLOCKING  [W-24]  缺 so_what
+   6   BLOCKING  [W-07]  [claim] 缺 evidence
+   1   BLOCKING  [W-27]  image_intent=panel 但缺 visual_protagonist
+   1   BLOCKING  [W-27]  image_intent=background 但缺 visual_protagonist
+   1   BLOCKING  [W-12]  数字证据缺 baseline: 纯异步流程下的新入职成员，首次提问到获得
+   1   BLOCKING  [W-12]  数字证据缺 baseline: 七成受访团队保留了每日站会这一形式，但把

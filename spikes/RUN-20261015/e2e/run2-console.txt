@@ -1,0 +1,52 @@
+[research] /usr/local/bin/python3 /Volumes/3TB_DATA/05-开发项目/ppt-studio/scripts/auto_research.py --brief spikes/RUN-20261015/e2e/run2/topic_brief.json --injected spikes/RUN-20261015/fixtures/injected.json --out spikes/RUN-20261015/e2e/run2/research.json
+检索源：InjectedProvider
+[round 1] 新增 8 条，累计 8 条
+[round 2] 新增 0 条，累计 8 条
+收敛：新增比例 0.0% < 10%，停止
+完成：8 条 claims（verified 5 / unverified 3），2 轮 -> spikes/RUN-20261015/e2e/run2/research.json
+[article] /usr/local/bin/python3 /Volumes/3TB_DATA/05-开发项目/ppt-studio/scripts/write_article.py --research spikes/RUN-20261015/e2e/run2/research.json --out spikes/RUN-20261015/e2e/run2/article --name article
+verified=5 unverified=3 sections=5
+-> spikes/RUN-20261015/e2e/run2/article/article.md
+-> spikes/RUN-20261015/e2e/run2/article/article_outline.json
+[narrative] /usr/local/bin/python3 /Volumes/3TB_DATA/05-开发项目/ppt-studio/scripts/plan_narrative.py --md spikes/RUN-20261015/e2e/run2/article/article.md --out spikes/RUN-20261015/e2e/run2/narrative.json
+配图意图：显式声明 0 页 / 共 8 页（未声明的按 none 处理 = 生图阶段跳过）
+  页 01 [claim] 缺: assertion, so_what, visual_protagonist, evidence, image_intent
+  页 02 [claim] 缺: assertion, so_what, visual_protagonist, evidence, image_intent
+  页 03 [claim] 缺: assertion, so_what, visual_protagonist, evidence, image_intent
+  页 04 [claim] 缺: assertion, so_what, visual_protagonist, evidence, image_intent
+  页 05 [claim] 缺: assertion, so_what, visual_protagonist, evidence, image_intent
+  页 06 [claim] 缺: assertion, so_what, visual_protagonist, evidence, image_intent
+  页 07 [claim] 缺: assertion, so_what, visual_protagonist, image_intent
+[gate] /usr/local/bin/python3 /Volumes/3TB_DATA/05-开发项目/ppt-studio/scripts/check_narrative.py spikes/RUN-20261015/e2e/run2/narrative.json spikes/RUN-20261015/e2e/run2/article
+  BLOCKING  [W-24] 页 00 缺 so_what
+  BLOCKING  [W-07] 页 01 [claim] 缺 evidence
+  BLOCKING  [W-24] 页 01 缺 so_what
+  BLOCKING  [W-07] 页 02 [claim] 缺 evidence
+  BLOCKING  [W-24] 页 02 缺 so_what
+  BLOCKING  [W-07] 页 03 [claim] 缺 evidence
+  BLOCKING  [W-24] 页 03 缺 so_what
+  BLOCKING  [W-07] 页 04 [claim] 缺 evidence
+  BLOCKING  [W-24] 页 04 缺 so_what
+  BLOCKING  [W-07] 页 05 [claim] 缺 evidence
+  BLOCKING  [W-24] 页 05 缺 so_what
+  BLOCKING  [W-07] 页 06 [claim] 缺 evidence
+  BLOCKING  [W-24] 页 06 缺 so_what
+  BLOCKING  [W-12] 页 07 数字证据缺 baseline: 七成受访团队保留了每日站会这一形式，但把
+  BLOCKING  [W-12] 页 07 数字证据缺 baseline: 纯异步流程下的新入职成员，首次提问到获得
+  BLOCKING  [W-24] 页 07 缺 so_what
+  需人读    [W-29] 页 01 缺 scope_note
+  需人读    [W-29] 页 02 缺 scope_note
+  需人读    [W-29] 页 03 缺 scope_note
+  需人读    [W-29] 页 04 缺 scope_note
+  需人读    [W-29] 页 05 缺 scope_note
+  需人读    [W-29] 页 06 缺 scope_note
+  需人读    [W-29] 页 07 缺 scope_note
+  需人读    [W-30] 配图意图未显式声明的页 8 个: 00, 01, 02, 03, 04, 05, 06, 07（默认 none，生图阶段跳过；要配图请用 plan_narrative --intent-plan 或人工标注）
+  需人读    [W-03] 论点是否成立 —— 需人读
+  需人读    [W-04] 证据是否充分支持论点 —— 需人读
+  需人读    [W-09] so_what 是决策而非复述 —— 需人读
+
+blocking 16 条 / 需人读 11 条
+FAIL(部分)：可机械判定的 W-xx 有 blocking。
+[停] 叙事门禁 blocking 16 条——按纪律不跳过、不放宽，已写 gate_report.json
+{"topic": "远程交付团队的周会节奏（测试夹具）", "stages": {"research": "done", "article": "done", "narrative": "done", "gate": "failed"}, "stopped_at": "gate", "blocking": 16}

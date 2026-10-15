@@ -9,7 +9,7 @@
     brief      主题 -> topic_brief.json（T-01：core_questions ≥2 才放行）
     research   auto_research.py（TAVILY_API_KEY 或 --injected，缺任一拒绝并说明）
     article    write_article.py（可选 --hook，无人值守期禁止自动生成）
-    narrative  plan_narrative.py --md article.md [--role-plan]
+    narrative  plan_narrative.py --md article.md [--role-plan] [--intent-plan]
     gate       check_narrative.py（blocking > 0 即停，**不跳过、不放宽**）
     deck       md_to_pptx.py（--no-images 出纯文字版）
 
@@ -91,6 +91,10 @@ def stage_argv(cfg: argparse.Namespace) -> dict[str, list[str]]:
                          "--md", str(article), "--out", str(narrative)]
     if cfg.role_plan:
         argv["narrative"] += ["--role-plan", str(cfg.role_plan)]
+    # 配图意图只能由人/LLM 显式给出文件，编排器绝不自动生成（未声明的页默认 none，
+    # 由 check_narrative W-30 登记为需人读，不静默当成"决定不配图"）。
+    if getattr(cfg, "intent_plan", None):
+        argv["narrative"] += ["--intent-plan", str(cfg.intent_plan)]
     if cfg.governing:
         argv["narrative"] += ["--governing", cfg.governing]
     if cfg.audience:
@@ -260,6 +264,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--injected", default=None, help="无检索 key 时的预注入结果 JSON")
     ap.add_argument("--hook", default=None, help="extract_hook 产出 JSON；无人值守期禁止自动生成")
     ap.add_argument("--role-plan", default=None)
+    ap.add_argument("--intent-plan", default=None,
+                    help='JSON: {"节标题": "none|background|panel|hero"}；无人值守期禁止自动生成')
     ap.add_argument("--governing", default="")
     ap.add_argument("--stage", default=None, help="只跑这些阶段：a,b")
     ap.add_argument("--from", dest="from_stage", default=None, help="从某阶段起跑")

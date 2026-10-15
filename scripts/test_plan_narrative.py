@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""test_plan_narrative.py — 15 项。"""
+"""test_plan_narrative.py — 34 项（A 结构器 17 / B 意图与入参对账 17）。"""
 import json, os, sys, tempfile
 from pathlib import Path
 
@@ -124,6 +124,137 @@ ok("13b. 带 narrative 新增字段", new_fields <= set(pg_on.keys()),
    f"keys={sorted(pg_on.keys())}")
 ok("13c. set(old) <= set(new)", set(pg_off.keys()) <= set(pg_on.keys()))
 md13.unlink()
+
+print("[B] 配图意图对账（S4，只加判据不松判据）")
+
+# 14. 默认页：意图为 none 且来源标记为 default（没人决定过 ≠ 决定不配）
+md14 = make_md("# 标题\n\n## 论点\n- 要点\n")
+nar14 = PN.build(md14)
+pg14 = nar14["pages"][1]
+ok("14. 默认 source=default",
+   pg14["image_intent"] == "none" and pg14["image_intent_source"] == "default",
+   f"intent={pg14['image_intent']} src={pg14['image_intent_source']}")
+
+# 15. 未声明的 claim 页把 image_intent 列进 _todo（新增待审项，不删原有项）
+ok("15. 未声明 → _todo 含 image_intent", "image_intent" in pg14["_todo"],
+   f"_todo={pg14['_todo']}")
+md14.unlink()
+
+# 16. --intent-plan 声明后：source=declared 且 _todo 里的 image_intent 撤销
+md16 = make_md("# 标题\n\n## 论点\n- 要点\n")
+nar16 = PN.build(md16, intent_plan={"论点": "panel"})
+pg16 = nar16["pages"][1]
+ok("16. 声明后 source=declared 且 _todo 撤销",
+   pg16["image_intent"] == "panel" and pg16["image_intent_source"] == "declared"
+   and "image_intent" not in pg16["_todo"], f"_todo={pg16['_todo']}")
+md16.unlink()
+
+# 17. 非法 intent → IntentPlanError（拒绝，不静默降级为 none）
+md17 = make_md("# 标题\n\n## 论点\n- 要点\n")
+try:
+    PN.build(md17, intent_plan={"论点": "poster"})
+    ok("17. 非法 intent 抛错", False, "未抛异常")
+except PN.IntentPlanError:
+    ok("17. 非法 intent 抛错", True)
+md17.unlink()
+
+# 18. 没对上任何节/主标题的 intent-plan 键要登记（悬空声明不许默默吞掉）
+md18 = make_md("# 标题\n\n## 论点\n- 要点\n")
+nar18 = PN.build(md18, intent_plan={"不存在的节": "hero"})
+ok("18. 悬空 intent 键进 intent_unmatched",
+   nar18["intent_unmatched"] == ["不存在的节"], f"unmatched={nar18['intent_unmatched']}")
+md18.unlink()
+
+# 19. evidence 回指行号真实性（旧实现按候选序号算，第二条起就指错行）
+md19 = make_md("# 标题\n\n## 第一节\n- 第一条要点内容\n\n中间正文行\n- 第二条要点内容\n")
+nar19 = PN.build(md19)
+raw19 = md19.read_text(encoding="utf-8").split("\n")
+ev19 = nar19["pages"][1]["evidence"]
+hit = [e for e in ev19
+       if e["text"][:6] in raw19[int(e["source"].split("#L")[1]) - 1]]
+ok("19. 每条 evidence 回指行都含本文", len(hit) == len(ev19) == 2,
+   f"{len(hit)}/{len(ev19)} 命中；sources={[e['source'] for e in ev19]}")
+md19.unlink()
+
+# 20. 两个模块的合法意图集不许漂移
+import check_narrative as CN
+ok("20. VALID_IMAGE_INTENTS 两模块一致",
+   PN.VALID_IMAGE_INTENTS == CN.VALID_IMAGE_INTENTS,
+   f"PN={sorted(PN.VALID_IMAGE_INTENTS)} CN={sorted(CN.VALID_IMAGE_INTENTS)}")
+
+# 21. 旧路径（不带 narrative）现在显式写 image_intent，不再靠 md_to_pptx 缺省值
+md21 = make_md("# 标题\n\n## 第一节\n- 要点A\n")
+plan21 = MB.md_to_pages(md21)
+ok("21. 旧路径页显式带意图",
+   all("image_intent" in p for p in plan21["pages"])
+   and plan21["pages"][1]["image_intent_source"] == "legacy-default",
+   f"intents={[p.get('image_intent') for p in plan21['pages']]}")
+md21.unlink()
+
+# 22. narrative 路径透传意图来源
+md22 = make_md("# 标题\n\n## 论点\n- 要点\n")
+nar22 = PN.build(md22, intent_plan={"论点": "background"})
+plan22 = MB.md_to_pages(md22, narrative=nar22)
+ok("22. narrative 路径透传 declared",
+   plan22["pages"][1]["image_intent"] == "background"
+   and plan22["pages"][1]["image_intent_source"] == "declared",
+   f"src={plan22['pages'][1]['image_intent_source']}")
+md22.unlink()
+
+# 23. 证据文本只带正文，不带列表标记（旧实现把 "- " 一路带进 deck 要点）
+md23 = make_md("# 标题\n\n## 数据\n- 七成团队保留每日站会\n| 列1 | 列2 |\n| --- | --- |\n| A | 1 |\n")
+nar23 = PN.build(md23)
+ev23 = nar23["pages"][1]["evidence"]
+ok("23. bullet 证据不带 «- »，表格分隔行不作证据",
+   ev23[0]["text"] == "七成团队保留每日站会"
+   and all(not e["text"].startswith(("-", "*", "+")) for e in ev23)
+   and [e["kind"] for e in ev23] == ["text", "row", "row"]
+   and not any("---" in e["text"] for e in ev23),
+   f"texts={[e['text'][:12] for e in ev23]} kinds={[e['kind'] for e in ev23]}")
+md23.unlink()
+
+# 24. plan 参数：内联 JSON 与文件路径都要能吃（编排器传的是路径）
+p24 = make_md('# 标题\n\n## 论点\n- 要点\n')
+pf24 = Path(tempfile.mkstemp(suffix=".json")[1])
+pf24.write_text('{"论点": "panel"}', encoding="utf-8")
+ok("24a. 文件路径可读", PN.load_json_arg(str(pf24)) == {"论点": "panel"}, "")
+ok("24b. 内联 JSON 可读", PN.load_json_arg('{"论点": "hero"}') == {"论点": "hero"}, "")
+ok("24c. 空值返回 None", PN.load_json_arg(None) is None and PN.load_json_arg("") is None, "")
+try:
+    PN.load_json_arg("{不是 JSON", "--intent-plan")
+    ok("24d. 坏输入给出可读错误而非 traceback", False, "未抛异常")
+except SystemExit as e:
+    ok("24d. 坏输入给出可读错误而非 traceback", "--intent-plan" in str(e), str(e)[:60])
+pf24.unlink(); p24.unlink()
+
+# 25. 编排器口径（传路径）走通：文件 plan → build → 意图生效
+md25 = make_md("# 标题\n\n## 论点\n- 要点\n")
+pf25 = Path(tempfile.mkstemp(suffix=".json")[1])
+pf25.write_text('{"论点": "hero"}', encoding="utf-8")
+nar25 = PN.build(md25, None, PN.load_json_arg(str(pf25)))
+ok("25. 路径口径的 intent plan 生效",
+   nar25["pages"][1]["image_intent"] == "hero"
+   and nar25["pages"][1]["image_intent_source"] == "declared",
+   f"intent={nar25['pages'][1]['image_intent']}")
+pf25.unlink(); md25.unlink()
+
+# 26. "_" 开头的键按注释处理，不当节标题校验、也不进悬空登记
+md26 = make_md("# 标题\n\n## 论点\n- 要点\n")
+nar26 = PN.build(md26, intent_plan={"_note": "这是说明文字", "论点": "panel"})
+ok("26. _note 注释键被忽略且不悬空",
+   nar26["pages"][1]["image_intent"] == "panel"
+   and nar26["intent_unmatched"] == [],
+   f"unmatched={nar26['intent_unmatched']}")
+md26.unlink()
+
+# 27. _todo 与字段实况对账：封面 assertion 已填，不该再报"缺 assertion"
+md27 = make_md("# 主标题\n> 副标题\n\n## 论点\n- 要点\n")
+nar27 = PN.build(md27)
+cov = nar27["pages"][0]
+ok("27. 封面 _todo 不再虚报缺 assertion",
+   cov["assertion"] == "主标题" and cov["_todo"] == [],
+   f"assertion={cov['assertion']!r} _todo={cov['_todo']}")
+md27.unlink()
 
 print(f"\n{'='*56}")
 print(f"通过 {PASS} / 失败 {FAIL}")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""test_check_narrative.py — 17 项。"""
+"""test_check_narrative.py — 26 项（A 门禁 22 / B 配图意图对账 4）。"""
 import json, os, sys, tempfile
 from pathlib import Path
 
@@ -119,6 +119,25 @@ ok("16. 已知盲区登记", all(any(f"[W-{n}]" in x for x in h) for n in ("03",
 b, h = CN.check(plan_with(assertion="项目背景", so_what="", evidence=[], image_intent="bad"))
 all_msgs = b + h
 ok("17. 全带 [W- 前缀", all("[W-" in m for m in all_msgs), f"msgs={len(all_msgs)}")
+
+print("[B] 配图意图对账（S4）")
+
+# 18. W-30：意图没人声明过 → 进需人读，且不 blocking（判据只加不松）
+b, h = CN.check(plan_with(image_intent="none"))
+ok("18a. W-30 未声明进需人读", any("[W-30]" in x for x in h),
+   f"需人读 {len(h)} 条")
+ok("18b. W-30 不是 blocking", not any("[W-30]" in x for x in b),
+   f"blocking={b}")
+
+# 19. W-30：intent-plan 显式声明 → 不再登记
+b, h = CN.check(plan_with(image_intent="background", image_intent_source="declared"))
+ok("19. 已声明不登记 W-30", not any("[W-30]" in x for x in h),
+   f"需人读={[x for x in h if 'W-30' in x]}")
+
+# 20. 未声明的默认值不影响既有 W-27/W-28 判定
+b, _ = CN.check(plan_with(image_intent="hero", visual_protagonist="",
+                          image_intent_source="declared"))
+ok("20. W-27 仍拦声明了的页", any("[W-27]" in x for x in b), f"blocking={b}")
 
 print(f"\n{'='*56}")
 print(f"通过 {PASS} / 失败 {FAIL}")

@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RUN-20261015 · S4 文章入叙事：配图意图对账</title>
+<style>
+  :root { --bg:#0f1115; --card:#171b22; --ink:#e8ebf0; --dim:#9aa4b2; --line:#282f3a; --ok:#3ddc84; --warn:#ffb454; --bad:#ff6b6b; --mono:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.75 -apple-system,"PingFang SC","Helvetica Neue",sans-serif; }
+  main { max-width:860px; margin:0 auto; padding:20px 16px 80px; }
+  h1 { font-size:24px; line-height:1.35; margin:8px 0 4px; }
+  h2 { font-size:19px; margin:34px 0 10px; padding-bottom:6px; border-bottom:1px solid var(--line); }
+  .meta { color:var(--dim); font-size:15px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin:14px 0; }
+  pre { background:#0b0d11; border:1px solid var(--line); border-radius:10px; padding:12px; overflow-x:auto; font:13px/1.6 var(--mono); white-space:pre-wrap; word-break:break-word; margin:10px 0; }
+  pre.nowrap { white-space:pre; }
+  code { font-family:var(--mono); font-size:14px; }
+  table { width:100%; border-collapse:collapse; margin:12px 0; font-size:15px; }
+  th, td { border:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:#12161d; color:var(--dim); font-weight:600; }
+  .ok { color:var(--ok); font-weight:600; } .warn { color:var(--warn); font-weight:600; } .bad { color:var(--bad); font-weight:600; }
+  ul { margin:8px 0 8px 20px; padding:0; } li { margin:6px 0; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>S4 · 文章入叙事：把配图意图接对（<code>image_intent</code> 对账）</h1>
+<p class="meta">RUN-20261015 ｜ 阶段 4 / 13 ｜ 2026-10-16 00:40 (+0800) ｜ 仓库 <code>ppt-studio</code> ｜ 上一笔 <code>bf6fea4</code></p>
+
+<div class="card">
+<strong>一句话结果：</strong>文章进叙事以后，配图意图从「硬编码 <code>none</code>、没法声明、三个模块默认口径还互相打架」改成
+<span class="ok">可以显式声明、来源可追、没声明的页在门禁里点名</span>。
+<br><br>
+<strong>判据一条没松：</strong>同一套夹具、同一条链，重跑以后 <span class="warn">blocking 仍是 16 条</span>（S3 也是 16），
+需人读从 10 条变 <strong>11 条</strong>——多出来的是新增的 W-30 登记，不是新拦的内容问题。
+<br><br>
+<strong>反过来，一旦真声明意图，门禁立刻开始收税：</strong>演示夹具里声明 2 页，blocking 从 16 涨到 <span class="warn">18</span>（2 条 W-27：声明了配图但没有视觉主体）。
+这说明配图通道是<span class="ok">真开开了</span>，不是我嘴上说开了。
+</div>
+
+<h2>1. 对账清单：实测找到的 6 处「登记与实况不符」</h2>
+<table>
+  <tr><th>#</th><th>事实（修复前）</th><th>怎么发现的</th><th>修复后</th></tr>
+  <tr>
+    <td>1</td>
+    <td>默认口径三处互相矛盾：<code>plan_narrative.blank_page()</code> 写死 <code>"none"</code>；<code>md_to_pages._project_from_narrative()</code> 缺省 <code>"none"</code>；但 <code>md_to_pptx.py:56</code> 的缺省是 <code>"background"</code>，而旧路径（<code>md_to_pages</code> 不带 narrative）生成的页<strong>根本不带这个键</strong>。</td>
+    <td>读三处代码 + <code>grep -rn "image_intent" scripts/*.py</code></td>
+    <td>旧路径两类页现在<strong>显式</strong>写 <code>image_intent: "background"</code> + <code>image_intent_source: "legacy-default"</code>，行为不变（<code>md_to_pptx</code> 一行没动），但不再靠消费端的缺省值猜。<code>md_to_pptx</code> 的那个 <code>"background"</code> 缺省从此不会再被触发。</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>evidence 回指行号按<strong>候选序号</strong>算（<code>start_line + 1 + j</code>），节里第一条之后的证据全指错行。W-19 只校验「文件在不在 + 像不像 L&lt;n&gt;」，所以一直没报错。</td>
+    <td>写夹具复现：<code>- 第一条</code> 空行 <code>- 第二条</code> → 第二条报 L5（空行），实际在 L7</td>
+    <td>改成按候选在节内的<strong>真实位置</strong>算。新用例 19 逐条断言「回指那一行确实含这段证据文本」。</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>列表标记被当成正文：证据文本是 <code>"- 七成受访团队保留了…"</code>，这个 <code>- </code> 会一路带进 deck 的要点里（旧路径 <code>md_to_pages</code> 用 <code>BULLET_RE</code> 的 group，本来就没这问题）。</td>
+    <td>S3 真实跑的 gate 输出里 W-12 的原文预览就带着 <code>- </code></td>
+    <td>取 <code>bm.group(1)</code>，只留正文；新用例 23 锁定。run2 的 W-12 预览变成 <code>七成受访团队保留了每日站会这一形式，但把</code>。</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>表格分隔行 <code>| --- | --- |</code> 被当成一条证据（kind=row）收进 deck。</td>
+    <td>同一段表格在旧路径被跳过、在叙事路径被收 → 两条路径口径不一致</td>
+    <td>与旧路径对齐：<code>"---" not in ls</code> 才收。用例 23 一并断言 <code>kinds == [text, row, row]</code>。</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td><code>_todo</code> 是在填字段<strong>之前</strong>算的，所以封面明明有 <code>assertion</code>（取的是 H1），每份 narrative 都虚报一条「页 00 缺: assertion」。</td>
+    <td>intent 演示跑 <code>plan_narrative.py</code> 的标准输出，第一行就是这条虚报</td>
+    <td>新增 <code>sync_todo()</code>，在 <code>build()</code> 末尾按字段<strong>实况</strong>重算。规则本身一字未改：REQUIRED 缺项 + claim 无 evidence + 未声明的 image_intent。用例 27 锁定。</td>
+  </tr>
+  <tr>
+    <td>6</td>
+    <td><code>--role-plan</code> / <code>--intent-plan</code> 只吃内联 JSON 字符串，而编排器 <code>topic_to_deck.py</code> 传的是<strong>文件路径</strong> → 经单入口调用必崩。</td>
+    <td>S4 演示时实跑出来的 traceback（下面第 3 节原样贴）</td>
+    <td>新增 <code>load_json_arg()</code>：路径和内联都吃，坏输入给可读错误而不是 traceback。用例 24a-d / 25 锁定。</td>
+  </tr>
+</table>
+
+<h2>2. 新增的能力（判据只加不松）</h2>
+<ul>
+  <li><strong><code>plan_narrative.py --intent-plan</code></strong>：<code>{"节标题或主标题": "none|background|panel|hero"}</code>。声明了的页 <code>image_intent_source = "declared"</code>；非法值抛 <code>IntentPlanError</code>，<span class="bad">不静默降级成 none</span>；没对上任何节的键进 <code>intent_unmatched</code> 并打印（悬空声明不许默默吞掉）；<code>_</code> 开头的键按注释处理（沿用本仓 <code>_todo</code>/<code>_src</code> 的规矩）。</li>
+  <li><strong>来源字段贯穿</strong>：<code>md_to_pages._project_from_narrative()</code> 把 <code>image_intent_source</code> 透到 pages.json，下游能分清「决定不配」和「没人决定」。</li>
+  <li><strong>W-30（需人读，不是 blocking）</strong>：门禁把「意图没人声明过」的页一次性点名。<strong>为什么必须加</strong>：以前 <code>image_intent</code> 全默认 <code>none</code>，门禁一声不吭就通过，等于配图被悄悄关掉而没人知道——这正是你要求的「设计与生图」最隐蔽的一处失血。</li>
+  <li><strong><code>topic_to_deck.py --intent-plan</code></strong>：单入口透传；编排器<strong>绝不自动生成</strong>意图（无人值守硬约束）。</li>
+</ul>
+
+<h2>3. Verify：命令与输出原样</h2>
+
+<h3>3.1 改动所在的两套测试</h3>
+<pre>$ python3 scripts/test_plan_narrative.py   | tail -4
+  PASS  26. _note 注释键被忽略且不悬空   unmatched=[]
+  PASS  27. 封面 _todo 不再虚报缺 assertion   assertion='主标题' _todo=[]
+========================================================
+通过 34 / 失败 0        （S1 基线是 17 项，只加不减）
+
+$ python3 scripts/test_check_narrative.py  | tail -6
+  PASS  18a. W-30 未声明进需人读   需人读 4 条
+  PASS  18b. W-30 不是 blocking   blocking=['[W-19] 页 01 evidence 缺 source']
+  PASS  19. 已声明不登记 W-30   需人读=[]
+  PASS  20. W-27 仍拦声明了的页   blocking=['[W-19] …', '[W-27] 页 01 image_intent=hero 但缺 visual_protagonist']
+========================================================
+通过 26 / 失败 0        （S1 基线是 22 项，只加不减）</pre>
+
+<h3>3.2 十套全量回归（含 S1 基线那 8 套）</h3>
+<pre>$ for t in spec_tokens plan_narrative check_narrative qa_layout_fixes qa_scale_and_contrast \
+      plan_contract_sections layout_recipes image_route write_article topic_to_deck; do \
+      python3 scripts/test_$t.py; done      # 留档 regression-s4.txt
+spec_tokens           exit=0  通过 17 / 失败 0
+plan_narrative        exit=0  通过 34 / 失败 0
+check_narrative       exit=0  通过 26 / 失败 0
+qa_layout_fixes       exit=0  自检全部通过 ✅
+qa_scale_and_contrast exit=0  通过 17 / 失败 0
+plan_contract_sections exit=0 通过 9 / 失败 0
+layout_recipes        exit=0  通过 24 / 失败 0 / xfail 0
+image_route           exit=0  通过 9 / 失败 0
+write_article         exit=0  通过 26 / 失败 0
+topic_to_deck         exit=0  通过 29 / 失败 0</pre>
+<p class="meta">10 套全绿，10 个 exit=0。<code>test_image_route.py</code> 仍 9 项未删——它测的「当前实际路由成 none」这件事我没改它的断言，改的是上游能不能声明。</p>
+
+<h3>3.3 真实链路重跑（同夹具、同主题，工作目录 <code>e2e/run2</code>）</h3>
+<pre>$ python3 scripts/topic_to_deck.py --topic "远程交付团队的周会节奏（测试夹具）" \
+    --workdir spikes/RUN-20261015/e2e/run2 \
+    --brief spikes/RUN-20261015/fixtures/topic_brief.json \
+    --injected spikes/RUN-20261015/fixtures/injected.json --no-images
+EXIT=3
+…
+blocking 16 条 / 需人读 11 条
+FAIL(部分)：可机械判定的 W-xx 有 blocking。
+[停] 叙事门禁 blocking 16 条——按纪律不跳过、不放宽，已写 gate_report.json
+{"topic": …, "stages": {"research": "done", "article": "done", "narrative": "done", "gate": "failed"},
+ "stopped_at": "gate", "blocking": 16}</pre>
+<pre>需人读里新增的那一条（W-30 全文）：
+  需人读    [W-30] 配图意图未显式声明的页 8 个: 00, 01, 02, 03, 04, 05, 06, 07
+             （默认 none，生图阶段跳过；要配图请用 plan_narrative --intent-plan 或人工标注）</pre>
+<p><strong>与 S3 的对照：</strong>blocking <span class="ok">16 → 16（持平）</span>，需人读 <span class="warn">10 → 11</span>（+W-30 登记）。
+16 条的构成也没变：W-24 缺 so_what ×8、W-07 缺 evidence ×6、W-12 数字缺 baseline ×2。
+<span class="bad">我没有</span>为了让数字好看去动任何一条判据。</p>
+
+<h3>4. 声明意图的演示（人工写的夹具，不是自动生成）</h3>
+<pre>$ cat spikes/RUN-20261015/e2e/intent-demo/intent_plan.json
+{
+  "_note": "人工显式声明的配图意图（S4 机制自证夹具，非自动生成、非事实来源）",
+  "变了什么": "panel",
+  "为什么": "background"
+}
+
+$ python3 scripts/plan_narrative.py --md …/run2/article/article.md --out …/narrative.json --intent-plan …/intent_plan.json
+配图意图：显式声明 2 页 / 共 8 页（未声明的按 none 处理 = 生图阶段跳过）
+  页 02 [claim] 缺: assertion, so_what, visual_protagonist, evidence     ← image_intent 已从 _todo 撤销
+  页 01 [claim] 缺: assertion, so_what, visual_protagonist, evidence, image_intent   ← 没声明的仍在点名</pre>
+<pre>$ python3 scripts/check_narrative.py …/intent-demo/narrative.json …/run2/article
+  需人读  [W-30] 配图意图未显式声明的页 6 个: 00, 01, 04, 05, 06, 07   ← 8 个变 6 个，声明真被记账了
+blocking 18 条 / 需人读 11 条
+
+构成：W-24 ×8  W-07 ×6  W-12 ×2  <span>W-27 ×2（新增）</span></pre>
+<pre>$ python3 scripts/md_to_pages.py --md …/article.md --narrative …/intent-demo/narrative.json --out …/pages.json
+index  image_intent  source   image_prompt 长度
+0      none          default  0
+1      none          default  0
+2      panel         declared 378      ← 6 段式内容感知 prompt 真生成了
+3      background    declared 378
+4      none          default  0
+5      none          default  0
+6      none          default  0
+7      none          default  0</pre>
+<div class="card">
+<strong>这两条 W-27 是本阶段最有价值的输出。</strong>声明「这页要配图」并不等于这页能配图——
+按 W-27，必须先有 <code>visual_protagonist</code>（这一页的视觉主体是什么）。
+所以 blocking 从 16 涨到 18 是<em>正确</em>的：通道打开后，欠的写作债开始按条计息。
+这也是我为什么把 <code>--intent-plan</code> 做成「只能人工/显式文件给」而不是让链路自己猜：
+让规则版脚本替每页猜一个视觉主体，就是把设计债伪装成进度。
+</div>
+
+<h2>5. 判据未动的自证</h2>
+<table>
+  <tr><th>判据</th><th>位置</th><th>本期值</th><th>动过没</th></tr>
+  <tr><td>照抄率上限</td><td><code>check_narrative.py:13</code> <code>COPY_MAX</code></td><td>0.40</td><td class="ok">未动</td></tr>
+  <tr><td>标题长度</td><td>W-06</td><td>6–40 CJK 当量</td><td class="ok">未动</td></tr>
+  <tr><td>fluff 词表 / 含糊词表</td><td><code>FLUFF</code> / <code>BASELINE_WORDS</code></td><td>10 / 6 词</td><td class="ok">未动</td></tr>
+  <tr><td>qa 分数线</td><td><code>qa_score.py</code></td><td>80</td><td class="ok">未动</td></tr>
+  <tr><td>WCAG 对比度线</td><td><code>WCAG_MIN</code></td><td>原值</td><td class="ok">未动</td></tr>
+  <tr><td>表格列数 / 流程图节点数</td><td>layout_recipes</td><td>≤5 / ≤6</td><td class="ok">未动</td></tr>
+  <tr><td>合法配图意图集</td><td><code>VALID_IMAGE_INTENTS</code></td><td>none / background / panel / hero</td><td class="ok">未增未删（只加了两模块一致性断言，用例 20）</td></tr>
+  <tr><td>W-xx 判定</td><td>W-01…W-29</td><td>全部原样</td><td class="ok">未动；新增 W-30 属需人读登记，不参与 blocking</td></tr>
+</table>
+
+<h2>6. 仍交主控裁决的 4 项（一个都没替你做）</h2>
+<ul>
+  <li><strong>A｜散文→evidence 要不要做</strong>：<code>plan_narrative.build()</code> 只从 bullet/表格行收证据，文章正文全是散文 → 每页 <code>evidence=[]</code> → 6 条 W-07。我<strong>故意没做</strong>：把散文塞进 evidence 会让 W-07 自动消解，等于<em>喂内容给门禁</em>，那是放宽判据的另一种写法。详见 <code>e2e/run1/FAILURE.md</code>。</li>
+  <li><strong>B｜8 条缺 so_what 怎么补</strong>：人工写 / 走 <code>--hook</code> 显式产出 / 就这样留档。无人值守期我不自动写。</li>
+  <li><strong>C｜S5 的形态</strong>：接受「旧路径出 deck + 门禁原样留档」，还是等 A/B 关掉再出 deck。</li>
+  <li><strong>D（S4 新发现）｜W-18 照抄率在这条路上是哑的</strong>：<code>check_narrative.main()</code> 只把 <code>base_dir/README.md</code> 当原文，文章→deck 时 <code>src_text</code> 是空串，照抄率永远不触发。接上 <code>article.md</code> 是几行代码，但一接上就会把「逐字挑选的证据」全判超限——这是<em>规则误用</em>（N1 的 evidence 本来就是「筛原文」，不是转述），不是内容缺陷。<strong>要不要接、按什么口径接（例如只对 so_what / 正文转述段计照抄率），我等你定，不擅自改判据适用范围。</strong></li>
+</ul>
+
+<h2>7. 本阶段产物</h2>
+<ul>
+  <li><code>scripts/plan_narrative.py</code>：<code>--intent-plan</code>、<code>VALID_IMAGE_INTENTS</code>、<code>IntentPlanError</code>、<code>apply_intent()</code>、<code>sync_todo()</code>、<code>load_json_arg()</code>、行号/列表标记/分隔行三处修正</li>
+  <li><code>scripts/check_narrative.py</code>：W-30 需人读登记 + 合法集一致性注释</li>
+  <li><code>scripts/md_to_pages.py</code>：意图与来源透传；旧路径两类页显式写 <code>image_intent</code></li>
+  <li><code>scripts/topic_to_deck.py</code>：<code>--intent-plan</code> 透传（不自动生成）</li>
+  <li><code>scripts/test_plan_narrative.py</code> 17→34 项、<code>test_check_narrative.py</code> 22→26 项、<code>test_topic_to_deck.py</code> 27→29 项（全为新增，无删除）</li>
+  <li><code>spikes/RUN-20261015/e2e/run2/*</code>（真实链路留档）、<code>e2e/intent-demo/*</code>（声明意图的三件套输出）、<code>regression-s4.txt</code></li>
+</ul>
+
+<h2>8. 下一步</h2>
+<p>S5：纯文字全链 E2E 出 deck 并<strong>看成品</strong>（pptx 页数、SVG 版式、qa 分数原样上报，绿灯不算完成）。
+按 C 项裁决决定走旧路径出 deck 还是等 A/B 关掉；未收到裁决前，我按「旧路径出 deck + 门禁 16 条原样留档」推进，并把两条路径的差异在 S5 报告里并排列出。</p>
+
+<p class="meta">上一阶段：<a href="S03-topic-to-deck.html">S3 单入口编排</a> ｜ 全部阶段：<a href="INDEX.html">INDEX</a></p>
+
+</main>
+</body>
+</html>

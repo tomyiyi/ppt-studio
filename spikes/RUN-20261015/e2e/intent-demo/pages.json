@@ -1,0 +1,182 @@
+{
+  "source": "article.md",
+  "title": "远程交付团队的周会节奏（测试夹具）",
+  "narrative_style": "listicle",
+  "closing_hint": "要点回顾",
+  "pages": [
+    {
+      "index": 0,
+      "title": "远程交付团队的周会节奏（测试夹具）",
+      "bullets": [],
+      "layout": "cover_p1",
+      "needs_review": [],
+      "role": "cover",
+      "assertion": "远程交付团队的周会节奏（测试夹具）",
+      "so_what": "",
+      "evidence": [],
+      "image_intent": "none",
+      "image_intent_source": "default",
+      "image_prompt": ""
+    },
+    {
+      "index": 1,
+      "title": "",
+      "bullets": [],
+      "layout": "assertion_evidence",
+      "needs_review": [
+        "assertion",
+        "so_what",
+        "visual_protagonist",
+        "evidence",
+        "image_intent"
+      ],
+      "role": "claim",
+      "assertion": "",
+      "so_what": "",
+      "evidence": [],
+      "image_intent": "none",
+      "image_intent_source": "default",
+      "image_prompt": ""
+    },
+    {
+      "index": 2,
+      "title": "",
+      "bullets": [],
+      "layout": "assertion_evidence",
+      "needs_review": [
+        "assertion",
+        "so_what",
+        "visual_protagonist",
+        "evidence"
+      ],
+      "role": "claim",
+      "assertion": "",
+      "so_what": "",
+      "evidence": [],
+      "image_intent": "panel",
+      "image_intent_source": "declared",
+      "image_prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25"
+    },
+    {
+      "index": 3,
+      "title": "",
+      "bullets": [],
+      "layout": "assertion_evidence",
+      "needs_review": [
+        "assertion",
+        "so_what",
+        "visual_protagonist",
+        "evidence"
+      ],
+      "role": "claim",
+      "assertion": "",
+      "so_what": "",
+      "evidence": [],
+      "image_intent": "background",
+      "image_intent_source": "declared",
+      "image_prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25"
+    },
+    {
+      "index": 4,
+      "title": "",
+      "bullets": [],
+      "layout": "assertion_evidence",
+      "needs_review": [
+        "assertion",
+        "so_what",
+        "visual_protagonist",
+        "evidence",
+        "image_intent"
+      ],
+      "role": "claim",
+      "assertion": "",
+      "so_what": "",
+      "evidence": [],
+      "image_intent": "none",
+      "image_intent_source": "default",
+      "image_prompt": ""
+    },
+    {
+      "index": 5,
+      "title": "",
+      "bullets": [],
+      "layout": "assertion_evidence",
+      "needs_review": [
+        "assertion",
+        "so_what",
+        "visual_protagonist",
+        "evidence",
+        "image_intent"
+      ],
+      "role": "claim",
+      "assertion": "",
+      "so_what": "",
+      "evidence": [],
+      "image_intent": "none",
+      "image_intent_source": "default",
+      "image_prompt": ""
+    },
+    {
+      "index": 6,
+      "title": "",
+      "bullets": [],
+      "layout": "assertion_evidence",
+      "needs_review": [
+        "assertion",
+        "so_what",
+        "visual_protagonist",
+        "evidence",
+        "image_intent"
+      ],
+      "role": "claim",
+      "assertion": "",
+      "so_what": "",
+      "evidence": [],
+      "image_intent": "none",
+      "image_intent_source": "default",
+      "image_prompt": ""
+    },
+    {
+      "index": 7,
+      "title": "",
+      "bullets": [
+        "七成受访团队保留了每日站会这一形式，但把单次日站时长从 25 分钟压缩到了 10 分钟以内（example.net）",
+        "书面状态更新工具普及以来，大约两成低价值同步会被异步文档取代，替代过程集中在近两年完成（example.net）",
+        "纯异步流程下的新入职成员，首次提问到获得有效回复的等待时间中位数增加了 6 个小时（example.org）"
+      ],
+      "layout": "assertion_evidence",
+      "needs_review": [
+        "assertion",
+        "so_what",
+        "visual_protagonist",
+        "image_intent"
+      ],
+      "role": "claim",
+      "assertion": "",
+      "so_what": "",
+      "evidence": [
+        {
+          "kind": "number",
+          "text": "七成受访团队保留了每日站会这一形式，但把单次日站时长从 25 分钟压缩到了 10 分钟以内（example.net）",
+          "baseline": null,
+          "source": "article.md#L37"
+        },
+        {
+          "kind": "text",
+          "text": "书面状态更新工具普及以来，大约两成低价值同步会被异步文档取代，替代过程集中在近两年完成（example.net）",
+          "baseline": null,
+          "source": "article.md#L41"
+        },
+        {
+          "kind": "number",
+          "text": "纯异步流程下的新入职成员，首次提问到获得有效回复的等待时间中位数增加了 6 个小时（example.org）",
+          "baseline": null,
+          "source": "article.md#L45"
+        }
+      ],
+      "image_intent": "none",
+      "image_intent_source": "default",
+      "image_prompt": ""
+    }
+  ]
+}

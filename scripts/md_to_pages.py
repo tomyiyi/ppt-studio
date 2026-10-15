@@ -236,7 +236,9 @@ def _project_from_narrative(plan: dict, nar: dict) -> dict:
                 "needs_review": pg.get("_todo", []),
                 "role": role, "assertion": pg.get("assertion", ""),
                 "so_what": pg.get("so_what", ""), "evidence": pg.get("evidence", []),
-                "image_intent": pg.get("image_intent", "none")}
+                "image_intent": pg.get("image_intent", "none"),
+                # 意图来源透传：declared=intent-plan/人工，default=没人决定过（等于不配图）
+                "image_intent_source": pg.get("image_intent_source", "default")}
         page["image_prompt"] = "" if page["image_intent"] == "none" else page_image_prompt(
             page["title"], lay, bullets)
         pages.append(page)
@@ -263,6 +265,9 @@ def md_to_pages(md_path: Path, max_bullets: int = 5, narrative: dict | None = No
     review_flags: list[dict] = []   # 收集需要人工/LLM 复核的标题
     pages = [{"index": 0, "title": title, "bullets": [subtitle] if subtitle else [],
               "layout": "cover", "needs_review": [],
+              # 显式写意图：旧版这里不带 image_intent，靠 md_to_pptx 的缺省值 "background"
+              # 兜底（与其余模块默认 "none" 口径相反）。写明白，行为不变，对账才做得成。
+              "image_intent": "background", "image_intent_source": "legacy-default",
               "image_prompt": page_image_prompt(title, "cover", [subtitle] if subtitle else [])}]
     for i in range(1, len(parts), 2):
         sec_title = strip_md(parts[i])
@@ -293,6 +298,7 @@ def md_to_pages(md_path: Path, max_bullets: int = 5, narrative: dict | None = No
         base_page = {"index": len(pages), "title": _title,
                      "bullets": bullets, "layout": lay,
                      "needs_review": _flags,
+                     "image_intent": "background", "image_intent_source": "legacy-default",
                      "image_prompt": page_image_prompt(sec_title, lay, bullets)}
         # 溢出拆分：绝不缩小硬塞
         if needs_split(bullets, layout=lay):

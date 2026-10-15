@@ -1,0 +1,12 @@
+标题：远程交付团队的周会节奏（测试夹具）
+叙事风格：listicle（钩子页 -> 每条一页 -> 收束页）
+分页：8 页
+  p0 [cover_p1] 远程交付团队的周会节奏（测试夹具） (0 要点)
+  p1 [assertion_evidence] ⚠  (0 要点)
+  p2 [assertion_evidence] ⚠  (0 要点)
+  p3 [assertion_evidence] ⚠  (0 要点)
+  p4 [assertion_evidence] ⚠  (0 要点)
+  p5 [assertion_evidence] ⚠  (0 要点)
+  p6 [assertion_evidence] ⚠  (0 要点)
+  p7 [assertion_evidence] ⚠  (3 要点)
+-> spikes/RUN-20261015/e2e/intent-demo/pages.json

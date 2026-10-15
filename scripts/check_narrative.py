@@ -22,7 +22,7 @@ REQUIRED = {
     "closing":   ["assertion", "so_what"],
 }
 
-VALID_IMAGE_INTENTS = {"none", "background", "panel", "hero"}
+VALID_IMAGE_INTENTS = {"none", "background", "panel", "hero"}  # 与 plan_narrative 同步，只增不减
 
 def resolve_source(source: str, base_dir: Path) -> tuple[Path, int] | None:
     """'a.md#L12' -> (路径, 行号)；解析不了返回 None。"""
@@ -52,6 +52,7 @@ def check(plan: dict, src_text: str = "", base_dir: Path | None = None) -> tuple
     """返回 (blocking, human_read)。每条消息带 [W-xx] 前缀与页号。"""
     blocking: list[str] = []
     human_read: list[str] = []
+    intent_undeclared: list[str] = []
     base = base_dir or Path(".")
 
     for pg in plan.get("pages", []):
@@ -125,6 +126,16 @@ def check(plan: dict, src_text: str = "", base_dir: Path | None = None) -> tuple
         # W-29: scope_note 缺失（封面/closing 外）
         if role not in ("cover", "closing") and not pg.get("scope_note"):
             human_read.append(f"[W-29] 页 {idx:02d} 缺 scope_note")
+
+        # W-30 登记：配图意图没人声明过（default）—— 只登记，不 blocking，不动任何判据
+        if pg.get("image_intent_source", "default") != "declared":
+            intent_undeclared.append(f"{idx:02d}")
+
+    if intent_undeclared:
+        human_read.append(
+            f"[W-30] 配图意图未显式声明的页 {len(intent_undeclared)} 个: "
+            f"{', '.join(intent_undeclared)}（默认 none，生图阶段跳过；"
+            f"要配图请用 plan_narrative --intent-plan 或人工标注）")
 
     # 已知盲区（脚本判不了）
     human_read.append("[W-03] 论点是否成立 —— 需人读")
