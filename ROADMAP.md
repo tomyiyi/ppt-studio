@@ -146,3 +146,15 @@
 - [ ] **`pages_to_svg.py` 接底图**。当前 `image_file` 恒为 None，页面无背景图。
       这是「内容驱动」与手写 SVG 视觉差距的主要来源。
 - [ ] `research_to_article.py` 的维度分类可用 LLM 细化（当前为通用关键词聚类）
+
+## RUN-20261015 收口后 backlog（2026-10-16，按优先级）
+
+- [ ] **照片色相豁免口径**：poster_gate 的 accentHues≤1 对以照片为底图的存量 12 款全部判红（10 款超标系照片派生色），需主控定「照片底图豁免或单独判读线」后回填 gate——判据归主控，执行者不擅自放宽。
+- [ ] **cyber_01 紫色渐变实锤**：实测紫色占比 23.9%，触 poster_gate forbidden `purple-gradient`，需重渲或换底图。
+- [ ] **cyber_cyan 主题亮部适配**：deck→海报桥接实测，青字 tagline 压在亮部插画上偏弱（S11 目检），主题色应随底图明暗自适应或改走暗带版式。
+- [ ] **asset 叠字与 vector motif 避让**（S6/S8 遗留）：素材自带文字与矢量装饰的碰撞避让未做，靠人工挑图规避中。
+- [ ] **section_anchor 独立 spike**：目前仅有门禁+人读证据（风险 9），无渲染几何 spike。
+- [ ] **Windows 实机放映验证**：FONT_FALLBACK_WIN 改写路线在真机上未取证（风险 7）。
+- [ ] **vendor schema 缺文件**：vendored ppt-master 无任何 `*.schema.json`，`validate_markdown_text` 不可达（风险 8）；接回严格校验前先补 schema。
+- [ ] **8088→8089 切换**：平行实例已自证（S10），是否替换旧服务由用户决定。
+- [ ] **S5 打磨两项**：封面留白节奏、bullets 页图带高度一致性（S5 看成品时记录）。
