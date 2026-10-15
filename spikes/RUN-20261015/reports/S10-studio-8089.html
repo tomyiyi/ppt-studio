@@ -1,0 +1,41 @@
+<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8"><title>S10 8089 平行实例 + 文案端点</title>
+<style>body{font-family:-apple-system,"PingFang SC",sans-serif;max-width:980px;margin:32px auto;padding:0 16px;line-height:1.65;color:#1a1a1e}
+h1{font-size:26px}h2{font-size:20px;margin-top:34px;border-left:4px solid #6E7BFF;padding-left:10px}
+pre{background:#0f1117;color:#dfe3ea;padding:12px;border-radius:8px;overflow-x:auto;font-size:12.5px}
+code{background:#eef0f4;padding:1px 5px;border-radius:4px;font-size:13px}
+.good{color:#147a3d;font-weight:600}.bad{color:#b3261e;font-weight:600}</style></head><body>
+<h1>S10 · 8089 平行实例自证 + /api/write-copy 文案端点</h1>
+<p><b>结论先行：</b>真相源副本经新增 <code>--port</code> 形参在 <b class="good">8089 平行起服务成功并实测三态</b>（rules / model+rules / 模型失败回退+warning）；<b class="good">8088 旧运行时全程未动</b>（开工前与收工后 lsof 同 PID 2252 留证）；<code>/api/write-copy</code> 走确定性 <code>copywriting_rules.apply_fix/lint_copy</code> + 本地网关<b>文本</b>通道（零生图调用）；<code>TRUTH-SOURCE.md</code> 待决项已补记。日志 <code>grep -c "sk-"</code> = 0。</p>
+<h2>1. 8088 红线自证（开工前 / 收工后）</h2>
+<pre>$ lsof -nP -iTCP:8088 -sTCP:LISTEN        # 开工前
+Python  2252  tom  4u IPv4 ... TCP *:8088 (LISTEN)
+$ lsof -nP -iTCP:8089 -sTCP:LISTEN        # 开工前：exit=1（空闲，才敢起平行实例）
+$ # …起 8089 实测后 kill 自起测试实例（PID 25810）…
+$ lsof -nP -iTCP:8088 -sTCP:LISTEN        # 收工后：同 PID 2252，未动
+$ lsof -nP -iTCP:8089 -sTCP:LISTEN        # 收工后：exit=1（测试实例已回收）</pre>
+<h2>2. 8089 起服与端点实测（实际输出）</h2>
+<pre>$ python3 scripts/studio_server.py --port 8089   # 新增 --port 解析，位置参数兼容
+$ curl -s localhost:8089/api/config
+{"success": true, "detected": true, "local_key_detected": true,
+ "base_url": "http://127.0.0.1:3000/v1", "masked_api_key": "sk-***（存量脱敏字段，此处不转载内容）", "has_api_key": true}
+$ curl -o /dev/null -w "%{http_code}" localhost:3000/v1/models   # 只测可达性
+401   # 网关存活需鉴权（与 S1 判活结论一致，未发起任何生图）</pre>
+<h2>3. /api/write-copy 三态实测</h2>
+<p><b>① 规则通道（零网络，确定性）：</b></p>
+<pre>$ curl -X POST localhost:8089/api/write-copy -d '{"text":"这款AI产品的“高级感”来自10:1字阶,性价比极高"}'
+{"success": true, "channel": "rules",
+ "copy": "这款 AI 产品的「高级感」来自 10:1 字阶，性价比极高",
+ "lint_before": ["弯引号「“」→ 请用「「」", "弯引号「”」→ 请用「」」", "中英文/数字之间缺空格（盘古之白 0.25em）"],
+ "lint_after": []}</pre>
+<p><b>② 文本通道（本地网关 agnes-2.5-flash 聊天，非生图）：</b></p>
+<pre>$ curl -X POST localhost:8089/api/write-copy -d '{"instruction":"为一款教师用 AI 备课助手写一句 20 字内的海报主标语","use_model":true}'
+{"success": true, "channel": "model+rules", "model": "agnes-2.5-flash",
+ "copy": "备课省一半时间，把精力还给生活", "lint_before": [], "lint_after": [], "warning": null}</pre>
+<p><b>③ 模型失败 → 规则回退 + 如实 warning（故意注入不存在模型）：</b></p>
+<pre>$ curl -X POST localhost:8089/api/write-copy -d '{"text":"测试“引号”与AI字阶","use_model":true,"model":"no-such-model-xyz"}'
+channel=rules | warning: 文本通道失败已回退规则通道：HTTP 503: {"error":{"code":"model_not_found"... | copy: 测试「引号」与 AI 字阶</pre>
+<h2>4. 改动与合规</h2>
+<p>改动：AGNES <code>scripts/studio_server.py</code>（<code>--port</code>、write-copy 端点、docstring）、<code>TRUTH-SOURCE.md</code>（+6 行 S10 补记）。合规：<b>零生图调用</b>（仅 2 次文本聊天请求，其一为故意的失败注入）；生图禁用名单（gemini/dall-e/flux/seedream）未触碰——文本通道模型为网关 agnes-2.5-flash；<code>/tmp/studio8089.log</code> 实测 <code>grep -c "sk-"</code> = 0；未创建/修改 .env；未动 8088 进程；零新依赖（urllib/http.server 存量）；判据阈值零改动。<b>如实声明：</b><code>/api/config</code> 的 <code>masked_api_key</code> 字段为存量前端脱敏行为（首6+末4字符），非本次引入，本报告不转载其值。</p>
+<h2>5. 遗留</h2>
+<p>8088 是否切换到真相源仍待用户决定（TRUTH-SOURCE.md 待决项 1 已补记 8089 平行运行事实）。</p>
+</body></html>
