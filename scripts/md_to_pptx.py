@@ -43,6 +43,27 @@ def run(cmd, **kw):
     return r
 
 
+def _place_asset(pg: dict, images_dir: Path) -> bool:
+    """asset 路由落图：图库选图 + 复制 + 出处 JSON。无匹配返回 False（不硬塞）。"""
+    import source_illustration as SI
+    index = SI.load_index(SI.REPO_INDEX) if SI.REPO_INDEX.exists() else SI.build_index()
+    q = (pg.get("image_prompt") or "") + " " + (pg.get("title") or "")
+    scored = SI.pick(index, q)
+    fn = "p%02d_asset.png" % pg["index"]
+    if not scored:
+        return False
+    score, e = scored[0]
+    shutil.copyfile(e["path"], images_dir / fn)
+    pg["image_file"] = fn
+    (images_dir / ("p%02d_asset.prov.json" % pg["index"])).write_text(
+        json.dumps({"picked": e["rel"], "source": e["path"], "repo": e["repo"],
+                    "license": e["license"], "artwork_rights": e["artwork_rights"],
+                    "sha256_16": e["sha256_16"], "score": score},
+                   ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"  p{pg['index']:02d} asset 选图 %s（license=%s）" % (e["rel"], e["license"]))
+    return True
+
+
 def gen_images(out: Path, pages_path: Path) -> int:
     """三级配图路由：agnes（background/panel/hero 走生图桥）/ asset（本地图库选图）/
     vector（S7 起走 vector_illustration 本地生成，cairosvg 旁路栅格化；环境缺失如实缓办）。
@@ -84,24 +105,9 @@ def gen_images(out: Path, pages_path: Path) -> int:
             print(f"  p{pg['index']:02d} vector 本矢生成 {fn}（未调 Agnes）")
             continue
         if intent == "asset":
-            import source_illustration as SI
-            index = SI.load_index(SI.REPO_INDEX) if SI.REPO_INDEX.exists() else SI.build_index()
-            q = (pg.get("image_prompt") or "") + " " + (pg.get("title") or "")
-            scored = SI.pick(index, q)
-            fn = "p%02d_asset.png" % pg["index"]
-            if not scored:
+            if not _place_asset(pg, images_dir):
                 print(f"  p{pg['index']:02d} image_intent=asset：图库无匹配（不硬塞），缓办")
                 deferred += 1
-                continue
-            score, e = scored[0]
-            shutil.copyfile(e["path"], images_dir / fn)
-            pg["image_file"] = fn
-            (images_dir / ("p%02d_asset.prov.json" % pg["index"])).write_text(
-                json.dumps({"picked": e["rel"], "source": e["path"], "repo": e["repo"],
-                            "license": e["license"], "artwork_rights": e["artwork_rights"],
-                            "sha256_16": e["sha256_16"], "score": score},
-                           ensure_ascii=False, indent=2), encoding="utf-8")
-            print(f"  p{pg['index']:02d} asset 选图 %s（license=%s）" % (e["rel"], e["license"]))
             continue
         fn = "p%02d_bg.png" % pg["index"]
         items.append({
@@ -143,6 +149,14 @@ def gen_images(out: Path, pages_path: Path) -> int:
             if status.get(fn) == "Generated" and (images_dir / fn).exists():
                 pg["image_file"] = fn
                 done += 1
+            else:
+                # S8 降级护栏的后半段：Agnes 失败/停调的页改走 asset 兜底
+                if _place_asset(pg, images_dir):
+                    done += 1
+                else:
+                    deferred += 1
+                    print(f"  p{pg['index']:02d} Agnes 未成图且 asset 无匹配，如实缓办"
+                          f"（{it.get('error', status.get(fn))}）")
     pages_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
     if deferred:
         print("  缓办 %d 页（vector/asset 无匹配）" % deferred)

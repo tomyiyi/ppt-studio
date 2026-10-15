@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1280 720"><title>写在最后</title>
+  <defs>
+    <linearGradient id="closing-full-scrim-paint" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="0.40" stop-color="#000000" stop-opacity="0.1"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.14"/>
+    </linearGradient>
+  </defs>
+  <rect id="master-background" x="0" y="0" width="1280" height="720" fill="#0F172A"/><image href="../images/p06_bg.png" x="0" y="0" width="1280" height="720" preserveAspectRatio="none"/>
+  <g id="closing-full-picture-slot">
+    
+  </g>
+  <rect id="closing-full-scrim" x="0" y="300" width="1280" height="420"
+    fill="url(#closing-full-scrim-paint)" data-pptx-role="decoration"/>
+  <g id="closing-full-message-slot"
+    data-pptx-bounds="80 468 1120 88">
+    <text id="closing-full-message-carrier"
+      x="80" y="532" fill="#FFFFFF" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, Arial, sans-serif"
+      font-size="44" font-weight="700">写在最后</text>
+  </g>
+  <g id="closing-full-contact-slot"
+    data-pptx-bounds="80 580 880 48">
+    <text id="closing-full-contact-carrier"
+      x="80" y="614" fill="#CBD5E1" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, Arial, sans-serif"
+      font-size="20">本篇基于 5 条双源验证的结论写成，覆盖——更多未经验证的发现见附录</text>
+  </g>
+</svg>

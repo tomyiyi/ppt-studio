@@ -193,6 +193,69 @@ with tempfile.TemporaryDirectory() as td:
     except Exception as e:
         ok("D7b. cairo 旁路出图 640 宽（环境缺 cairosvg/PIL，如实记失败）", False)
 
+
+# D8.（S8）bridge 连败 2 次停调护栏：剩余项标 Skipped，不再触发生成
+import agnes_ppt_bridge as APB
+calls = []
+def _fail(prompt, ratio="16:9", model=None, **kw):
+    calls.append(prompt)
+    return {"ok": False, "error": "模拟失败"}
+_orig_gen = APB.generate
+APB.generate = _fail
+try:
+    with tempfile.TemporaryDirectory() as td:
+        imgs = Path(td) / "images"; imgs.mkdir()
+        mf = {"items": [{"filename": "p%02d_bg.png" % i, "status": "Pending",
+                         "prompt": "x%d" % i, "aspect_ratio": "16:9"} for i in range(5)]}
+        mp = Path(td) / "m.json"
+        mp.write_text(json.dumps(mf), encoding="utf-8")
+        APB.run_manifest(mp)
+        after = json.loads(mp.read_text(encoding="utf-8"))["items"]
+        st = [it["status"] for it in after]
+        ok("D8. 连败2即停调（generate 只被调 2 次）",
+           len(calls) == 2 and st == ["Failed", "Failed", "Skipped", "Skipped", "Skipped"])
+finally:
+    APB.generate = _orig_gen
+
+# D9.（S8）Agnes 失败页自动降级 asset（fake 索引 + fake 桥）
+with tempfile.TemporaryDirectory() as td:
+    root = Path(td)
+    (root / "repo").mkdir()
+    art = root / "repo" / "a.png"
+    art.write_bytes(b"\x89PNG_fake")
+    idx = root / "idx.json"
+    idx.write_text(json.dumps({"entries": [
+        {"repo": "repo", "rel": "cover.png", "path": str(art), "tags": ["cover", "poster"],
+         "license": "MIT License", "artwork_rights": "author-demo", "sha256_16": "x"}],
+        "repos": [], "excluded_repos": []}),
+        encoding="utf-8")
+    out = root / "deck"; (out / "images").mkdir(parents=True)
+    pages_path = out / "pages.json"
+    pages_path.write_text(json.dumps({"pages": [
+        {"index": 0, "title": "封面页", "image_intent": "background", "image_prompt": "封面"}]}),
+        encoding="utf-8")
+    import md_to_pptx as MP
+    class _FailSP:
+        returncode = 1
+        stdout = ""
+        stderr = ""
+        @staticmethod
+        def run(cmd, **kw):
+            mpath = Path(cmd[cmd.index("--manifest") + 1])
+            m = json.loads(mpath.read_text(encoding="utf-8"))
+            for it in m["items"]:
+                it["status"] = "Failed"; it["error"] = "模拟连败"
+            mpath.write_text(json.dumps(m), encoding="utf-8")
+            return _FailSP()
+    _origsp, _origidx = MP.subprocess, SI.REPO_INDEX
+    MP.subprocess, SI.REPO_INDEX = _FailSP, idx
+    try:
+        n = MP.gen_images(out, pages_path)
+        pg0 = json.loads(pages_path.read_text(encoding="utf-8"))["pages"][0]
+        ok("D9. Agnes 失败页降级 asset", n == 1 and pg0.get("image_file") == "p00_asset.png"
+           and (out / "images" / "p00_asset.png").exists())
+    finally:
+        MP.subprocess, SI.REPO_INDEX = _origsp, _origidx
 print(f"\n{'='*56}")
 print(f"通过 {PASS} / 失败 {FAIL}")
 sys.exit(1 if FAIL else 0)

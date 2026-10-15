@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1280 720"><title>反例与边界</title>
+  <defs>
+    <linearGradient id="hero-side-scrim-paint" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#000000" stop-opacity="0.14"/>
+      <stop offset="0.82" stop-color="#000000" stop-opacity="0.1"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect id="master-background" x="0" y="0" width="1280" height="720" fill="#0F172A"/><image href="../images/p05_bg.png" x="0" y="0" width="1280" height="720" preserveAspectRatio="none"/>
+  <g id="hero-side-picture-slot">
+    
+  </g>
+  <rect id="hero-side-scrim" x="0" y="0" width="880" height="720"
+    fill="url(#hero-side-scrim-paint)" data-pptx-role="decoration"/>
+  <g id="hero-side-title-slot"
+    data-pptx-bounds="80 236 640 88">
+    <text id="hero-side-title-carrier"
+      x="80"  fill="#FFFFFF" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, Arial, sans-serif"
+      font-size="32" font-weight="700" y="300">反例与边界</text>
+  </g>
+  <g id="hero-side-body-slot"
+    data-pptx-bounds="80 356 640 200">
+    <text x="80" y="398" fill="#B4232A" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" font-size="20">• </text>
+<text x="99" y="398" fill="#FFFFFF" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" font-size="20">有两家团队在完全取消周会之后的两个月内交付事故数量翻倍</text>
+<text x="80" y="426" fill="#FFFFFF" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" font-size="20">  ，随后恢复了每周一次的同步会议并保留书面纪要</text>
+<text x="80" y="476" fill="#B4232A" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" font-size="20">• </text>
+<text x="99" y="476" fill="#FFFFFF" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" font-size="20">（example.net、example.com）</text>
+  </g>
+</svg>

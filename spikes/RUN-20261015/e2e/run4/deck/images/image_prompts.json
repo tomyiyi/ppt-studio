@@ -1,0 +1,100 @@
+{
+  "items": [
+    {
+      "filename": "p00_bg.png",
+      "page_index": 0,
+      "purpose": "第1页配图：远程交付团队的周会节奏（测试夹具）",
+      "page_role": "content_bg",
+      "text_policy": "none",
+      "aspect_ratio": "16:9",
+      "model": "agnes-image-2.5-flash",
+      "status": "Generated",
+      "prompt": "concentric circles converging to center, hero wide composition, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "dimensions": "1312x736"
+    },
+    {
+      "filename": "p01_bg.png",
+      "page_index": 1,
+      "purpose": "第2页配图：是什么",
+      "page_role": "content_bg",
+      "text_policy": "none",
+      "aspect_ratio": "16:9",
+      "model": "agnes-image-2.5-flash",
+      "status": "Generated",
+      "prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "dimensions": "1312x736"
+    },
+    {
+      "filename": "p02_bg.png",
+      "page_index": 2,
+      "purpose": "第3页配图：变了什么",
+      "page_role": "content_bg",
+      "text_policy": "none",
+      "aspect_ratio": "16:9",
+      "model": "agnes-image-2.5-flash",
+      "status": "Generated",
+      "prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "dimensions": "1312x736"
+    },
+    {
+      "filename": "p03_bg.png",
+      "page_index": 3,
+      "purpose": "第4页配图：为什么",
+      "page_role": "content_bg",
+      "text_policy": "none",
+      "aspect_ratio": "16:9",
+      "model": "agnes-image-2.5-flash",
+      "status": "Generated",
+      "prompt": "subtle abstract geometric depth, soft ambient presence, graphite gradient backdrop, dim even lighting, deep shadows, editorial report style, dark composition, muted professional palette, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "dimensions": "1312x736"
+    },
+    {
+      "filename": "p04_bg.png",
+      "page_index": 4,
+      "purpose": "第5页配图：意味着什么",
+      "page_role": "content_bg",
+      "text_policy": "none",
+      "aspect_ratio": "16:9",
+      "model": "agnes-image-2.5-flash",
+      "status": "Generated",
+      "prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "dimensions": "1312x736"
+    },
+    {
+      "filename": "p05_bg.png",
+      "page_index": 5,
+      "purpose": "第6页配图：反例与边界",
+      "page_role": "content_bg",
+      "text_policy": "none",
+      "aspect_ratio": "16:9",
+      "model": "agnes-image-2.5-flash",
+      "status": "Generated",
+      "prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "dimensions": "1312x736"
+    },
+    {
+      "filename": "p06_bg.png",
+      "page_index": 6,
+      "purpose": "第7页配图：写在最后",
+      "page_role": "content_bg",
+      "text_policy": "none",
+      "aspect_ratio": "16:9",
+      "model": "agnes-image-2.5-flash",
+      "status": "Generated",
+      "prompt": "subtle abstract geometric depth, horizon resolution, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "dimensions": "1312x736"
+    },
+    {
+      "filename": "p07_bg.png",
+      "page_index": 7,
+      "purpose": "第8页配图：附录：待验证（未通过双源验证，不进正文）",
+      "page_role": "content_bg",
+      "text_policy": "none",
+      "aspect_ratio": "16:9",
+      "model": "agnes-image-2.5-flash",
+      "status": "Generated",
+      "prompt": "subtle abstract geometric depth, soft ambient presence, deep graphite gradient backdrop, rim lighting from the right, left side in shadow, dark editorial background, low-key directional lighting, generous negative space, minimalist, highly detailed, professional quality, dark low-key backdrop, deep shadows, underexposed left half for text overlay, overall luminance below 0.25",
+      "dimensions": "1312x736"
+    }
+  ]
+}

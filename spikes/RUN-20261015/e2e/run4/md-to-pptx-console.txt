@@ -1,0 +1,37 @@
+[1/7] 切页 md -> pages.json
+  $ /usr/local/bin/python3 /Volumes/3TB_DATA/05-开发项目/ppt-studio/scripts/md_to_pages.py --md ...
+  封面构图：hero_full
+[2/7] Agnes 生图
+  生图 8 张（经 prompt 安全拦截）...
+→ p01_bg.png  (16:9, 第2页配图：是什么)
+    ✓ 1312x736 515KB  via agnes-image-2.5-flash  (9.0s)
+  → p02_bg.png  (16:9, 第3页配图：变了什么)
+    ✓ 1312x736 454KB  via agnes-image-2.5-flash  (8.9s)
+  → p03_bg.png  (16:9, 第4页配图：为什么)
+    ✓ 1312x736 464KB  via agnes-image-2.5-flash  (9.0s)
+  → p04_bg.png  (16:9, 第5页配图：意味着什么)
+    ✓ 1312x736 461KB  via agnes-image-2.5-flash  (9.3s)
+  → p05_bg.png  (16:9, 第6页配图：反例与边界)
+    ✓ 1312x736 425KB  via agnes-image-2.5-flash  (9.9s)
+  → p06_bg.png  (16:9, 第7页配图：写在最后)
+    ✓ 1312x736 454KB  via agnes-image-2.5-flash  (10.4s)
+  → p07_bg.png  (16:9, 第8页配图：附录：待验证（未通过双源验证，不进正文）)
+    ✓ 1312x736 452KB  via agnes-image-2.5-flash  (9.1s)
+· sidecar → spikes/RUN-20261015/e2e/run4/deck/images/image_prompts.md
+✓ 完成 8 项，失败 0 项 → spikes/RUN-20261015/e2e/run4/deck/images/image_prompts.json
+
+  成功 8 张
+[3/7] 渲染 pages -> SVG（ppt-master 模板驱动）
+  $ /usr/local/bin/python3 /Volumes/3TB_DATA/05-开发项目/ppt-studio/scripts/template_renderer.py --pages ...
+[4/7] qa_layout 版面复核
+  $ /usr/local/bin/python3 /Volumes/3TB_DATA/05-开发项目/ppt-studio/scripts/qa_layout.py spikes/RUN-20261015/e2e/run4/deck/svg_output ...
+[5/7] planning 合同校验
+  $ /usr/local/bin/python3 /Volumes/3TB_DATA/05-开发项目/ppt-studio/scripts/plan_contract.py --project ...
+[6/7] 打分质检
+  $ /usr/local/bin/python3 /Volumes/3TB_DATA/05-开发项目/ppt-studio/scripts/qa_score.py spikes/RUN-20261015/e2e/run4/deck/svg_output
+[7/7] vendor SVG 质检门禁
+  $ /usr/local/bin/python3.11 /Volumes/3TB_DATA/05-开发项目/ppt-studio/vendor/ppt-master/scripts/svg_quality_checker.py spikes/RUN-20261015/e2e/run4/deck ...
+[8/8] SVG -> PPTX
+  $ /usr/local/bin/python3.11 /Volumes/3TB_DATA/05-开发项目/ppt-studio/vendor/ppt-master/scripts/svg_to_pptx.py spikes/RUN-20261015/e2e/run4/deck ...
+
+✅ 完成：8 页 -> spikes/RUN-20261015/e2e/run4/deck/deck.pptx (3692 KB)

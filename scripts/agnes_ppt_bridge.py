@@ -204,12 +204,18 @@ def run_manifest(manifest_path: Path, only: list[str] | None = None, force: bool
             and (not only or it.get("filename") in only)]
 
     print(f"· manifest {manifest_path.name}: 共 {len(items)} 项，待生 {len(todo)} 项")
-    ok = fail = 0
+    ok = fail = consec = 0
 
     for it in todo:
         fn = it.get("filename")
         if not fn:
             print("  [skip] 缺 filename")
+            continue
+        if consec >= 2:
+            # S8 降级护栏：连续 2 次失败即停调，剩余项交给上层 asset 兜底
+            it["status"] = "Skipped"
+            it["error"] = "连续失败≥2，停止 API 调用（S8 降级护栏）"
+            print(f"  ⏸ {fn}：连败停调，留待 asset 兜底")
             continue
         ratio = it.get("aspect_ratio", "16:9")
         print(f"  → {fn}  ({ratio}, {it.get('purpose','')[:40]})")
@@ -218,8 +224,10 @@ def run_manifest(manifest_path: Path, only: list[str] | None = None, force: bool
             it["status"] = "Failed"
             it["error"] = res.get("error")
             fail += 1
+            consec += 1
             print(f"    ✗ {res.get('error')}")
             continue
+        consec = 0
         out = save_image(res, images_dir / fn)
         w, h = probe_dimensions(out)
         it["status"] = "Generated"

@@ -1,0 +1,64 @@
+{
+  "pages": [
+    {
+      "index": 0,
+      "title": "远程交付团队的周会节奏（测试夹具）",
+      "bullets": [
+        "本次研究通过双源验证的核心发现有 5 条，具体判断见正文各节。"
+      ],
+      "layout": "cover",
+      "needs_review": [],
+      "image_intent": "background",
+      "image_intent_source": "legacy-default",
+      "image_prompt": "flat vector style illustration, crisp hard edges, glowing network of connected nodes around a central clock, deep navy background, high contrast thin lines, no text",
+      "cover_variant": "hero_full",
+      "image_file": "p00_bg.png"
+    },
+    {
+      "index": 1,
+      "title": "是什么",
+      "bullets": [
+        "受访的 42 个远程交付团队平均每周召开 4.5 小时同步会议，其中约三分之一没有形成任何可执行的决议",
+        "（example.com、example.org）"
+      ],
+      "layout": "bullets",
+      "needs_review": [
+        "标题过短（3字），可能是被截断的半句"
+      ],
+      "image_intent": "background",
+      "image_intent_source": "legacy-default",
+      "image_prompt": "isometric vector illustration, sharp clean edges, distributed team around a video call grid of screens, dark background with indigo accents, high detail, no text",
+      "image_file": "p01_bg.png"
+    },
+    {
+      "index": 2,
+      "title": "变了什么",
+      "bullets": [
+        "把每周例会从 60 分钟改成 25 分钟之后，会后书面纪要的平均字数不降反升，增加了约四成",
+        "（example.com、example.org）"
+      ],
+      "layout": "bullets",
+      "needs_review": [],
+      "image_intent": "background",
+      "image_intent_source": "legacy-default",
+      "image_prompt": "minimal geometric illustration, razor sharp edges, layered pipeline diagram with arrows and checkpoints, dark navy canvas, bright accent highlights, no text",
+      "image_file": "p02_bg.png"
+    },
+    {
+      "index": 3,
+      "title": "为什么",
+      "bullets": [
+        "跨时区协作使固定时间的同步会议成本显著上升，参与方不得不在会议之外补齐上下文，异步文档因此成为默认选择",
+        "（example.org、example.net）"
+      ],
+      "layout": "bullets",
+      "needs_review": [
+        "标题过短（3字），可能是被截断的半句"
+      ],
+      "image_intent": "background",
+      "image_intent_source": "legacy-default",
+      "image_prompt": "crisp vector illustration, agenda cards in a row with numbers and status dots, sharp edges, dark background, indigo and green accents, no text",
+      "image_file": "p03_bg.png"
+    }
+  ]
+}
