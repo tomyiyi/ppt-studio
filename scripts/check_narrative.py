@@ -22,7 +22,7 @@ REQUIRED = {
     "closing":   ["assertion", "so_what"],
 }
 
-VALID_IMAGE_INTENTS = {"none", "background", "panel", "hero"}  # 与 plan_narrative 同步，只增不减
+VALID_IMAGE_INTENTS = {"none", "background", "panel", "hero", "asset", "vector"}  # S6 只增：asset=本地图库 / vector=矢量旁路
 
 def resolve_source(source: str, base_dir: Path) -> tuple[Path, int] | None:
     """'a.md#L12' -> (路径, 行号)；解析不了返回 None。"""

@@ -1,0 +1,4 @@
+{"pages": [
+ {"index": 0, "title": "三级配图路由演示", "bullets": ["asset 页：本地开源图库选图并留出处"], "layout": "cover", "needs_review": [], "image_intent": "asset", "image_intent_source": "demo", "image_prompt": "封面 留白"},
+ {"index": 1, "title": "极简版式", "bullets": ["图库素材 grid.png 由 asset 路由复制入 images/", "出处 JSON 记录 repo/license/sha256", "vector 页在 S7 前如实缓办，不调 Agnes 不硬塞", "none 页跳过生图"], "layout": "bullets", "needs_review": [], "image_intent": "none", "image_intent_source": "demo", "image_prompt": ""}
+]}

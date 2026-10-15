@@ -1,0 +1,171 @@
+{
+  "generated_from": "/Volumes/3TB_DATA/05-开发项目/agnes-studio-assets/open_source_posters",
+  "repos": [
+    {
+      "repo": "ResponsiveMullerBrockmann",
+      "license": "MIT License",
+      "accepted": false,
+      "reason": "LICENSE 只覆盖代码；库内为历史名家海报复刻，画作权利不在授予范围，默认排除（如需使用须单独核对原作版权状态）"
+    },
+    {
+      "repo": "article-poster-generator",
+      "license": "MIT License",
+      "accepted": true,
+      "reason": "ok"
+    },
+    {
+      "repo": "fantasy-movie-poster-skill",
+      "license": null,
+      "accepted": false,
+      "reason": "仓库无 LICENSE，整体排除（默认保留所有权利）"
+    },
+    {
+      "repo": "swiss-grid-generator",
+      "license": null,
+      "accepted": false,
+      "reason": "仓库无 LICENSE，整体排除（默认保留所有权利）"
+    }
+  ],
+  "excluded_repos": [
+    "ResponsiveMullerBrockmann",
+    "fantasy-movie-poster-skill",
+    "swiss-grid-generator"
+  ],
+  "entries": [
+    {
+      "path": "/Volumes/3TB_DATA/05-开发项目/agnes-studio-assets/open_source_posters/article-poster-generator/examples/layouts/content.png",
+      "repo": "article-poster-generator",
+      "rel": "examples/layouts/content.png",
+      "tags": [
+        "content",
+        "layouts"
+      ],
+      "license": "MIT License",
+      "artwork_rights": "author-demo",
+      "sha256_16": "cfb8dfbe8ed625e6"
+    },
+    {
+      "path": "/Volumes/3TB_DATA/05-开发项目/agnes-studio-assets/open_source_posters/article-poster-generator/examples/layouts/cover.png",
+      "repo": "article-poster-generator",
+      "rel": "examples/layouts/cover.png",
+      "tags": [
+        "cover",
+        "layouts"
+      ],
+      "license": "MIT License",
+      "artwork_rights": "author-demo",
+      "sha256_16": "e14ce5998df58a34"
+    },
+    {
+      "path": "/Volumes/3TB_DATA/05-开发项目/agnes-studio-assets/open_source_posters/article-poster-generator/examples/layouts/grid.png",
+      "repo": "article-poster-generator",
+      "rel": "examples/layouts/grid.png",
+      "tags": [
+        "grid",
+        "layouts"
+      ],
+      "license": "MIT License",
+      "artwork_rights": "author-demo",
+      "sha256_16": "ab52533ce4e61b74"
+    },
+    {
+      "path": "/Volumes/3TB_DATA/05-开发项目/agnes-studio-assets/open_source_posters/article-poster-generator/examples/layouts/quote.png",
+      "repo": "article-poster-generator",
+      "rel": "examples/layouts/quote.png",
+      "tags": [
+        "layouts",
+        "quote"
+      ],
+      "license": "MIT License",
+      "artwork_rights": "author-demo",
+      "sha256_16": "b0d62afcbea55107"
+    },
+    {
+      "path": "/Volumes/3TB_DATA/05-开发项目/agnes-studio-assets/open_source_posters/article-poster-generator/examples/layouts/steps.png",
+      "repo": "article-poster-generator",
+      "rel": "examples/layouts/steps.png",
+      "tags": [
+        "layouts",
+        "steps"
+      ],
+      "license": "MIT License",
+      "artwork_rights": "author-demo",
+      "sha256_16": "19ca781eb2fbba12"
+    },
+    {
+      "path": "/Volumes/3TB_DATA/05-开发项目/agnes-studio-assets/open_source_posters/article-poster-generator/examples/layouts/summary.png",
+      "repo": "article-poster-generator",
+      "rel": "examples/layouts/summary.png",
+      "tags": [
+        "layouts",
+        "summary"
+      ],
+      "license": "MIT License",
+      "artwork_rights": "author-demo",
+      "sha256_16": "1a6cc8485a2d0bdc"
+    },
+    {
+      "path": "/Volumes/3TB_DATA/05-开发项目/agnes-studio-assets/open_source_posters/article-poster-generator/examples/styles/cyberpunk.png",
+      "repo": "article-poster-generator",
+      "rel": "examples/styles/cyberpunk.png",
+      "tags": [
+        "cyberpunk",
+        "styles"
+      ],
+      "license": "MIT License",
+      "artwork_rights": "author-demo",
+      "sha256_16": "3b0f296576b25f05"
+    },
+    {
+      "path": "/Volumes/3TB_DATA/05-开发项目/agnes-studio-assets/open_source_posters/article-poster-generator/examples/styles/dark-green.png",
+      "repo": "article-poster-generator",
+      "rel": "examples/styles/dark-green.png",
+      "tags": [
+        "dark",
+        "green",
+        "styles"
+      ],
+      "license": "MIT License",
+      "artwork_rights": "author-demo",
+      "sha256_16": "e14ce5998df58a34"
+    },
+    {
+      "path": "/Volumes/3TB_DATA/05-开发项目/agnes-studio-assets/open_source_posters/article-poster-generator/examples/styles/dark-tech.png",
+      "repo": "article-poster-generator",
+      "rel": "examples/styles/dark-tech.png",
+      "tags": [
+        "dark",
+        "styles",
+        "tech"
+      ],
+      "license": "MIT License",
+      "artwork_rights": "author-demo",
+      "sha256_16": "8d6f1afe00a01468"
+    },
+    {
+      "path": "/Volumes/3TB_DATA/05-开发项目/agnes-studio-assets/open_source_posters/article-poster-generator/examples/styles/guochao.png",
+      "repo": "article-poster-generator",
+      "rel": "examples/styles/guochao.png",
+      "tags": [
+        "guochao",
+        "styles"
+      ],
+      "license": "MIT License",
+      "artwork_rights": "author-demo",
+      "sha256_16": "82ea3052c4fdf3f5"
+    },
+    {
+      "path": "/Volumes/3TB_DATA/05-开发项目/agnes-studio-assets/open_source_posters/article-poster-generator/examples/styles/minimal-biz.png",
+      "repo": "article-poster-generator",
+      "rel": "examples/styles/minimal-biz.png",
+      "tags": [
+        "biz",
+        "minimal",
+        "styles"
+      ],
+      "license": "MIT License",
+      "artwork_rights": "author-demo",
+      "sha256_16": "25bab9826c2b20fe"
+    }
+  ]
+}

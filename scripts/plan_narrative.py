@@ -10,7 +10,7 @@ from pathlib import Path
 ROLES = ("cover", "section", "claim", "data", "mechanism", "teaching", "closing")
 
 # 与 check_narrative.VALID_IMAGE_INTENTS 保持同步（S6 只增不减，不删既有值）
-VALID_IMAGE_INTENTS = {"none", "background", "panel", "hero"}
+VALID_IMAGE_INTENTS = {"none", "background", "panel", "hero", "asset", "vector"}  # S6 只增：asset=本地图库 / vector=矢量旁路
 
 REQUIRED = {
     "cover":     ["assertion"],

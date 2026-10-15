@@ -44,23 +44,50 @@ def run(cmd, **kw):
 
 
 def gen_images(out: Path, pages_path: Path) -> int:
-    """按 pages.json 生成配图 manifest，调 agnes_ppt_bridge 生图。返回成功数。
-    image_intent=none 的页跳过生图。"""
+    """三级配图路由：agnes（background/panel/hero 走生图桥）/ asset（本地图库选图）/
+    vector（矢量旁路，S7 交付，未接线前如实缓办）。返回成功配图页数。
+    image_intent=none 的页跳过。"""
     plan = json.loads(pages_path.read_text(encoding="utf-8"))
     images_dir = out / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
 
     items = []
-    skipped = 0
+    skipped = deferred = 0
     for pg in plan["pages"]:
         intent = pg.get("image_intent", "background")
         if intent == "none":
             skipped += 1
             print(f"  p{pg['index']:02d} image_intent=none，跳过生图")
             continue
+        if intent == "vector":
+            deferred += 1
+            print(f"  p{pg['index']:02d} image_intent=vector：矢量生成链路（S7 render_svg_cairo）"
+                  "未接线，本期缓办，不调 Agnes、不硬塞")
+            continue
+        if intent == "asset":
+            import source_illustration as SI
+            index = SI.load_index(SI.REPO_INDEX) if SI.REPO_INDEX.exists() else SI.build_index()
+            q = (pg.get("image_prompt") or "") + " " + (pg.get("title") or "")
+            scored = SI.pick(index, q)
+            fn = "p%02d_asset.png" % pg["index"]
+            if not scored:
+                print(f"  p{pg['index']:02d} image_intent=asset：图库无匹配（不硬塞），缓办")
+                deferred += 1
+                continue
+            score, e = scored[0]
+            shutil.copyfile(e["path"], images_dir / fn)
+            pg["image_file"] = fn
+            (images_dir / ("p%02d_asset.prov.json" % pg["index"])).write_text(
+                json.dumps({"picked": e["rel"], "source": e["path"], "repo": e["repo"],
+                            "license": e["license"], "artwork_rights": e["artwork_rights"],
+                            "sha256_16": e["sha256_16"], "score": score},
+                           ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"  p{pg['index']:02d} asset 选图 %s（license=%s）" % (e["rel"], e["license"]))
+            continue
         fn = "p%02d_bg.png" % pg["index"]
         items.append({
             "filename": fn,
+            "page_index": pg["index"],   # 回写按页号对位；旧版 zip() 在有跳过页时错位
             "purpose": "第%d页配图：%s" % (pg["index"] + 1, pg["title"][:30]),
             "page_role": "content_bg",
             "text_policy": "none",
@@ -73,25 +100,32 @@ def gen_images(out: Path, pages_path: Path) -> int:
     manifest.write_text(json.dumps({"items": items}, ensure_ascii=False, indent=2),
                         encoding="utf-8")
 
-    print("  生图 %d 张（经 prompt 安全拦截）..." % len(items))
-    r = subprocess.run(
-        [sys.executable, str(SCRIPTS / "agnes_ppt_bridge.py"),
-         "--manifest", str(manifest)],
-        capture_output=True, text=True)
-    print(r.stdout[-800:])
-    if r.returncode != 0:
-        print(r.stderr[-800:], file=sys.stderr)
+    done = sum(1 for pg in plan["pages"] if str(pg.get("image_file", "")).endswith("_asset.png"))
+    if items:
+        print("  生图 %d 张（经 prompt 安全拦截）..." % len(items))
+        r = subprocess.run(
+            [sys.executable, str(SCRIPTS / "agnes_ppt_bridge.py"),
+             "--manifest", str(manifest)],
+            capture_output=True, text=True)
+        print(r.stdout[-800:])
+        if r.returncode != 0:
+            print(r.stderr[-800:], file=sys.stderr)
 
-    # 回写 image_file
-    done = 0
-    mf = json.loads(manifest.read_text(encoding="utf-8"))
-    status = {it["filename"]: it.get("status") for it in mf.get("items", [])}
-    for pg, it in zip(plan["pages"], items):
-        fn = it["filename"]
-        if status.get(fn) == "Generated" and (images_dir / fn).exists():
-            pg["image_file"] = fn
-            done += 1
+        # 回写 image_file：按 page_index 对位，不按列表位置
+        mf = json.loads(manifest.read_text(encoding="utf-8"))
+        status = {it["filename"]: it.get("status") for it in mf.get("items", [])}
+        by_index = {pg["index"]: pg for pg in plan["pages"]}
+        for it in mf.get("items", []):
+            fn = it["filename"]
+            pg = by_index.get(it.get("page_index"))
+            if pg is None:
+                continue
+            if status.get(fn) == "Generated" and (images_dir / fn).exists():
+                pg["image_file"] = fn
+                done += 1
     pages_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
+    if deferred:
+        print("  缓办 %d 页（vector/asset 无匹配）" % deferred)
     return done
 
 
