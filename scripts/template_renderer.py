@@ -452,8 +452,11 @@ def render_page(page, images_dir):
                 fill = "#FFFFFF"   # 底图上浅灰字对比度不够，纯白可让遮罩少压 ~15%
             else:
                 fill = readable_fill(fill, False)
+            # 带图页 • 标记随文字取纯白：accent 色相对遮罩带(L≤0.183)最多只有
+            # 1.3:1，任何 scrim 强度都救不回 4.5:1（S8-F2 实测 2.5-3.2:1），
+            # accent 保留在无图页与封面装饰线
             multi = bullets_to_svg(bullets, x, y, fs, fill, fs + 16,
-                                   max_y=_sy + _sh, accent=_accent, slot_w=_sw)
+                                   max_y=_sy + _sh, accent=(fill if has_img else _accent), slot_w=_sw)
             if multi is None:
                 raise OverflowError("bullets 放不下：槽位 %dx%d，%d 条 / %d 字"
                                     % (int(_sw), int(_sh), len(bullets),
@@ -473,7 +476,8 @@ def render_page(page, images_dir):
                 fillm = re.search(r'fill="([^"]+)"', m.group(0))
                 fill = readable_fill(fillm.group(1) if fillm else "#334155", False)
                 multi = bullets_to_svg(bullets, x, y, fs, fill, fs + 16, max_chars=26,
-                                       max_y=_slot_bottom(svg, m.start()), accent=_accent)
+                                       max_y=_slot_bottom(svg, m.start()),
+                                       accent=(fill if has_img else _accent))
                 svg = svg.replace(m.group(0), multi)
 
     if layout == "compare":

@@ -229,6 +229,14 @@ def main(argv=None) -> int:
         print("[4/7] qa_layout 版面复核")
         render_dir = out / "qa_render"
         render_dir.mkdir(parents=True, exist_ok=True)
+        # F1：先把版面经 cairo 旁路栅格化喂给 qa_layout——此前 qa_render 恒为空，
+        # 面板/对比度门禁形同虚设（S8 实测发现）
+        rr = subprocess.run(
+            [PY, str(SCRIPTS / "render_svg_cairo.py"), str(svg_dir), str(render_dir)],
+            capture_output=True, text=True)
+        if rr.returncode != 0:
+            print("[WARN] cairo 旁路渲染失败：qa_layout 面板/对比度检查将被跳过，"
+                  "本次产物不得作为交付证据", file=sys.stderr)
         run([sys.executable, str(SCRIPTS / "qa_layout.py"),
              str(svg_dir), str(render_dir)])
         print("[5/7] planning 合同校验")

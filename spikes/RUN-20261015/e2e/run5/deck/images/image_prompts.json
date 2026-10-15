@@ -1,0 +1,52 @@
+{
+  "items": [
+    {
+      "filename": "p00_bg.png",
+      "page_index": 0,
+      "purpose": "第1页配图：远程交付团队的周会节奏（测试夹具）",
+      "page_role": "content_bg",
+      "text_policy": "none",
+      "aspect_ratio": "16:9",
+      "model": "agnes-image-2.5-flash",
+      "status": "Generated",
+      "prompt": "flat vector style illustration, crisp hard edges, glowing network of connected nodes around a central clock, deep navy background, high contrast thin lines, no text",
+      "dimensions": "1312x736"
+    },
+    {
+      "filename": "p01_bg.png",
+      "page_index": 1,
+      "purpose": "第2页配图：是什么",
+      "page_role": "content_bg",
+      "text_policy": "none",
+      "aspect_ratio": "16:9",
+      "model": "agnes-image-2.5-flash",
+      "status": "Generated",
+      "prompt": "isometric vector illustration, sharp clean edges, distributed team around a video call grid of screens, dark background with indigo accents, high detail, no text",
+      "dimensions": "1312x736"
+    },
+    {
+      "filename": "p02_bg.png",
+      "page_index": 2,
+      "purpose": "第3页配图：变了什么",
+      "page_role": "content_bg",
+      "text_policy": "none",
+      "aspect_ratio": "16:9",
+      "model": "agnes-image-2.5-flash",
+      "status": "Generated",
+      "prompt": "minimal geometric illustration, razor sharp edges, layered pipeline diagram with arrows and checkpoints, dark navy canvas, bright accent highlights, no text",
+      "dimensions": "1312x736"
+    },
+    {
+      "filename": "p03_bg.png",
+      "page_index": 3,
+      "purpose": "第4页配图：为什么",
+      "page_role": "content_bg",
+      "text_policy": "none",
+      "aspect_ratio": "16:9",
+      "model": "agnes-image-2.5-flash",
+      "status": "Generated",
+      "prompt": "crisp vector illustration, agenda cards in a row with numbers and status dots, sharp edges, dark background, indigo and green accents, no text",
+      "dimensions": "1312x736"
+    }
+  ]
+}

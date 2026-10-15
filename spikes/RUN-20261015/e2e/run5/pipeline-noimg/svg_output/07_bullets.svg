@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1280 720"><title>附录：待验证（未通过双源验证，不进正文）</title>
+  <rect id="master-background" x="0" y="0" width="1280" height="720" fill="#FFFFFF"/>
+  <rect id="title-content-rule" x="64" y="120" width="96" height="4" rx="2" fill="#CBD5E1"/>
+  <rect id="title-content-panel" x="64" y="152" width="1152" height="504" rx="12" fill="#F4F6F8"
+    stroke="#D6DCE3" stroke-width="1"/>
+  <g id="title-content-title-slot"
+    data-pptx-bounds="64 40 1152 88">
+    <text id="title-content-title-carrier"
+      x="76"  fill="#1E293B" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, Arial, sans-serif"
+      font-size="24" font-weight="700" y="60">附录：待验证（</text>
+<text id="title-content-title-carrier"
+      x="76"  fill="#1E293B" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, Arial, sans-serif"
+      font-size="24" font-weight="700" y="90">未通过双源验证，不进正文</text>
+<text id="title-content-title-carrier"
+      x="76"  fill="#1E293B" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, Arial, sans-serif"
+      font-size="24" font-weight="700" y="120">）</text>
+  </g>
+  <g id="title-content-object-slot"
+    data-pptx-bounds="88 176 1104 456">
+    <text x="88" y="214" fill="#B4232A" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" font-size="20">• </text>
+<text x="107" y="214" fill="#475569" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" font-size="20">七成受访团队保留了每日站会这一形式，但把单次日站时长从 25 分钟压缩到了 10 </text>
+<text x="88" y="242" fill="#475569" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" font-size="20">  分钟以内（example.net）</text>
+<text x="88" y="292" fill="#B4232A" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" font-size="20">• </text>
+<text x="107" y="292" fill="#475569" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" font-size="20">书面状态更新工具普及以来，大约两成低价值同步会被异步文档取代，替代过程集中在近两年完成（e</text>
+<text x="88" y="320" fill="#475569" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" font-size="20">  xample.net）</text>
+<text x="88" y="370" fill="#B4232A" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" font-size="20">• </text>
+<text x="107" y="370" fill="#475569" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" font-size="20">纯异步流程下的新入职成员，首次提问到获得有效回复的等待时间中位数增加了 6 个小时（exa</text>
+<text x="88" y="398" fill="#475569" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif" font-size="20">  mple.org）</text>
+  </g>
+</svg>
