@@ -1,0 +1,37 @@
+<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">
+<title>S12 · 知识回写 3T</title>
+<style>body{font-family:"PingFang SC",sans-serif;max-width:920px;margin:24px auto;padding:0 16px;line-height:1.7;color:#1c2230}
+h1{border-bottom:3px solid #6E7BFF;padding-bottom:8px}
+pre{background:#0f1420;color:#d5deef;padding:12px;border-radius:8px;overflow-x:auto;font-size:13px}
+table{border-collapse:collapse;width:100%}td,th{border:1px solid #d8dbe6;padding:6px 10px;font-size:14px;text-align:left}
+.ok{background:#f2fbf4;border-left:4px solid #2a7;padding:10px 14px}</style></head><body>
+<h1>S12 · 知识回写 3T</h1>
+<p>RUN-20261015 · 2026-10-16 04:53–04:58 · 3T 非 git 仓库：只写文件，不 commit</p>
+
+<h2>1. 投递清单（只投不挪）</h2>
+<p>目标：<code>/Volumes/3TB_DATA/02-知识库/tom-brain-2026/00-入口/inbox/agent-submissions/</code>，按 AGENTS.md §6 frontmatter（title/type/status/created/updated/tags/area/project + knowledge_status: candidate）。</p>
+<table><tr><th>卡片文件</th><th>主题</th></tr><tr><td><code>20261016-Qoder-三级配图路由与图像五指标判读-7c3e1a.md</code></td><td>三级配图路由 + 图像五指标判读（S6–S8）</td></tr><tr><td><code>20261016-Qoder-海报门禁三重校验与修测量原则-b94f22.md</code></td><td>海报三重门禁 + 修测量不松判据 + F1/F2（S9）</td></tr><tr><td><code>20261016-Qoder-平行实例纪律与双向出口-5d18ac.md</code></td><td>非破坏性平行实例纪律 + deck↔海报桥接（S10–S11）</td></tr></table>
+<p>另新建 <code>08-Memory/20261015-写作与三级配图路由落地快照.md</code>（全链落地快照，敏感声明置顶），并在 <code>09-治理工具/agent-queue-报告/</code> 写 RUN 进度行 <code>20261016-run-pptstudio-agnes-fullchain.md</code>。</p>
+
+<h2>2. 验证：frontmatter 合规（head -20 每张卡）</h2>
+<p>三张卡 head -20 均见完整 YAML 块（title/status/knowledge_status/created/updated/tags/area/project/type + card_id 正文块），符合 §6。见台账收工行摘录。</p>
+
+<h2>3. 验证：密钥前缀扫描必须为 0</h2>
+<pre>$ grep -c "密钥前缀" 五份新产物
+三级配图路由卡 : 0
+平行实例纪律卡 : 0
+海报门禁卡     : 0
+08-Memory 快照 : 0
+09 进度行      : 0</pre>
+<p>首轮扫描中，「平行实例卡」与「快照」各命中 1——均为我在正文里字面写出了扫描命令本身（自触发），非任何真实密钥；改写为「跑密钥前缀扫描命中数必须为 0」后复扫全部归 0。<b>全程未复制 08-Memory 下 20261006 两份含明文密钥的历史快照正文。</b></p>
+
+<h2>4. 合规</h2>
+<ul>
+<li>3T 为 ExFAT 非 git 仓库：仅写文件，无 commit、无 git add；</li>
+<li>卡片只投 inbox/agent-submissions，不移动到主题目录（独立复核后再发布，非本会话职责）；</li>
+<li>零生图调用、零阈值改动、零新依赖。</li>
+</ul>
+
+<h2>5. 结论</h2>
+<div class="ok"><b>通过：</b>3 张候选知识卡 + 1 份 08-Memory 快照 + 1 行 09 进度报告落盘；frontmatter 合规、密钥扫描 5/5 归 0。</div>
+</body></html>
