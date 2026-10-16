@@ -1,0 +1,91 @@
+# RUN-20261015 S14 回归留档（2026-10-16 17:30 +0800，含 F 段逐档检查后重跑）
+# 工作树：ppt HEAD=6ac5ff3 / AGNES HEAD=e260cbe（本阶段改动未提交前）
+
+===== scripts/test_spec_tokens.py =====
+
+========================================================
+通过 17 / 失败 0
+exit=0
+===== scripts/test_plan_narrative.py =====
+
+========================================================
+通过 34 / 失败 0
+exit=0
+===== scripts/test_check_narrative.py =====
+
+========================================================
+通过 26 / 失败 0
+exit=0
+===== scripts/test_qa_layout_fixes.py =====
+
+========================================================
+自检全部通过 ✅
+exit=0
+===== scripts/test_qa_scale_and_contrast.py =====
+
+========================================================
+通过 17 / 失败 0
+exit=0
+===== scripts/test_plan_contract_sections.py =====
+
+========================================================
+通过 9 / 失败 0
+exit=0
+===== scripts/test_layout_recipes.py =====
+
+========================================================
+通过 24 / 失败 0 / xfail 0
+exit=0
+===== scripts/test_image_route.py =====
+
+========================================================
+通过 19 / 失败 0
+exit=0
+===== scripts/test_write_article.py =====
+
+========================================================
+通过 26 / 失败 0
+exit=0
+===== scripts/test_topic_to_deck.py =====
+
+========================================================
+通过 29 / 失败 0
+exit=0
+
+===== AGNES scripts/test_poster_gate.py =====
+声明性禁令（gradient-text/glow/centered-mush 等）无可靠像素测法，由版式作者按 forbidden 清单自律 + 目检兜底（S9 报告如实声明）
+通过 12 / 失败 0
+exit=0
+
+===== AGNES scripts/test_poster_contrast.py =====
+
+[A] 规划级：亮底/暗底/中间调三块纯色底
+[OK ] A.亮底(云) 达标(ratio≥1.0)  ratio=1.34 极性=dark 雾罩=0%
+[OK ] A.亮底(云) 选到预期极性且零雾罩  极性=dark 雾罩=0%
+[OK ] A.暗底(夜) 达标(ratio≥1.0)  ratio=3.33 极性=light 雾罩=0%
+[OK ] A.暗底(夜) 选到预期极性且零雾罩  极性=light 雾罩=0%
+[OK ] A.中间调 达标(ratio≥1.0)  ratio=1.15 极性=light 雾罩=35%
+
+[B] 无回归：暗底上自适应结果必须与旧行为逐像素相同
+[OK ] B1 暗底：自适应 == 旧渲染（零像素差）  1024x1024
+
+[C] 真实底图：旧行为必失读、新行为达标（证明修的是真缺陷）
+[OK ] C1 旧行为在真底图上不达标（缺陷复现）  浅墨 ratio=0.23（<1.0 即低于 AA）
+[OK ] C2 新行为达标  ratio=1.34 极性=dark 雾罩=0%
+
+[D] 成品级：直接量最终 PNG——墨色像素 vs 紧邻一圈
+[OK ] D0 判据能看见旧缺陷（旧渲染 p10 < 3.0）  旧渲染恒用浅墨，p10=1.03:1 样本 2843 点——若这条也绿，说明量错了
+[OK ] D.poster_style_smiley.png 字形墨色对比 p10 ≥ 3.0  成品用 dark 墨，p10=5.55:1 样本 2575 点 / 墨色占图 0.49%
+[OK ] D.poster_style_wenkai.png 字形墨色对比 p10 ≥ 3.0  成品用 dark 墨，p10=5.53:1 样本 3539 点 / 墨色占图 0.34%
+[OK ] D.poster_style_songti.png 字形墨色对比 p10 ≥ 3.0  成品用 dark 墨，p10=5.67:1 样本 2875 点 / 墨色占图 0.55%
+
+[F] 成品级·逐档：文字 vs 它真正压着的那张背景（底图+雾罩，不含文字）
+[OK ] F.poster_style_smiley.png 四档逐条达 AA  dark 墨 · 雾罩 1 块 · title=3.0:7.19 sub=4.5:5.55 tagline=4.5:11.07 meta=4.5:5.00 · 最差达标倍数 1.11
+[OK ] F.poster_style_wenkai.png 四档逐条达 AA  dark 墨 · 雾罩 1 块 · title=3.0:8.16 sub=4.5:5.53 tagline=4.5:10.42 meta=4.5:5.19 · 最差达标倍数 1.15
+[OK ] F.poster_style_songti.png 四档逐条达 AA  dark 墨 · 雾罩 1 块 · title=3.0:8.41 sub=4.5:5.53 tagline=4.5:10.42 meta=4.5:5.18 · 最差达标倍数 1.15
+
+[E] 声明与异常
+[OK ] E1 未知 theme_color 抛错不静默  未知 theme_color: neon_pink（合法集 ['amber_gold', 'cy
+
+通过 16 / 失败 0
+exit=0

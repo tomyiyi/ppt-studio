@@ -59,21 +59,6 @@ def pick_tagline(text: str, limit: int = 30) -> str:
     return acc.rstrip("，。；！？") + ("…" if trimmed else "")
 
 
-def darken_top_band(img, band_frac=0.42, max_alpha=205):
-    """deck 底图上 1/3 常是亮部插画区，poster_composer 的多层阴影救不回其上白/青文字
-    （S11 目检实证）。裁切后先压一条顶部渐变暗带——与 deck 模板 SCRIM 同思路，
-    只调底图备料，不动 AGNES 侧任何判据。"""
-    from PIL import Image, ImageDraw
-    w, h = img.size
-    band = int(h * band_frac)
-    ov = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    d = ImageDraw.Draw(ov)
-    for y in range(band):
-        a = int(max_alpha * (1 - y / band))
-        d.line([(0, y), (w, y)], fill=(8, 10, 24, a))
-    return Image.alpha_composite(img, ov)
-
-
 def crop_ratio(img, ratio_w=3, ratio_h=4):
     """中心裁切到目标比例（先按高度撑满再裁宽，保文字带在上方负空间）。"""
     from PIL import Image
@@ -124,7 +109,9 @@ def main(argv=None) -> int:
     from PIL import Image
     rw, rh = (int(x) for x in args.ratio.split(":"))
     src = Image.open(bg_path).convert("RGBA")
-    cropped = darken_top_band(crop_ratio(src, rw, rh))
+    # 备料只做裁切：文字带压暗带（原 S11 兜底）已上移到 poster_composer 的
+    # 明度自适应墨色/雾罩，底图不再被固定 alpha 的暗带整体压暗。
+    cropped = crop_ratio(src, rw, rh)
     out_dir = Path(args.out) if args.out else deck / "posters"
     out_dir.mkdir(parents=True, exist_ok=True)
     tmp_bg = out_dir / f".page{args.page:02d}_bg{rw}x{rh}.png"
