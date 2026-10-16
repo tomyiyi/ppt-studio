@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import html
 import re
+import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -32,6 +33,7 @@ STAGE_GOAL = {
     "S12": "知识回写 3T 知识库",
     "S13": "收口报告 + 9 条未闭环风险实测",
     "S14": "海报文字可读性：墨色随底图明度自适应",
+    "S15": "色相口径裁决落地 + cyber_01 换底图 + 散文→evidence 抽取",
 }
 
 CSS = """
@@ -67,7 +69,7 @@ def main() -> None:
             files.setdefault(key, p)
 
     rows = []
-    for stage in [f"S{i}" for i in range(1, 15)]:
+    for stage in [f"S{i}" for i in range(1, 16)]:
         goal = STAGE_GOAL.get(stage, "")
         if stage in files:
             f = files[stage]
@@ -83,14 +85,14 @@ def main() -> None:
                 f'<div class="d">未开始</div></div></div>'
             )
 
-    done = sum(1 for s in [f"S{i}" for i in range(1, 15)] if s in files)
+    done = sum(1 for s in [f"S{i}" for i in range(1, 16)] if s in files)
     doc = f"""<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RUN-20261015 接力报告</title><style>{CSS}</style></head>
 <body><main>
 <h1>RUN-20261015 · PPT Studio × AGNES Studio</h1>
-<p class="meta">阶段 {done} / 14 已完成 ｜ 更新于 {datetime.now().strftime("%Y-%m-%d %H:%M")} (+0800)<br>
+<p class="meta">阶段 {done} / 15 已完成 ｜ 更新于 {datetime.now().strftime("%Y-%m-%d %H:%M")} (+0800)<br>
 写作（主题→成文→deck）与设计与生图（配图三级路由 + 海报提质）。每阶段一份报告，含实际命令与实际输出。</p>
 {chr(10).join(rows)}
 <p class="meta">绿=已有报告，黄=未开始。计划文件：<code>~/.qoder-cn/plans/wise-oasis-wolf.md</code>；
@@ -98,11 +100,28 @@ def main() -> None:
 </main></body></html>
 """
     (REPORTS / "INDEX.html").write_text(doc, encoding="utf-8")
-    print(f"-> {REPORTS / 'INDEX.html'}  (阶段 {done}/14)")
+    print(f"-> {REPORTS / 'INDEX.html'}  (阶段 {done}/15)")
     if extra:
         extra.mkdir(parents=True, exist_ok=True)
         (extra / "INDEX.html").write_text(doc, encoding="utf-8")
         print(f"-> {extra / 'INDEX.html'}")
+        # 报告里 S15 起用相对路径引图（img/*.jpg），只镜像 HTML 会在手机上碎图，
+        # 所以镜像目录必须连图和报告一起同步。
+        n = 0
+        for f in sorted(REPORTS.glob("S*.html")):
+            dst = extra / f.name
+            if not (dst.exists() and dst.stat().st_size == f.stat().st_size):
+                shutil.copy2(f, dst)
+                n += 1
+        img = REPORTS / "img"
+        if img.is_dir():
+            (extra / "img").mkdir(parents=True, exist_ok=True)
+            for f in sorted(img.iterdir()):
+                dst = extra / "img" / f.name
+                if not (dst.exists() and dst.stat().st_size == f.stat().st_size):
+                    shutil.copy2(f, dst)
+                    n += 1
+        print(f"-> 镜像同步 {n} 个文件（报告 + 图）")
 
 
 if __name__ == "__main__":

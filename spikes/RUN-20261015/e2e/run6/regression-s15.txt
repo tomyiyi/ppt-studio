@@ -1,0 +1,55 @@
+# RUN-20261015 S15 全量回归留档  2026-10-16 19:09:34
+# 每套件跑完整输出后取末 3 行 + 真实退出码（不是管道的退出码）
+# ppt-studio 11 套件
+===== scripts/test_check_narrative.py  exit=0
+========================================================
+通过 26 / 失败 0
+===== scripts/test_evidence_from_prose.py  exit=0
+
+通过 25 / 失败 0
+===== scripts/test_image_route.py  exit=0
+========================================================
+通过 19 / 失败 0
+===== scripts/test_layout_recipes.py  exit=0
+========================================================
+通过 24 / 失败 0 / xfail 0
+===== scripts/test_plan_contract_sections.py  exit=0
+========================================================
+通过 9 / 失败 0
+===== scripts/test_plan_narrative.py  exit=0
+========================================================
+通过 34 / 失败 0
+===== scripts/test_qa_layout_fixes.py  exit=0
+========================================================
+自检全部通过 ✅
+===== scripts/test_qa_scale_and_contrast.py  exit=0
+========================================================
+通过 17 / 失败 0
+===== scripts/test_spec_tokens.py  exit=0
+========================================================
+通过 17 / 失败 0
+===== scripts/test_topic_to_deck.py  exit=0
+========================================================
+通过 29 / 失败 0
+===== scripts/test_write_article.py  exit=0
+========================================================
+通过 26 / 失败 0
+# AGNES 3 套件
+===== scripts/test_poster_gate.py  exit=0
+声明性禁令（gradient-text/glow/centered-mush 等）无可靠像素测法，由版式作者按 forbidden 清单自律 + 目检兜底（S9 报告如实声明）
+通过 17 / 失败 0
+===== scripts/test_poster_contrast.py  exit=0
+
+通过 16 / 失败 0
+===== scripts/test_gemini_integration.py  exit=0
+🎉 恭喜！Agnes Studio 7 项核心自动化测试全量通过！
+=================================================================
+
+# ---- 复跑（S15-B 纱罩第三轮调参 + cyber_01/steampunk_tech 重渲之后）----
+# 上一段留档发生在调参前；此处为最终代码状态下的复跑，结果逐条一致。
+$ for s in test_poster_gate test_poster_contrast test_gemini_integration; do
+    python3 scripts/$s.py > /tmp/$s.out 2>&1; echo "$s exit=$? $(tail -1 /tmp/$s.out)"; done
+test_poster_gate exit=0 通过 17 / 失败 0
+test_poster_contrast exit=0 通过 16 / 失败 0
+test_gemini_integration exit=0 ================================================================
+# ppt 11 套件未复跑：本轮改动全在 AGNES 渲染器与 CSS，ppt 侧代码与夹具零变化。
