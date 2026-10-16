@@ -1,0 +1,26 @@
+  BLOCKING  [W-24] 页 00 缺 so_what
+  BLOCKING  [W-12] 页 01 数字证据缺 baseline: 受访的 42 个远程交付团队平均每周召开
+  BLOCKING  [W-24] 页 01 缺 so_what
+  BLOCKING  [W-24] 页 02 缺 so_what
+  BLOCKING  [W-24] 页 03 缺 so_what
+  BLOCKING  [W-24] 页 04 缺 so_what
+  BLOCKING  [W-24] 页 05 缺 so_what
+  BLOCKING  [W-07] 页 06 [claim] 缺 evidence
+  BLOCKING  [W-24] 页 06 缺 so_what
+  BLOCKING  [W-12] 页 07 数字证据缺 baseline: 七成受访团队保留了每日站会这一形式，但把
+  BLOCKING  [W-12] 页 07 数字证据缺 baseline: 纯异步流程下的新入职成员，首次提问到获得
+  BLOCKING  [W-24] 页 07 缺 so_what
+  需人读    [W-29] 页 01 缺 scope_note
+  需人读    [W-29] 页 02 缺 scope_note
+  需人读    [W-29] 页 03 缺 scope_note
+  需人读    [W-29] 页 04 缺 scope_note
+  需人读    [W-29] 页 05 缺 scope_note
+  需人读    [W-29] 页 06 缺 scope_note
+  需人读    [W-29] 页 07 缺 scope_note
+  需人读    [W-30] 配图意图未显式声明的页 8 个: 00, 01, 02, 03, 04, 05, 06, 07（默认 none，生图阶段跳过；要配图请用 plan_narrative --intent-plan 或人工标注）
+  需人读    [W-03] 论点是否成立 —— 需人读
+  需人读    [W-04] 证据是否充分支持论点 —— 需人读
+  需人读    [W-09] so_what 是决策而非复述 —— 需人读
+
+blocking 12 条 / 需人读 11 条
+FAIL(部分)：可机械判定的 W-xx 有 blocking。

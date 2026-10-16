@@ -1,0 +1,8 @@
+配图意图：显式声明 0 页 / 共 8 页（未声明的按 none 处理 = 生图阶段跳过）
+  页 01 [claim] 缺: assertion, so_what, visual_protagonist, image_intent
+  页 02 [claim] 缺: assertion, so_what, visual_protagonist, image_intent
+  页 03 [claim] 缺: assertion, so_what, visual_protagonist, image_intent
+  页 04 [claim] 缺: assertion, so_what, visual_protagonist, image_intent
+  页 05 [claim] 缺: assertion, so_what, visual_protagonist, image_intent
+  页 06 [claim] 缺: assertion, so_what, visual_protagonist, evidence, image_intent
+  页 07 [claim] 缺: assertion, so_what, visual_protagonist, image_intent

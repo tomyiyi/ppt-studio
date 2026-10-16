@@ -7,6 +7,8 @@ import re
 import sys
 from pathlib import Path
 
+from evidence_from_prose import extract as prose_extract  # S15-C：散文→evidence
+
 ROLES = ("cover", "section", "claim", "data", "mechanism", "teaching", "closing")
 
 # 与 check_narrative.VALID_IMAGE_INTENTS 保持同步（S6 只增不减，不删既有值）
@@ -159,6 +161,13 @@ def build(md_path: Path, role_plan: dict | None = None,
                 # 行号按候选在节内的真实位置算，不按候选序号（否则第二条起就指错行）
                 "source": f"{md_path.name}#L{sec['start_line'] + 1 + pos}",
             })
+        if not pg["evidence"]:
+            # S15-C（主控 2026-10-16 批准 S13 待决项 A）：上面的存量路径只认列表项/表格行，
+            # 纯散文正文一句也取不到 —— run2 的 6 条 [W-07] 全部出在这个缺口上。
+            # 只在"一条都没取到"时才补，取到过的节绝不掺 prose，避免同一页两种口径。
+            # 抽取器只搬运原文、只填字面存在的 baseline，抽不出就继续判红（见模块 docstring）。
+            pg["evidence"] = prose_extract(sec["lines"], sec["start_line"],
+                                           md_path.name, kind_of, strip_md)
         if role == "claim" and not pg["evidence"]:
             pg["_todo"].append("evidence")
         if sec["heading"] in ip_plan:

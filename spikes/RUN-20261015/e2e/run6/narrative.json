@@ -1,0 +1,207 @@
+{
+  "source": "article.md",
+  "governing_thought": "",
+  "audience": "",
+  "duration_min": null,
+  "intent_unmatched": [],
+  "pages": [
+    {
+      "index": 0,
+      "role": "cover",
+      "assertion": "远程交付团队的周会节奏（测试夹具）",
+      "evidence": [],
+      "so_what": "",
+      "visual_protagonist": "",
+      "image_intent": "none",
+      "scope_note": "本次研究通过双源验证的核心发现有 5 条，具体判断见正文各节。",
+      "image_intent_source": "default",
+      "_todo": []
+    },
+    {
+      "index": 1,
+      "role": "claim",
+      "assertion": "",
+      "evidence": [
+        {
+          "kind": "number",
+          "text": "受访的 42 个远程交付团队平均每周召开 4.5 小时同步会议，其中约三分之一没有形成任何可执行的决议。",
+          "baseline": null,
+          "source": "article.md#L7",
+          "provenance": "prose"
+        }
+      ],
+      "so_what": "",
+      "visual_protagonist": "",
+      "image_intent": "none",
+      "scope_note": "",
+      "image_intent_source": "default",
+      "_todo": [
+        "assertion",
+        "so_what",
+        "visual_protagonist",
+        "image_intent"
+      ],
+      "_src": "article.md#L5"
+    },
+    {
+      "index": 2,
+      "role": "claim",
+      "assertion": "",
+      "evidence": [
+        {
+          "kind": "number",
+          "text": "把每周例会从 60 分钟改成 25 分钟之后，会后书面纪要的平均字数不降反升，增加了约四成。",
+          "baseline": "60 分钟",
+          "source": "article.md#L11",
+          "provenance": "prose"
+        }
+      ],
+      "so_what": "",
+      "visual_protagonist": "",
+      "image_intent": "none",
+      "scope_note": "",
+      "image_intent_source": "default",
+      "_todo": [
+        "assertion",
+        "so_what",
+        "visual_protagonist",
+        "image_intent"
+      ],
+      "_src": "article.md#L9"
+    },
+    {
+      "index": 3,
+      "role": "claim",
+      "assertion": "",
+      "evidence": [
+        {
+          "kind": "text",
+          "text": "跨时区协作使固定时间的同步会议成本显著上升，参与方不得不在会议之外补齐上下文，异步文档因此成为默认选择。",
+          "baseline": null,
+          "source": "article.md#L15",
+          "provenance": "prose"
+        }
+      ],
+      "so_what": "",
+      "visual_protagonist": "",
+      "image_intent": "none",
+      "scope_note": "",
+      "image_intent_source": "default",
+      "_todo": [
+        "assertion",
+        "so_what",
+        "visual_protagonist",
+        "image_intent"
+      ],
+      "_src": "article.md#L13"
+    },
+    {
+      "index": 4,
+      "role": "claim",
+      "assertion": "",
+      "evidence": [
+        {
+          "kind": "number",
+          "text": "会议时长压缩之后，一线工程师单次不被打断的连续编码时长中位数从 1.8 小时提高到 2.6 小时。",
+          "baseline": "1.8 小时",
+          "source": "article.md#L19",
+          "provenance": "prose"
+        }
+      ],
+      "so_what": "",
+      "visual_protagonist": "",
+      "image_intent": "none",
+      "scope_note": "",
+      "image_intent_source": "default",
+      "_todo": [
+        "assertion",
+        "so_what",
+        "visual_protagonist",
+        "image_intent"
+      ],
+      "_src": "article.md#L17"
+    },
+    {
+      "index": 5,
+      "role": "claim",
+      "assertion": "",
+      "evidence": [
+        {
+          "kind": "text",
+          "text": "有两家团队在完全取消周会之后的两个月内交付事故数量翻倍，随后恢复了每周一次的同步会议并保留书面纪要。",
+          "baseline": null,
+          "source": "article.md#L23",
+          "provenance": "prose"
+        }
+      ],
+      "so_what": "",
+      "visual_protagonist": "",
+      "image_intent": "none",
+      "scope_note": "",
+      "image_intent_source": "default",
+      "_todo": [
+        "assertion",
+        "so_what",
+        "visual_protagonist",
+        "image_intent"
+      ],
+      "_src": "article.md#L21"
+    },
+    {
+      "index": 6,
+      "role": "claim",
+      "assertion": "",
+      "evidence": [],
+      "so_what": "",
+      "visual_protagonist": "",
+      "image_intent": "none",
+      "scope_note": "",
+      "image_intent_source": "default",
+      "_todo": [
+        "assertion",
+        "so_what",
+        "visual_protagonist",
+        "evidence",
+        "image_intent"
+      ],
+      "_src": "article.md#L25"
+    },
+    {
+      "index": 7,
+      "role": "claim",
+      "assertion": "",
+      "evidence": [
+        {
+          "kind": "number",
+          "text": "七成受访团队保留了每日站会这一形式，但把单次日站时长从 25 分钟压缩到了 10 分钟以内（example.net）",
+          "baseline": null,
+          "source": "article.md#L37"
+        },
+        {
+          "kind": "text",
+          "text": "书面状态更新工具普及以来，大约两成低价值同步会被异步文档取代，替代过程集中在近两年完成（example.net）",
+          "baseline": null,
+          "source": "article.md#L41"
+        },
+        {
+          "kind": "number",
+          "text": "纯异步流程下的新入职成员，首次提问到获得有效回复的等待时间中位数增加了 6 个小时（example.org）",
+          "baseline": null,
+          "source": "article.md#L45"
+        }
+      ],
+      "so_what": "",
+      "visual_protagonist": "",
+      "image_intent": "none",
+      "scope_note": "",
+      "image_intent_source": "default",
+      "_todo": [
+        "assertion",
+        "so_what",
+        "visual_protagonist",
+        "image_intent"
+      ],
+      "_src": "article.md#L31"
+    }
+  ]
+}
