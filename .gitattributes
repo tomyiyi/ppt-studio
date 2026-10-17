@@ -1,0 +1,27 @@
+# 换行与二进制判定（Windows 主力开发环境加的一条底线）
+#
+# core.autocrlf=true 会让 git 在 checkout 时把 LF 改成 CRLF、提交时再改回来，
+# 于是每次 status/diff 都刷一屏 "LF will be replaced by CRLF"，而且新增的 .py
+# 在 Windows 上落盘就是 CRLF —— 噪声一大，真改动就看不见了。
+# 这里显式声明：仓库里所有文本一律 LF，二进制绝不换行。
+* text=auto eol=lf
+
+# 明确按二进制对待（这些被当文本转换会直接损坏）
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pptx binary
+*.ppt binary
+*.pdf binary
+*.zip binary
+*.db binary
+*.sqlite binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.mp3 binary
+*.mp4 binary
