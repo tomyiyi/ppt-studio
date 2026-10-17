@@ -26,6 +26,11 @@ from pathlib import Path
 CHROME_CANDIDATES = [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    # Windows 主力开发环境（找不到时用 playwright 自带 chromium，见 resolve_chrome 返回 None）
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    str(Path.home() / r"AppData\Local\Google\Chrome\Application\chrome.exe"),
+    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
 ]
 
 IMAGE_RE = re.compile(r'(<image\b[^>]*?\bhref=")([^"]+)(")')

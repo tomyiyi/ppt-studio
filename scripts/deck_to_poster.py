@@ -24,7 +24,11 @@ from datetime import date
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
-DEFAULT_AGNES = Path("/Volumes/3TB_DATA/05-开发项目/agnes-studio-work")
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+from agnes_paths import agnes_root
+
+DEFAULT_AGNES = agnes_root()
 
 STYLES = [
     {"font_style": "wenkai", "theme_color": "amber_gold", "tag": "wenkai_gold"},

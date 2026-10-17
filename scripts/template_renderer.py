@@ -26,9 +26,9 @@ try:
 except ImportError:
     HAS_ACCENT = False
 
-TEMPLATE_ROOT = Path(
-    "/Volumes/3TB_DATA/05-开发项目/ppt/tools/ppt-master/skills/ppt-master/templates/layouts"
-)
+from agnes_paths import template_root
+
+TEMPLATE_ROOT = template_root()
 
 # 无底图页面的正文字色必须在浅色底上达到 WCAG AA 4.5:1。
 # presentation_core 系列模板的 carrier 写的是 #94A3B8（对白底仅 2.6:1），

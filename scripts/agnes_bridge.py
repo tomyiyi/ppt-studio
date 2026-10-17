@@ -12,7 +12,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-AGNES_ROOT = Path("/Volumes/3TB_DATA/05-开发项目/agnes-studio-work")
+from agnes_paths import agnes_root
+
+AGNES_ROOT = agnes_root()
 DATA = AGNES_ROOT / "data"
 
 

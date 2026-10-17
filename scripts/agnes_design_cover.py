@@ -22,11 +22,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 from cover_archetypes import select_cover_archetype
+from agnes_paths import agnes_root
 
-AGNES_ROOT = Path(os.environ.get(
-    "AGNES_STUDIO_ROOT",
-    "/Volumes/3TB_DATA/05-开发项目/agnes-studio-work",
-))
+AGNES_ROOT = agnes_root()
 AGNES_SCRIPTS = AGNES_ROOT / "scripts"
 
 STYLES = [

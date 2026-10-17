@@ -215,7 +215,9 @@ md23.unlink()
 
 # 24. plan 参数：内联 JSON 与文件路径都要能吃（编排器传的是路径）
 p24 = make_md('# 标题\n\n## 论点\n- 要点\n')
-pf24 = Path(tempfile.mkstemp(suffix=".json")[1])
+_fd24, _p24 = tempfile.mkstemp(suffix=".json")
+os.close(_fd24)  # mkstemp 返回的 fd 不关掉，Windows 上后续 unlink() 会报 WinError 32
+pf24 = Path(_p24)
 pf24.write_text('{"论点": "panel"}', encoding="utf-8")
 ok("24a. 文件路径可读", PN.load_json_arg(str(pf24)) == {"论点": "panel"}, "")
 ok("24b. 内联 JSON 可读", PN.load_json_arg('{"论点": "hero"}') == {"论点": "hero"}, "")
@@ -229,7 +231,9 @@ pf24.unlink(); p24.unlink()
 
 # 25. 编排器口径（传路径）走通：文件 plan → build → 意图生效
 md25 = make_md("# 标题\n\n## 论点\n- 要点\n")
-pf25 = Path(tempfile.mkstemp(suffix=".json")[1])
+_fd25, _p25 = tempfile.mkstemp(suffix=".json")
+os.close(_fd25)  # 同上：Windows 下未关闭的 fd 会锁住临时文件
+pf25 = Path(_p25)
 pf25.write_text('{"论点": "hero"}', encoding="utf-8")
 nar25 = PN.build(md25, None, PN.load_json_arg(str(pf25)))
 ok("25. 路径口径的 intent plan 生效",

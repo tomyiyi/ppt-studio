@@ -23,12 +23,17 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
-PY311_CANDIDATES = ["/usr/local/bin/python3.11", "python3.11"]
+# cairosvg 旁路解释器候选：黑苹果实测路径优先，PPT_CAIRO_PY 可显式指定；
+# 全都找不到时 rasterize() 会退回 playwright chromium（见 _rasterize_via_playwright）。
+PY311_CANDIDATES = [os.environ.get("PPT_CAIRO_PY"),
+                    "/usr/local/bin/python3.11", "python3.11"]
 
 FALLBACK_COLORS = {
     "background": "#08090C",
@@ -145,10 +150,44 @@ def make_svg(prompt: str, seed: int = 1, spec_lock: Path | None = None) -> str:
     return "\n".join(parts)
 
 
+def _cairo_interpreters():
+    """只产出「本机真的存在」的解释器候选，缺一个就跳过（Windows 上没有 /usr/local/bin）。"""
+    seen = []
+    for cand in PY311_CANDIDATES:
+        if not cand or cand in seen:
+            continue
+        p = Path(cand)
+        if p.exists() or shutil.which(cand):
+            seen.append(cand)
+    return seen
+
+
+def _rasterize_via_playwright(svg_path: Path, png_path: Path, width: int) -> bool:
+    """cairosvg 缺席时的等价路径：用 render_svg.py（playwright chromium）栅格化。
+    本机 Windows 无 cairo 动态库，但 chromium 渲染链已在 CI  smoke 中验证可用。"""
+    out_dir = png_path.parent
+    out_dir.mkdir(parents=True, exist_ok=True)
+    scale = max(width, 1) / max(int(W), 1)
+    r = subprocess.run(
+        [sys.executable, str(SCRIPTS / "render_svg.py"), str(svg_path),
+         str(out_dir), "--scale", "%.3f" % scale],
+        capture_output=True, text=True)
+    produced = out_dir / (svg_path.stem + ".png")
+    if r.returncode == 0 and produced.exists():
+        if produced != png_path:
+            produced.replace(png_path)
+        return True
+    print("  [render_svg(playwright)] %s" % (r.stdout + r.stderr).strip()[-300:])
+    return False
+
+
 def rasterize(svg_path: Path, png_path: Path, width: int = 1280) -> bool:
     """经 py3.11 cairosvg 旁路栅格化；环境缺失返回 False（调用方如实缓办）。"""
-    for py in PY311_CANDIDATES:
-        probe = subprocess.run([py, "-c", "import cairosvg"], capture_output=True)
+    for py in _cairo_interpreters():
+        try:
+            probe = subprocess.run([py, "-c", "import cairosvg"], capture_output=True)
+        except OSError:  # 解释器存在但无法 spawn
+            continue
         if probe.returncode != 0:
             continue
         r = subprocess.run(
@@ -162,7 +201,8 @@ def rasterize(svg_path: Path, png_path: Path, width: int = 1280) -> bool:
             return True
         print("  [render_svg_cairo] %s" % (r.stdout + r.stderr).strip()[-300:])
         return False
-    return False
+    # 无 cairosvg（Windows / 干净 Linux）→ 退回 chromium 栅格化
+    return _rasterize_via_playwright(svg_path, png_path, width)
 
 
 def main(argv=None) -> int:

@@ -26,7 +26,9 @@ import shutil
 import sys
 from pathlib import Path
 
-ASSET_ROOT = Path("/Volumes/3TB_DATA/05-开发项目/agnes-studio-assets/open_source_posters")
+from agnes_paths import assets_root
+
+ASSET_ROOT = assets_root()
 REPO_INDEX = Path(__file__).resolve().parent.parent / "data" / "asset_index.json"
 
 LICENSE_RE = re.compile(r"MIT License|BSD|Apache|ISC|zlib|CC0|Creative Commons Zero", re.I)

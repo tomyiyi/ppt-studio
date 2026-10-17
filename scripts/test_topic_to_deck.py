@@ -103,7 +103,7 @@ with tempfile.TemporaryDirectory() as td:
 
     ok("C6 gate 段素材根 = article.md 所在目录（W-19 回指依赖）",
        Path(argv["gate"][-1]).name == "article" and
-       argv["narrative"][argv["narrative"].index("--md") + 1].endswith("article/article.md"),
+       Path(argv["narrative"][argv["narrative"].index("--md") + 1]).parts[-2:] == ("article", "article.md"),
        argv["gate"][-1])
 
     # C7/C8：配图意图只能显式传入，编排器不自动生成（S4 对账）

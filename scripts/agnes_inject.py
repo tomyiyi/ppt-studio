@@ -15,8 +15,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-AGNES_DATA = Path("/Volumes/3TB_DATA/05-开发项目/agnes-studio-work/data")
-OUT = Path("/Volumes/3TB_DATA/05-开发项目/ppt-studio/scripts/agnes_tokens.json")
+from agnes_paths import agnes_data_dir
+
+AGNES_DATA = agnes_data_dir()
+OUT = Path(__file__).resolve().parent / "agnes_tokens.json"
 
 
 def load(name: str):
