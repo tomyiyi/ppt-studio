@@ -29,6 +29,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Sequence
 
+import console_utf8  # noqa: F401  中文 Windows 控制台 GBK 兜底
+
 SCRIPTS = Path(__file__).resolve().parent
 
 STAGES = ["brief", "research", "article", "narrative", "gate", "deck"]
@@ -220,7 +222,8 @@ def run(cfg: argparse.Namespace,
 
 
 def default_execute(cmd: list[str]) -> subprocess.CompletedProcess:
-    return subprocess.run([str(c) for c in cmd], capture_output=True, text=True)
+    return subprocess.run([str(c) for c in cmd], capture_output=True, text=True,
+                          env=console_utf8.child_env(), **console_utf8.TEXT_KW)
 
 
 def split_questions(raw: str | None) -> list[str]:

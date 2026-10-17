@@ -37,6 +37,7 @@ import urllib.request
 from pathlib import Path
 
 from prompt_safety import assert_prompt_safe  # ContentForge 白瓷肌安全拦截
+import console_utf8  # noqa: F401  中文 Windows 控制台 GBK 兜底
 
 # ---------------------------------------------------------------- 配置解析
 

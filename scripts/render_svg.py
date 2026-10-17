@@ -22,6 +22,7 @@ import mimetypes
 import re
 import sys
 from pathlib import Path
+import console_utf8  # noqa: F401  中文 Windows 控制台 GBK 兜底
 
 CHROME_CANDIDATES = [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",

@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import console_utf8  # noqa: F401  中文 Windows 控制台 GBK 兜底
 from cover_archetypes import title_font_size
 
 W, H, MARGIN = 1280, 720, 76

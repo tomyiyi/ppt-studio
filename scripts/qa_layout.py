@@ -30,6 +30,7 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 from PIL import Image
+import console_utf8  # noqa: F401  中文 Windows 控制台 GBK 兜底
 
 NS = "{http://www.w3.org/2000/svg}"
 CANVAS_W, CANVAS_H = 1280, 720
