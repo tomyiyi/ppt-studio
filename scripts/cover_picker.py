@@ -26,6 +26,7 @@ from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
+import console_utf8  # noqa: F401  中文 Windows 控制台 GBK 兜底
 
 from cover_v2 import COVER_VARIANTS, VARIANT_ORDER, generate_variants
 from template_renderer import render_page
@@ -40,10 +41,28 @@ def pick_cover_page(pages: list[dict]) -> dict | None:
 
 def render_variant_png(page: dict, images_dir: Path, png_path: Path,
                        width: int = 1280, height: int = 720) -> None:
-    import cairosvg
+    """单张封面变体 SVG→PNG。
+
+    cairosvg 旁路是黑苹果上的老路；本机 Windows 没有 libcairo-2.dll，以前这里一句
+    `import cairosvg` 就 ImportError 崩掉。现在退回 playwright chromium 出图
+    （height 跟随 16:9 模板比例，不再单独生效），两条路都不通才抛错。
+    """
     svg = render_page(page, images_dir)
-    cairosvg.svg2png(bytestring=svg.encode("utf-8"), write_to=str(png_path),
-                     output_width=width, output_height=height)
+    try:
+        import cairosvg
+    except Exception:
+        cairosvg = None
+    if cairosvg is not None:
+        try:
+            cairosvg.svg2png(bytestring=svg.encode("utf-8"), write_to=str(png_path),
+                             output_width=width, output_height=height)
+            return
+        except Exception as e:
+            print("  [cairo 出图失败，退回 chromium] %s: %s" % (type(e).__name__, e))
+    import vector_illustration as VI
+    # 临时 SVG 落在 images_dir 的父目录：模板里是相对 href="../images/x.png"
+    if not VI.rasterize_svg_text_via_playwright(svg, images_dir.parent, png_path, width):
+        raise RuntimeError("封面变体栅格化失败（cairosvg 与 playwright chromium 两条路都不通）")
 
 
 CARD_CSS = """

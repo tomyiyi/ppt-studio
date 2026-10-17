@@ -2,6 +2,7 @@
 """test_image_route.py — 8 项：路由 3、scrim 2、panel clipPath 1、黑名单 1、缺凭据降级 1。"""
 import sys, os, json, tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
+import console_utf8  # noqa: F401  中文 Windows 控制台 GBK 兜底
 from pathlib import Path
 
 PASS = FAIL = 0
@@ -185,13 +186,63 @@ with tempfile.TemporaryDirectory() as td:
     svgp = Path(td) / "v.svg"
     svgp.write_text(VI.make_svg("测试", seed=5), encoding="utf-8")
     pngp = Path(td) / "v.png"
+    _py = VI.cairo_available()
+    if not _py:
+        # 本机 Windows 无 libcairo-2.dll，cairo 旁路在这台上永远不会通；
+        # 判失败只会把真回归埋进常驻红里，兜底路由 D7c 实测覆盖。
+        ok("D7b. cairo 旁路出图 640 宽（本机无 cairo，缓办；D7c 覆盖兜底路）", True)
+    else:
+        try:
+            RC.render_one(svgp, pngp, 640)
+            from PIL import Image as _PI
+            im = _PI.open(pngp)
+            ok("D7b. cairo 旁路出图 640 宽", im.size == (640, 360))
+        except Exception as e:
+            ok("D7b. cairo 旁路出图 640 宽（cairo 在但出图失败）", False,
+               "%s: %s" % (type(e).__name__, e))
+
+# D7c.（S17）整目录栅格化：cairo 缺席或半坏都必须退回 chromium
+#      —— 以前 md_to_pptx 的 qa_render 是 cairo 独路，本机每次都静默跳过版面门禁
+with tempfile.TemporaryDirectory() as td:
+    d = Path(td)
+    (d / "svg").mkdir(); (d / "png").mkdir()
+    for i in (1, 2):
+        (d / "svg" / ("p%02d.svg" % i)).write_text(
+            VI.make_svg("节点协作网络", seed=i), encoding="utf-8")
+    eng = VI.rasterize_dir_with_engine(d / "svg", d / "png")
+    got = sorted(p.name for p in (d / "png").glob("*.png"))
+    ok("D7c. 整目录栅格化双路兜底（引擎=%s / cairo=%s）" % (eng, VI.cairo_available()),
+       eng is not None and len(got) == 2, "出图 %s" % got)
+
+# D7d.（S17）prov.json 的 engine 必须写真正用过的引擎，不再硬编码 cairosvg-py311
+with tempfile.TemporaryDirectory() as td:
+    out = Path(td)
+    (out / "images").mkdir()
+    pages = {"pages": [{"index": 1, "title": "架构分层", "image_intent": "vector",
+                        "image_prompt": "系统架构分层"}]}
+    pp = out / "pages.json"
+    pp.write_text(json.dumps(pages, ensure_ascii=False), encoding="utf-8")
+    MP.gen_images(out, pp)
+    prov_p = out / "images" / "p01_vector.prov.json"
+    expect = "cairosvg-py311" if VI.cairo_available() else "playwright-chromium"
+    if prov_p.exists():
+        got_eng = json.loads(prov_p.read_text(encoding="utf-8")).get("engine")
+        ok("D7d. prov.engine 写实（本机应为 %s）" % expect, got_eng == expect, "实际 %s" % got_eng)
+    else:
+        ok("D7d. prov.engine 写实（本机应为 %s）" % expect, False, "vector 配图未出图，无 prov")
+
+# D7e.（S17）cover_picker 在无 cairo 环境不得再 ImportError 崩
+import cover_picker as CP
+with tempfile.TemporaryDirectory() as td:
+    out = Path(td)
+    (out / "images").mkdir()
     try:
-        RC.render_one(svgp, pngp, 640)
-        from PIL import Image as _PI
-        im = _PI.open(pngp)
-        ok("D7b. cairo 旁路出图 640 宽", im.size == (640, 360))
+        CP.render_variant_png({"layout": "cover", "cover_variant": "minimal",
+                               "title": "智流OS", "subtitle": "产品发布会"},
+                              out / "images", out / "minimal.png")
+        ok("D7e. cover 变体无 cairo 也能出图", (out / "minimal.png").exists())
     except Exception as e:
-        ok("D7b. cairo 旁路出图 640 宽（环境缺 cairosvg/PIL，如实记失败）", False)
+        ok("D7e. cover 变体无 cairo 也能出图", False, "%s: %s" % (type(e).__name__, e))
 
 
 # D8.（S8）bridge 连败 2 次停调护栏：剩余项标 Skipped，不再触发生成

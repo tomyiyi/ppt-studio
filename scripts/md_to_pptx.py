@@ -24,6 +24,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+import console_utf8  # noqa: F401  中文 Windows 控制台 GBK 兜底
 
 REPO = Path(__file__).resolve().parent.parent
 SCRIPTS = REPO / "scripts"
@@ -35,6 +36,8 @@ PY = str(PY311 if PY311.exists() else sys.executable)
 
 def run(cmd, **kw):
     print("  $ " + " ".join(str(c) for c in cmd[:3]) + (" ..." if len(cmd) > 3 else ""))
+    kw.setdefault("env", console_utf8.child_env())
+    kw.update(console_utf8.TEXT_KW)
     r = subprocess.run(cmd, capture_output=True, text=True, **kw)
     if r.returncode != 0:
         print(r.stdout[-1500:])
@@ -90,16 +93,17 @@ def gen_images(out: Path, pages_path: Path) -> int:
                 VI.make_svg(pg.get("image_prompt") or pg.get("title") or "",
                             seed=pg["index"] + 1, spec_lock=out / "spec_lock.md"),
                 encoding="utf-8")
-            if not VI.rasterize(svg_path, images_dir / fn):
+            engine = VI.rasterize_with_engine(svg_path, images_dir / fn)
+            if not engine:
                 svg_path.unlink(missing_ok=True)
-                print(f"  p{pg['index']:02d} image_intent=vector：cairosvg 旁路不可用，"
-                      "如实缓办（不硬塞半成品）")
+                print(f"  p{pg['index']:02d} image_intent=vector：cairosvg 与 chromium 两条"
+                      "栅格化路都不通，如实缓办（不硬塞半成品）")
                 deferred += 1
                 continue
             pg["image_file"] = fn
             (images_dir / ("p%02d_vector.prov.json" % pg["index"])).write_text(
                 json.dumps({"generator": "vector_illustration", "motif_seed": pg["index"] + 1,
-                            "prompt": pg.get("image_prompt", ""), "engine": "cairosvg-py311",
+                            "prompt": pg.get("image_prompt", ""), "engine": engine,
                             "text_in_image": False},
                            ensure_ascii=False, indent=2), encoding="utf-8")
             print(f"  p{pg['index']:02d} vector 本矢生成 {fn}（未调 Agnes）")
@@ -132,7 +136,8 @@ def gen_images(out: Path, pages_path: Path) -> int:
         r = subprocess.run(
             [sys.executable, str(SCRIPTS / "agnes_ppt_bridge.py"),
              "--manifest", str(manifest)],
-            capture_output=True, text=True)
+            capture_output=True, text=True,
+            env=console_utf8.child_env(), **console_utf8.TEXT_KW)
         print(r.stdout[-800:])
         if r.returncode != 0:
             print(r.stderr[-800:], file=sys.stderr)
@@ -229,14 +234,16 @@ def main(argv=None) -> int:
         print("[4/7] qa_layout 版面复核")
         render_dir = out / "qa_render"
         render_dir.mkdir(parents=True, exist_ok=True)
-        # F1：先把版面经 cairo 旁路栅格化喂给 qa_layout——此前 qa_render 恒为空，
-        # 面板/对比度门禁形同虚设（S8 实测发现）
-        rr = subprocess.run(
-            [PY, str(SCRIPTS / "render_svg_cairo.py"), str(svg_dir), str(render_dir)],
-            capture_output=True, text=True)
-        if rr.returncode != 0:
-            print("[WARN] cairo 旁路渲染失败：qa_layout 面板/对比度检查将被跳过，"
-                  "本次产物不得作为交付证据", file=sys.stderr)
+        # F1：先把版面栅格化喂给 qa_layout——此前 qa_render 恒为空，面板/对比度门禁形同虚设
+        # （S8 实测发现）。S17 起 cairo 独路改成 cairo→chromium 双路：主力 Windows 环境没有
+        # libcairo-2.dll，老代码在这台上每次都静默跳过整块版面门禁。
+        import vector_illustration as VI
+        engine = VI.rasterize_dir_with_engine(svg_dir, render_dir)
+        if not engine:
+            print("[WARN] cairo 与 chromium 两条栅格化路都不通：qa_layout 面板/对比度检查"
+                  "将被跳过，本次产物不得作为交付证据", file=sys.stderr)
+        else:
+            print(f"  版面栅格化引擎：{engine}（qa_layout 面板/对比度门禁已喂入）")
         run([sys.executable, str(SCRIPTS / "qa_layout.py"),
              str(svg_dir), str(render_dir)])
         print("[5/7] planning 合同校验")

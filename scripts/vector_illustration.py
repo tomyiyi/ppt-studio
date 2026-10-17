@@ -4,8 +4,9 @@
 矢量配图生成器（S7，vector 意图的本地旁路）
 ===========================================
 
-不调 Agnes、不开浏览器：用 stdlib 生成确定性几何矢量插画（SVG），
-再经 render_svg_cairo.py（py3.11 + cairosvg）栅格化为 PNG。
+不调 Agnes、默认不开浏览器：用 stdlib 生成确定性几何矢量插画（SVG），
+再栅格化为 PNG —— 有 py3.11+cairosvg 时走 render_svg_cairo.py 旁路，没有（本机 Windows
+就是这种，缺 libcairo-2.dll）则退回 render_svg.py 的 playwright chromium。
 
 约束：
 - 画面**不含任何文字**（避免与页面文案打架，也绕开照抄率/字体判据）；
@@ -15,8 +16,10 @@
 
 用法：
   python3 vector_illustration.py --prompt "系统架构分层" --seed 7 \
-      --svg-out /tmp/v.svg --png-out /tmp/v.png [--spec-lock deck/spec_lock.md]
-作为库：make_svg(prompt, seed) -> str；rasterize(svg_path, png_path, width)。
+      --svg-out out/v.svg --png-out out/v.png [--spec-lock deck/spec_lock.md]
+作为库：make_svg(prompt, seed) -> str；
+        rasterize_with_engine(svg, png, width) -> 引擎名 | None（写溯源用它）；
+        rasterize(svg, png, width) -> bool（老调用方兼容）。
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+import console_utf8  # noqa: F401  中文 Windows 控制台 GBK 兜底
 
 SCRIPTS = Path(__file__).resolve().parent
 # cairosvg 旁路解释器候选：黑苹果实测路径优先，PPT_CAIRO_PY 可显式指定；
@@ -162,6 +166,64 @@ def _cairo_interpreters():
     return seen
 
 
+def cairo_available() -> str | None:
+    """第一个真能 `import cairosvg` 的解释器；一个都没有返回 None（本机 Windows 就是这种）。"""
+    for py in _cairo_interpreters():
+        try:
+            if subprocess.run([py, "-c", "import cairosvg"],
+                              capture_output=True).returncode == 0:
+                return py
+        except OSError:  # 解释器存在但无法 spawn
+            continue
+    return None
+
+
+def rasterize_svg_text_via_playwright(svg_text: str, tmp_dir: Path, png_path: Path,
+                                      width: int = 1280) -> bool:
+    """内存里的 SVG 串走 chromium 栅格化（供 cover_picker 这类不落 svg 文件的调用方用）。
+    tmp_dir 必须是**最终 svg 该待的目录**：render_svg.py 会把 `<image href="../images/x.png">`
+    按相对路径内联，放错目录底图就找不到。"""
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    png_path.parent.mkdir(parents=True, exist_ok=True)
+    svg_path = tmp_dir / (png_path.stem + ".playwright.svg")
+    svg_path.write_text(svg_text, encoding="utf-8")
+    try:
+        return _rasterize_via_playwright(svg_path, png_path, width)
+    finally:
+        svg_path.unlink(missing_ok=True)
+
+
+def rasterize_dir_with_engine(svg_dir: Path, out_dir: Path,
+                              width: int = 1280) -> str | None:
+    """整目录 SVG→PNG，返回实际引擎名；一张都没出成返回 None。
+
+    给 qa_layout 版面复核用。以前这里是 cairo 独路：cairo 一失败就整块跳过面板/对比度门禁，
+    等于主力环境（无 libcairo-2.dll）下门禁形同虚设 —— 现在 cairo 缺席或半坏都继续退回 chromium。
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    files = sorted(p for p in svg_dir.glob("*.svg") if not p.name.startswith("."))
+    if not files:
+        return None
+    py = cairo_available()
+    if py:
+        r = subprocess.run(
+            [py, str(SCRIPTS / "render_svg_cairo.py"), str(svg_dir), str(out_dir),
+             "--width", str(width)], capture_output=True, text=True,
+            env=console_utf8.child_env(), **console_utf8.TEXT_KW)
+        if any((out_dir / (f.stem + ".png")).exists() for f in files):
+            return "cairosvg-py311"
+        print("  [cairo 整目录失败，退回 chromium] %s" % (r.stdout + r.stderr).strip()[-300:])
+    scale = max(width, 1) / max(int(W), 1)
+    r = subprocess.run(
+        [sys.executable, str(SCRIPTS / "render_svg.py"), str(svg_dir), str(out_dir),
+         "--scale", "%.3f" % scale], capture_output=True, text=True,
+        env=console_utf8.child_env(), **console_utf8.TEXT_KW)
+    if any((out_dir / (f.stem + ".png")).exists() for f in files):
+        return "playwright-chromium"
+    print("  [chromium 整目录失败] %s" % (r.stdout + r.stderr).strip()[-300:])
+    return None
+
+
 def _rasterize_via_playwright(svg_path: Path, png_path: Path, width: int) -> bool:
     """cairosvg 缺席时的等价路径：用 render_svg.py（playwright chromium）栅格化。
     本机 Windows 无 cairo 动态库，但 chromium 渲染链已在 CI  smoke 中验证可用。"""
@@ -171,7 +233,8 @@ def _rasterize_via_playwright(svg_path: Path, png_path: Path, width: int) -> boo
     r = subprocess.run(
         [sys.executable, str(SCRIPTS / "render_svg.py"), str(svg_path),
          str(out_dir), "--scale", "%.3f" % scale],
-        capture_output=True, text=True)
+        capture_output=True, text=True,
+        env=console_utf8.child_env(), **console_utf8.TEXT_KW)
     produced = out_dir / (svg_path.stem + ".png")
     if r.returncode == 0 and produced.exists():
         if produced != png_path:
@@ -181,8 +244,14 @@ def _rasterize_via_playwright(svg_path: Path, png_path: Path, width: int) -> boo
     return False
 
 
-def rasterize(svg_path: Path, png_path: Path, width: int = 1280) -> bool:
-    """经 py3.11 cairosvg 旁路栅格化；环境缺失返回 False（调用方如实缓办）。"""
+def rasterize_with_engine(svg_path: Path, png_path: Path,
+                          width: int = 1280) -> str | None:
+    """出图则返回实际引擎名（写进 prov.json 用，别宣称没用过的引擎），否则返回 None。
+
+    两条路：py3.11 + cairosvg 旁路（mac 上的老路，无浏览器、快）→ playwright chromium
+    （Windows 主力环境无 libcairo-2.dll，chromium 链是唯一可用路）。
+    cairo **能 import 但出图失败** 时也会继续退回 chromium，不再直接判死。
+    """
     for py in _cairo_interpreters():
         try:
             probe = subprocess.run([py, "-c", "import cairosvg"], capture_output=True)
@@ -193,16 +262,24 @@ def rasterize(svg_path: Path, png_path: Path, width: int = 1280) -> bool:
         r = subprocess.run(
             [py, str(SCRIPTS / "render_svg_cairo.py"), str(svg_path),
              str(png_path.parent), "--width", str(width)],
-            capture_output=True, text=True)
+            capture_output=True, text=True,
+            env=console_utf8.child_env(), **console_utf8.TEXT_KW)
         produced = png_path.parent / (svg_path.stem + ".png")
         if r.returncode == 0 and produced.exists():
             if produced != png_path:
                 produced.replace(png_path)
-            return True
+            return "cairosvg-py311"
         print("  [render_svg_cairo] %s" % (r.stdout + r.stderr).strip()[-300:])
-        return False
-    # 无 cairosvg（Windows / 干净 Linux）→ 退回 chromium 栅格化
-    return _rasterize_via_playwright(svg_path, png_path, width)
+    # 无 cairosvg（Windows / 干净 Linux），或 cairo 半坏出不了图 → 退回 chromium 栅格化
+    if _rasterize_via_playwright(svg_path, png_path, width):
+        return "playwright-chromium"
+    return None
+
+
+def rasterize(svg_path: Path, png_path: Path, width: int = 1280) -> bool:
+    """bool 版包装（老调用方保持兼容）；需要知道用了哪条引擎的调用方用
+    rasterize_with_engine()。"""
+    return rasterize_with_engine(svg_path, png_path, width) is not None
 
 
 def main(argv=None) -> int:
@@ -210,7 +287,7 @@ def main(argv=None) -> int:
     ap.add_argument("--prompt", required=True)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--svg-out", type=Path, required=True)
-    ap.add_argument("--png-out", type=Path, help="给出则同时栅格化（cairosvg 旁路）")
+    ap.add_argument("--png-out", type=Path, help="给出则同时栅格化（cairosvg 旁路，缺则退回 chromium）")
     ap.add_argument("--spec-lock", type=Path)
     ap.add_argument("--width", type=int, default=1280)
     args = ap.parse_args(argv)
@@ -220,11 +297,13 @@ def main(argv=None) -> int:
     args.svg_out.write_text(svg, encoding="utf-8")
     print("SVG → %s (%d bytes)" % (args.svg_out, len(svg)))
     if args.png_out:
-        ok = rasterize(args.svg_out, args.png_out, args.width)
-        if not ok:
-            print("栅格化不可用（缺 py3.11+cairosvg），如实退出 2，不产半成品")
+        engine = rasterize_with_engine(args.svg_out, args.png_out, args.width)
+        if not engine:
+            print("栅格化两条路都不通（py3.11+cairosvg 与 playwright chromium 均不可用），"
+                  "如实退出 2，不产半成品")
             return 2
-        print("PNG → %s (%dKB)" % (args.png_out, args.png_out.stat().st_size // 1024))
+        print("PNG → %s (%dKB，引擎 %s)" % (args.png_out,
+                                            args.png_out.stat().st_size // 1024, engine))
     return 0
 
 
