@@ -1,3 +1,4 @@
+import console_utf8  # noqa: F401  中文 Windows 控制台 GBK 兜底：导入即把 stdout 换成 UTF-8
 import os, re, sys, base64, mimetypes
 
 src, out, title = sys.argv[1], sys.argv[2], sys.argv[3]

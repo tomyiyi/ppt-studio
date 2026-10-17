@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """N2 写作门禁：W-xx 机械化判定。只把可机械判定的升级为 blocking。"""
 from __future__ import annotations
+import console_utf8  # noqa: F401  中文 Windows 控制台 GBK 兜底：导入即把 stdout 换成 UTF-8
 import json
 import re
 import sys

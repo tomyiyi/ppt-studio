@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """模板驱动 SVG 渲染器 v3：flat 模式兼容 + 严格文本边界。"""
+import console_utf8  # noqa: F401  中文 Windows 控制台 GBK 兜底：导入即把 stdout 换成 UTF-8
 from pathlib import Path
 import html
 import re

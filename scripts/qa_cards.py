@@ -22,6 +22,7 @@ qa_cards.py —— 卡片质检（交付前必跑）
 
 from __future__ import annotations
 
+import console_utf8  # noqa: F401  中文 Windows 控制台 GBK 兜底：导入即把 stdout 换成 UTF-8
 import glob
 import os
 import re

@@ -13,6 +13,7 @@ boost_ink.py — 暗底线性图专用提亮：黑点保持 + 高光增益
 
 默认只预演（dry-run），加 --apply 才写盘（写盘前自动备份 _pre_<name>.png）。
 """
+import console_utf8  # noqa: F401  中文 Windows 控制台 GBK 兜底：导入即把 stdout 换成 UTF-8
 import argparse
 import glob
 import os

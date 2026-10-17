@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """N1 叙事结构器：markdown -> narrative.json 骨架。只筛不写。"""
 from __future__ import annotations
+import console_utf8  # noqa: F401  中文 Windows 控制台 GBK 兜底：导入即把 stdout 换成 UTF-8
 import argparse
 import json
 import re

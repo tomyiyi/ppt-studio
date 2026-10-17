@@ -14,6 +14,7 @@ Agnes 位置：AGNES_STUDIO_ROOT 环境变量，默认黑苹果上的 agnes-stud
         --project projects/agentflow-os-launch
 """
 
+import console_utf8  # noqa: F401  中文 Windows 控制台 GBK 兜底：导入即把 stdout 换成 UTF-8
 import argparse
 import os
 import sys

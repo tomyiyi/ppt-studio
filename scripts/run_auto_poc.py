@@ -8,6 +8,7 @@ SVG 模板已 vendor 进本仓库（``vendor/ppt-master/templates/layouts``，
 来源 hugohe3/ppt-master，MIT），开箱即用；
 也可用 ``--tpl-169-dir`` / ``--tpl-43-dir`` 或 ``PPT_MASTER_ROOT`` 环境变量覆盖。
 """
+import console_utf8  # noqa: F401  中文 Windows 控制台 GBK 兜底：导入即把 stdout 换成 UTF-8
 import argparse
 import os
 import re

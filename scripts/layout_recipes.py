@@ -3,6 +3,7 @@
 SVG 约束（vendor 门禁 + 本项目实测）：只允许 <rect>/<line>/<path>/<text>/<image>/<g>/<clipPath>，
 禁止 <style>、class、mask、textPath、@font-face、<animate>、filter。"""
 from __future__ import annotations
+import console_utf8  # noqa: F401  中文 Windows 控制台 GBK 兜底：导入即把 stdout 换成 UTF-8
 import html
 import re
 import xml.etree.ElementTree as ET

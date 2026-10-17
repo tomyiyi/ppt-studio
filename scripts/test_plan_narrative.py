@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """test_plan_narrative.py — 34 项（A 结构器 17 / B 意图与入参对账 17）。"""
+import console_utf8  # noqa: F401  中文 Windows 控制台 GBK 兜底：导入即把 stdout 换成 UTF-8
 import json, os, sys, tempfile
 from pathlib import Path
 
